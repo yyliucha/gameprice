@@ -974,6 +974,7 @@ async function cmdAll() {
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
 
   const store = await openStore(dbTarget, { logger });
+  await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   const srv = await startApiServer({
     query: (sql, p) => store.query(sql, p),
     logger,
@@ -1015,6 +1016,7 @@ async function cmdServe() {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const store = await openStore(dbTarget, { logger });
+  await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   const srv = await startApiServer({
     query: (sql, p) => store.query(sql, p),
     logger,
