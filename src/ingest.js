@@ -29,6 +29,16 @@ export async function ingestOffers(store, { platform, offers, logger = null }) {
       continue;
     }
     try {
+      // 一个批次里混了多个平台时必须逐条带 platform，否则报价会被静默归到第一个平台。
+      // 这是最容易写错的地方，所以显式告警而不是默默按 platform 参数处理。
+      if (offer.platformCode && plat.code && offer.platformCode !== plat.code) {
+        logger?.warn('ingest.platform_mismatch', {
+          title: offer.title,
+          offerPlatform: offer.platformCode,
+          usedPlatform: plat.code,
+          hint: '该 offer 未自带 platform 字段，已按批次的 platform 处理',
+        });
+      }
       if (!platformCache.has(plat.code)) {
         await db.upsertPlatform(q, plat);
         platformCache.add(plat.code);

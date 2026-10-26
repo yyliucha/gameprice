@@ -41,13 +41,13 @@
 |---|---|---|
 | 杉果价格采集 | ✅ 已跑通 | 真实页面端到端验证：解析 ¥198 → 入库 → 写快照 |
 | 价格历史 / 史低判断 | ✅ 已跑通 | 53 项测试，含真 PG 语义（PGlite）验证 |
+| **价格曲线网页** | ✅ 已跑通 | `node src/cli.js chart` 生成静态页，内联 SVG，浏览器直接打开 |
 | 只收官方渠道的结构约束 | ✅ 已生效 | 视图 + 查询层双重过滤 + 回归断言 |
 | 定时采集调度 | ✅ 已跑通 | 子进程隔离实测：真实任务完成、单任务失败不影响调度器 |
 | 结构化日志 / 自检 | ✅ 已跑通 | `diagnose` 输出 11 项检查并落盘 |
 | Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
 | ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
 | Docker 部署 | ⚠️ 文件齐备，**镜像未真实构建过** | 开发机无 Docker；已用 `npm ci --omit=dev` + 容器启动路径等价验证 |
-| 价格曲线网页 | 🚧 未实现 | `daily_prices` 已按天聚合，缺前端 |
 | 降价提醒 | 🚧 未实现 | **没有 watchlist 表**，仅路线图 |
 | 多区服对比 | 🚧 未实现 | `region` 维度已在数据模型里 |
 | 小黑盒商城 | ⏸ 评估后暂缓 | 无公开接口，需逆向 `hkey` 签名 |
@@ -92,7 +92,7 @@
 | 自检 `diagnose` | ✅ | 环境 / 数据库 / 网络逐项检查，报告落盘 |
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
-| 价格曲线网页 | 🚧 | 数据已就绪 |
+| 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
 | 收藏与降价提醒 | 🚧 | 无表结构 |
 | Fanatical / Humble / GOG | 🚧 | 站点可直连，适配器未写；`platforms` 字典已预留 code |
 | 多区服对比 | 🚧 | 模型已支持，未做展示 |
@@ -204,6 +204,16 @@ node src/cli.js seed --db pglite:./data/pgdata
 node src/cli.js ping                      # 只验证数据库，静默退出 0
 node src/cli.js sync sonkwo --limit 1     # 唯一开箱即用的源，真实抓一次
 node src/cli.js list                      # 应能看到价格与史低标记
+node src/cli.js chart                     # 生成静态价格页到 out/
+```
+
+`chart` 之后直接用浏览器打开 `out/index.html`（Windows 可以 `start out\index.html`）。页面是纯静态的：内联 SVG 曲线、无外部 JS/CSS、离线可看。
+
+想先看效果而不采集数据：
+
+```bash
+node scripts/demo-seed.js                                    # 造 3 款游戏、90 天演示数据
+node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 ```
 
 ## 命令参考
@@ -213,6 +223,7 @@ node src/cli.js list                      # 应能看到价格与史低标记
 | 命令 | 说明 |
 |---|---|
 | `list` | 主榜：各游戏官方渠道最低价 + 是否史低 |
+| `chart` | 生成静态价格页（曲线图）到 `out/`（`--out`、`--days 90`、`--limit 200`） |
 | `history <appid>` | 终端画价格轨迹 + 史低判断（`--days 90`） |
 | `stats` | 数据量 + 最近 5 次采集健康度 |
 
@@ -340,13 +351,14 @@ node test/log.test.js        # 7 项：JSONL 格式、脱敏、轮转读取、�
 node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
+node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
 node test/scheduler.test.js  # 8 项：调度时刻表、首轮错开、参数透传
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **53 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **62 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -357,18 +369,18 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
 5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
-6. **没有前端**。当前只有 CLI；`daily_prices` 已经按天聚合好，接页面即可。
+6. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。收藏与提醒同理，都还没有。
 7. **没有失败熔断**。某源持续 403 时，调度器仍会按间隔重试，需要人工置 `*_ENABLED=0`。
 
 ## 路线图
 
-- [ ] 价格曲线网页（只读 `daily_prices`，无后端）
 - [ ] 收藏与降价提醒（**需先建 watchlist 表**，目前不存在）
 - [ ] Fanatical / Humble / GOG 适配器
 - [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
 - [ ] 采集失败熔断（连续 N 次失败自动停用该源）
+- [ ] 曲线页接入 `chart` 的定时重建（采集完成后自动刷新）
 
 ## 项目结构
 
@@ -380,12 +392,14 @@ gameprice/
 │   ├── cli.js           命令行入口
 │   ├── scheduler.js     常驻调度（子进程隔离）
 │   ├── ingest.js        入库：判重 / 快照 / 日聚合
+│   ├── report.js        静态价格页：内联 SVG 图表 + 纯函数渲染
 │   ├── log.js           结构化日志
 │   ├── http.js          唯一出网点（超时/重试/脱敏/观测）
 │   └── probe.js         目标可达性探针
 ├── test/                53 项断言 + 真实页面夹具
 ├── data/                games.json（游戏清单）、skus.json（杉果 SKU）
 ├── docs/                ARCHITECTURE / DATA-SOURCES / DEPLOY
+├── out/                 由 chart 生成的静态页（已 gitignore）
 ├── scripts/             勘查工具（inspect / mine-bundle / hit）+ 凭据扫描 + 容器入口
 ├── Dockerfile
 ├── compose.yaml

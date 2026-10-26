@@ -4,6 +4,7 @@ import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
 import * as db from './store/pg.js';
 import { ingestOffers } from './ingest.js';
+import { buildSite } from './report.js';
 import { descriptor as steam, syncPrices, syncMeta } from './adapters/steam.js';
 import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
@@ -263,6 +264,17 @@ async function cmdSyncItad() {
   logger.info('sync.done', { platform: itad.code, ...stats });
 }
 
+async function cmdChart() {
+  const outDir = String(flag('out', 'out'));
+  const days = Number(flag('days', 90));
+  const limit = Number(flag('limit', 200));
+  const result = await withStore((store) =>
+    buildSite((sql, p) => store.query(sql, p), { outDir, days, limit, logger }),
+  );
+  console.log(`已生成 ${result.games} 款游戏的价格页（${result.files.length} 个文件）→ ${result.outDir}/index.html`);
+  console.log(`耗时 ${(result.elapsedMs / 1000).toFixed(2)}s`);
+}
+
 async function cmdList() {
   const rows = await withStore((store) => db.lowestOffers((sql, p) => store.query(sql, p), { limit: Number(flag('limit', 30)) }));
   if (!rows.length) {
@@ -396,6 +408,7 @@ const commands = {
   seed: cmdSeed,
   'add-sku': cmdAddSku,
   list: cmdList,
+  chart: cmdChart,
   history: cmdHistory,
   stats: cmdStats,
   logs: cmdLogs,
@@ -423,6 +436,7 @@ async function main() {
   sync sonkwo          按 SKU 抓杉果价格
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）
   list                 主榜：各游戏官方渠道最低价
+  chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
   history <appid>      价格轨迹（--days 90）
   stats                数据量 + 采集健康度
   logs                 查日志（--level error --event http --since 60 --limit 50）

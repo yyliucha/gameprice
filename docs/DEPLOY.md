@@ -109,6 +109,10 @@ docker compose exec app node src/cli.js logs --run run-20261026030334-y9gn
 # 自检（数据库/网络/表结构），报告落在宿主 logs/
 docker compose exec app node src/cli.js diagnose
 
+# 生成静态价格页（曲线图），输出到容器内 /app/out
+docker compose exec app node src/cli.js chart --out /app/out
+# 若想在宿主机看到，先加一个挂载：./out:/app/out，然后浏览器打开 out/index.html
+
 # 加一个杉果 SKU 并关联 Steam 游戏
 vi data/skus.json        # 宿主机直接改，容器内可见（./data 已挂载）
 docker compose run --rm app sync sonkwo --limit 1

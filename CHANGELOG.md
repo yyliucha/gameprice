@@ -2,6 +2,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-10-26
+
+价格历史终于能"看"了。
+
+### 新增
+
+- **静态价格页** `node src/cli.js chart`
+  - 列表页：每款游戏当前最低价、原价、折扣、史低、迷你看板
+  - 详情页：90 天价格曲线 + 当前最低 / 历史最低 / 区间均价 / 区间最高 + 各平台报价表
+  - 纯静态：内联 SVG，无外部 JS/CSS/字体，离线可打开；单页约 7KB
+  - 所有外部文本（游戏名、平台名）转义
+- **演示数据脚本** `scripts/demo-seed.js`：造 3 款游戏 90 天曲线，用于本地看效果或截图
+- 存储层新增查询：`gameOverview` / `dailyMinSeries` / `dailyPlatformSeries` / `offersOfGame`
+
+### 修复
+
+- **多平台报价会被归到错误的平台**：`ingestOffers` 用批次的 `platform` 作为默认值，若一个批次里混了多个平台而 offer 未自带 `platform` 字段，后来的报价会被静默记到第一个平台名下（演示数据里"杉果 ¥118"被显示成"Steam 国区"）。现在会记 `ingest.platform_mismatch` 告警，演示脚本也改为逐条携带 platform。
+- **Y 轴刻度不可读**：原实现按数据范围 ±8% 均分，出现 ¥83 / ¥141 这类标签；改为 1/2/5 × 10ⁿ 步长对齐。
+
 ## [0.1.0] - 2026-10-26
 
 首个可用版本：从零到"能自动采集、能查历史、能远程排障、能一键部署"。

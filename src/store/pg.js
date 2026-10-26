@@ -326,3 +326,79 @@ export async function serverVersion(q) {
   const r = await q('select version() as v, current_setting($1) as tz', ['TimeZone']);
   return { version: r.rows[0]?.v ?? null, timeZone: r.rows[0]?.tz ?? null };
 }
+
+/** 有价格记录的游戏概览：当前最低 / 史低 / 数据天数 / 最近更新。 */
+export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
+  const r = await q(
+    `select g.id,
+            g.steam_appid,
+            coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            (select min(o.price_cents) from offers o
+               join platforms p on p.code = o.platform_code
+              where o.game_id = g.id and o.region = $1 and o.in_stock
+                and p.kind in ${OFFICIAL_KINDS}) as current_low,
+            (select min(o.original_cents) from offers o
+               join platforms p on p.code = o.platform_code
+              where o.game_id = g.id and o.region = $1 and o.in_stock
+                and p.kind in ${OFFICIAL_KINDS}) as current_original,
+            (select min(d.min_price_cents) from daily_prices d
+               join platforms p on p.code = d.platform_code
+              where d.game_id = g.id and d.region = $1
+                and p.kind in ${OFFICIAL_KINDS}) as hist_low,
+            (select count(*)::int from daily_prices d
+              where d.game_id = g.id and d.region = $1) as day_count,
+            (select max(o.last_seen_at) from offers o
+              where o.game_id = g.id and o.region = $1) as last_seen_at
+       from games g
+      where exists (select 1 from daily_prices d
+                     where d.game_id = g.id and d.region = $1)
+      order by (select min(o.price_cents) from offers o
+                 join platforms p on p.code = o.platform_code
+                where o.game_id = g.id and o.region = $1 and o.in_stock
+                  and p.kind in ${OFFICIAL_KINDS}) asc nulls last, name asc
+      limit $2`,
+    [region, limit],
+  );
+  return r.rows;
+}
+
+/** 单个游戏的每日最低价（跨官方平台取最小），按天升序。 */
+export async function dailyMinSeries(q, { gameId, region = 'cn' }) {
+  const r = await q(
+    `select d.day::text as day, min(d.min_price_cents) as price_cents, min(d.currency) as currency
+       from daily_prices d
+       join platforms p on p.code = d.platform_code
+      where d.game_id = $1 and d.region = $2 and p.kind in ${OFFICIAL_KINDS}
+      group by d.day
+      order by d.day asc`,
+    [gameId, region],
+  );
+  return r.rows;
+}
+
+/** 单个游戏各平台每天的价（画多线时用）。 */
+export async function dailyPlatformSeries(q, { gameId, region = 'cn' }) {
+  const r = await q(
+    `select d.platform_code, d.day::text as day, d.min_price_cents
+       from daily_prices d
+       join platforms p on p.code = d.platform_code
+      where d.game_id = $1 and d.region = $2 and p.kind in ${OFFICIAL_KINDS}
+      order by d.platform_code asc, d.day asc`,
+    [gameId, region],
+  );
+  return r.rows;
+}
+
+/** 单个游戏当前在售的官方报价。 */
+export async function offersOfGame(q, { gameId, region = 'cn' }) {
+  const r = await q(
+    `select o.platform_code, p.name as platform_name, o.price_cents, o.original_cents,
+            o.discount_pct, o.buy_url, o.last_seen_at, o.currency
+       from offers o
+       join platforms p on p.code = o.platform_code
+      where o.game_id = $1 and o.region = $2 and o.in_stock and p.kind in ${OFFICIAL_KINDS}
+      order by o.price_cents asc`,
+    [gameId, region],
+  );
+  return r.rows;
+}
