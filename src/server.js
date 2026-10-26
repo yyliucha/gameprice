@@ -258,6 +258,7 @@ function serveStatic(res, outDir, pathname) {
     return;
   }
   if (clean === '/') clean = '/index.html';
+  if (clean === '/console' || clean === '/console/') clean = '/console.html';
   const root = resolve(outDir);
   const file = resolve(root, `.${clean}`);
   if (file !== root && !file.startsWith(root + sep)) {

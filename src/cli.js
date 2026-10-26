@@ -900,6 +900,48 @@ async function cmdInterest() {
   console.log(`${row.name ?? appid} → ${interested ? '感兴趣' : '不感兴趣'}（采集与金额统计不受影响）`);
 }
 
+/**
+ * 一体化：同一进程跑 Web/API，并把调度器作为子进程拉起。
+ * 部署只需要一个服务：既能采集，又能出前端与 /console 控制台。
+ */
+async function cmdAll() {
+  const port = Number(flag('port', process.env.WEB_PORT ?? 8080));
+  const host = String(flag('host', '0.0.0.0'));
+  const dir = String(flag('dir', existsSync('web') ? 'web' : (process.env.OUT_DIR ?? 'out')));
+  if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
+
+  const store = await openStore(dbTarget, { logger });
+  const srv = await startApiServer({
+    query: (sql, p) => store.query(sql, p),
+    logger,
+    outDir: dir,
+    port,
+    host,
+  });
+  logger.info('app.all_mode', { port: srv.port, staticDir: dir });
+
+  const child = spawn(process.execPath, ['src/scheduler.js'], { stdio: 'inherit' });
+  child.on('exit', (code) => logger.warn('app.scheduler_exit', { code }));
+
+  console.log(`服务已启动：http://<服务器IP>:${srv.port}/`);
+  console.log(`管理控制台：http://<服务器IP>:${srv.port}/console（需管理员登录）`);
+  console.log('采集调度器已在同一容器内启动；Ctrl+C 停止');
+
+  await new Promise((done) => {
+    const stop = () => {
+      logger.info('app.stopping', {});
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* 已退出 */
+      }
+      srv.close().then(() => store.close()).then(done);
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+}
+
 /** 内置静态页服务：直接 IP:端口 访问生成好的页面，不需要外部 nginx。 */
 async function cmdServe() {
   const port = Number(flag('port', process.env.WEB_PORT ?? process.env.PORT ?? 8090));
@@ -1089,6 +1131,7 @@ const commands = {
   compare: cmdCompare,
   import: cmdImport,
   serve: cmdServe,
+  all: cmdAll,
   interest: cmdInterest,
   user: cmdUser,
   backup: cmdBackup,
