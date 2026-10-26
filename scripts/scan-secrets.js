@@ -10,7 +10,17 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'logs', '.npm-cache', 'pgdata', 'coverage']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'logs', '.npm-cache', 'pgdata', 'coverage', 'out']);
+// 这些目录里没有"会被误公开的凭据"，只有本地数据库文件与抓包快照：
+// 扫它们既慢又会产生大量噪音（实测 2147 个文件 → 50 个）
+const SKIP_PATHS = [/^data\/.+pgdata(\/|$)/, /^data\/pages(\/|$)/];
+
+const shouldSkipDir = (relPath) => {
+  const name = relPath.split('/').pop();
+  if (SKIP_DIRS.has(name)) return true;
+  if (name.endsWith('-pgdata')) return true;
+  return SKIP_PATHS.some((re) => re.test(relPath));
+};
 const TEXT_EXT = new Set([
   '.js', '.mjs', '.cjs', '.json', '.md', '.yml', '.yaml', '.sh', '.txt', '.sql', '.html', '.example',
   '.pem', '.key', '.crt', '.env', '.conf', '.ini', '',
@@ -66,8 +76,9 @@ function collectFiles(root) {
       } catch {
         continue;
       }
+      const rel = relative(root, abs).replace(/\\/g, '/');
       if (st.isDirectory()) {
-        if (!SKIP_DIRS.has(entry)) walk(abs);
+        if (!shouldSkipDir(rel)) walk(abs);
         continue;
       }
       if (st.size <= MAX_BYTES && isTextish(abs)) out.push(abs);
