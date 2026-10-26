@@ -226,6 +226,12 @@ tbody a{font-weight:600}
 .chip b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
 .chip-low{border-color:color-mix(in srgb,var(--good) 55%,var(--border));background:var(--good-bg);color:var(--good)}
 .chip-low b{color:var(--good)}
+.coverage{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
+.cov{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:10px;padding:6px 12px;font-size:13px;background:var(--panel)}
+.cov.ok{border-color:color-mix(in srgb,var(--good) 45%,var(--border));background:var(--good-bg)}
+.cov-name{font-weight:600}
+.cov-note{color:var(--muted);font-size:12px}
+.cov.ok .cov-note{color:var(--good)}
 
 /* 图表 */
 .chart{width:100%;height:auto;display:block;margin:8px 0 4px}
@@ -359,8 +365,28 @@ ${rows}
   return page({ title: '游戏价格轨迹', body });
 }
 
+/**
+ * 平台覆盖：说明每个源为什么有/没有这个游戏的报价。
+ * 用户最容易误解的是"为什么只有杉果"——把原因写清楚，比让他猜好。
+ */
+export function coverageFor({ game, offers = [], sources = [] }) {
+  const got = new Map(offers.map((o) => [o.platform_code, o]));
+  return sources.map((source) => {
+    const hit = got.get(source.code);
+    if (hit) return { code: source.code, name: source.name, ok: true, note: fmtYuan(hit.price_cents) };
+    if (!source.on) return { code: source.code, name: source.name, ok: false, note: source.offReason ?? '未启用' };
+    if (!game.steam_appid && (source.code === 'steam' || source.code === 'itad')) {
+      return { code: source.code, name: source.name, ok: false, note: '该游戏没有 Steam appid，无法匹配' };
+    }
+    if (!game.name_en && (source.code === 'gog' || source.code === 'humble')) {
+      return { code: source.code, name: source.name, ok: false, note: '缺少英文名，无法在该平台检索' };
+    }
+    return { code: source.code, name: source.name, ok: false, note: source.missReason ?? '未匹配到同名商品' };
+  });
+}
+
 /** 详情页：曲线 + 当前各平台报价。 */
-export function renderGame({ game, series, offers, histLow, generatedAt, days = 90 }) {
+export function renderGame({ game, series, offers, histLow, generatedAt, days = 90, coverage = null }) {
   const currentLow = offers.length ? Math.min(...offers.map((o) => o.price_cents)) : null;
   const atLow = currentLow != null && histLow != null && currentLow <= histLow;
   const prices = series.map((s) => Number(s.price_cents));
@@ -416,6 +442,21 @@ ${offerRows}
 </tbody>
 </table>`
     : '<p class="muted">当前没有在售报价（可能缺货或该区服不可售）。</p>'
+}
+
+${
+  coverage && coverage.length
+    ? `<h2>平台覆盖</h2>
+<div class="coverage">
+${coverage
+  .map(
+    (c) =>
+      `<div class="cov${c.ok ? ' ok' : ''}"><span class="cov-name">${esc(c.name)}</span><span class="cov-note">${esc(c.note)}</span></div>`,
+  )
+  .join('\n')}
+</div>
+<p class="muted small">没有出现的平台通常是：该游戏没有 Steam appid、缺少英文名、源未配置（ITAD 需要 key），或该区服不可售。</p>`
+    : ''
 }`;
   return page({ title: `${game.name} 价格轨迹`, body });
 }
@@ -428,6 +469,21 @@ export async function buildSite(q, { outDir = 'out', days = 90, limit = 200, reg
   const { gameOverview, dailyMinSeries, offersOfGame } = await import('./store/pg.js');
   const startedAt = Date.now();
   const generatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // 每个源的状态：决定详情页"平台覆盖"里显示什么原因
+  const sources = [
+    { code: 'sonkwo', name: '杉果', on: process.env.SONKWO_ENABLED !== '0', missReason: '杉果未收录该商品' },
+    { code: 'gog', name: 'GOG', on: process.env.GOG_ENABLED !== '0', missReason: 'GOG 没有同名商品' },
+    { code: 'humble', name: 'Humble', on: process.env.HUMBLE_ENABLED !== '0', missReason: 'Humble 没有同名商品' },
+    { code: 'steam', name: 'Steam', on: process.env.STEAM_ENABLED !== '0', missReason: 'Steam 接口不可达或未采集到' },
+    {
+      code: 'itad',
+      name: 'ITAD',
+      on: Boolean(process.env.ITAD_API_KEY),
+      offReason: '未配置 ITAD_API_KEY',
+      missReason: 'ITAD 没有该商品',
+    },
+  ];
 
   const games = await gameOverview(q, { region, limit });
   if (!games.length) {
@@ -445,7 +501,7 @@ export async function buildSite(q, { outDir = 'out', days = 90, limit = 200, reg
     const file = `game-${slug}.html`;
     writeFileSync(
       join(outDir, file),
-      renderGame({ game, series, offers, histLow: game.hist_low, generatedAt, days }),
+      renderGame({ game, series, offers, histLow: game.hist_low, generatedAt, days, coverage: coverageFor({ game, offers, sources }) }),
       'utf8',
     );
     written.push(file);

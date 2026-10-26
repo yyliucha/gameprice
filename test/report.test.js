@@ -14,6 +14,7 @@ import {
   renderIndex,
   renderGame,
   buildSite,
+  coverageFor,
 } from '../src/report.js';
 import { openStore } from '../src/store/index.js';
 import * as db from '../src/store/pg.js';
@@ -240,4 +241,35 @@ test('空库时 buildSite 不报错，列表页给出提示', async () => {
     await store.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('平台覆盖：逐源说明为什么没有报价', () => {
+  const game = { id: 1, steam_appid: null, name: '进击的打工人', name_en: null };
+  const offers = [
+    { platform_code: 'sonkwo', platform_name: '杉果', price_cents: 1500, original_cents: 1500, discount_pct: 0, buy_url: 'https://x' },
+  ];
+  const coverage = coverageFor({
+    game,
+    offers,
+    sources: [
+      { code: 'sonkwo', name: '杉果', on: true, missReason: '未收录' },
+      { code: 'gog', name: 'GOG', on: true, missReason: '没有同名商品' },
+      { code: 'humble', name: 'Humble', on: true, missReason: '没有同名商品' },
+      { code: 'steam', name: 'Steam', on: true, missReason: '接口不可达' },
+      { code: 'itad', name: 'ITAD', on: false, offReason: '未配置 ITAD_API_KEY' },
+    ],
+  });
+
+  const hit = coverage.find((c) => c.code === 'sonkwo');
+  assert.equal(hit.ok, true);
+  assert.match(hit.note, /¥15\.00/);
+
+  assert.match(coverage.find((c) => c.code === 'gog').note, /缺少英文名/);
+  assert.match(coverage.find((c) => c.code === 'steam').note, /没有 Steam appid/);
+  assert.match(coverage.find((c) => c.code === 'itad').note, /未配置 ITAD_API_KEY/);
+
+  const html = renderGame({ game, series: seriesOf([1500, 1500]), histLow: 1500, generatedAt: '2026-10-26 11:00:00', offers, coverage });
+  assert.match(html, /平台覆盖/);
+  assert.match(html, /缺少英文名/);
+  assert.match(html, /没有 Steam appid/);
 });
