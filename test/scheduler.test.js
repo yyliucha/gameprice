@@ -1,13 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs } from '../src/scheduler.js';
+import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT } from '../src/scheduler.js';
 
-test('默认三个任务，间隔 60/60/1440 分钟', () => {
+test('默认四个任务（含 alerts），间隔 60/60/1440/360 分钟', () => {
   const jobs = jobsFromEnv({});
-  assert.equal(jobs.length, 3);
-  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad']);
+  assert.equal(jobs.length, 4);
+  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'alerts']);
   assert.equal(jobs[0].intervalMin, 60);
   assert.equal(jobs[2].intervalMin, 1440);
+  assert.equal(jobs[3].intervalMin, 360);
+});
+
+test('没配 webhook 时 alerts 只做只读检查，不标记已通知', () => {
+  assert.deepEqual(jobsFromEnv({}).find((j) => j.name === 'alerts').args, ['alerts']);
+  assert.deepEqual(jobsFromEnv({ ALERT_WEBHOOK_URL: 'https://example.com/hook' }).find((j) => j.name === 'alerts').args, [
+    'alerts',
+    '--mark',
+  ]);
 });
 
 test('环境变量能改间隔与首轮延迟', () => {
@@ -18,7 +27,7 @@ test('环境变量能改间隔与首轮延迟', () => {
 
 test('显式禁用或间隔为 0 的任务会被剔除', () => {
   const jobs = jobsFromEnv({ ITAD_ENABLED: '0', STEAM_INTERVAL_MIN: '0' });
-  assert.deepEqual(jobs.map((j) => j.name), ['sonkwo']);
+  assert.deepEqual(jobs.map((j) => j.name), ['sonkwo', 'alerts']);
 });
 
 test('从未跑过的任务在 initialDelay 之后才算到点', () => {
@@ -70,4 +79,34 @@ test('通用参数会透传给子任务（--db 不能丢）', () => {
   assert.deepEqual(forwardedArgs(['node', 'scheduler.js', '--db']), [], '缺值时不透传');
   assert.deepEqual(forwardedArgs(['node', 'scheduler.js', '--db', '--level', 'info']), ['--level', 'info']);
   assert.deepEqual(forwardedArgs(['node', 'scheduler.js']), []);
+});
+
+test('熔断：连失败到阈值才打开，成功后立刻复位', () => {
+  const t0 = 1_000_000;
+  let state = { failures: 0, openUntil: null };
+
+  state = recordJobResult(state, { code: 1, nowMs: t0 });
+  assert.equal(state.failures, 1);
+  assert.equal(isCircuited(state, t0), false, '一次失败不该熔断');
+
+  state = recordJobResult(state, { code: 1, nowMs: t0 + 1000 });
+  assert.equal(state.failures, 2);
+  assert.equal(isCircuited(state, t0 + 1000), false);
+
+  state = recordJobResult(state, { code: 1, nowMs: t0 + 2000 });
+  assert.equal(state.failures, 3);
+  assert.equal(state.opened, true);
+  assert.equal(isCircuited(state, t0 + 3000), true, '达到阈值后应熔断');
+
+  const success = recordJobResult(state, { code: 0, nowMs: t0 + 4000 });
+  assert.equal(success.failures, 0);
+  assert.equal(success.openUntil, null);
+  assert.equal(isCircuited(success, t0 + 4000), false, '成功一次即复位');
+});
+
+test('熔断窗口到期后自动恢复', () => {
+  const t0 = 1_000_000;
+  const state = { failures: CIRCUIT.threshold, openUntil: t0 + CIRCUIT.cooldownMs };
+  assert.equal(isCircuited(state, t0 + CIRCUIT.cooldownMs - 1), true);
+  assert.equal(isCircuited(state, t0 + CIRCUIT.cooldownMs), false);
 });

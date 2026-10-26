@@ -45,10 +45,11 @@
 | 只收官方渠道的结构约束 | ✅ 已生效 | 视图 + 查询层双重过滤 + 回归断言 |
 | 定时采集调度 | ✅ 已跑通 | 子进程隔离实测：真实任务完成、单任务失败不影响调度器 |
 | 结构化日志 / 自检 | ✅ 已跑通 | `diagnose` 输出 11 项检查并落盘 |
+| **关注与降价提醒** | ✅ 已跑通 | `watch` 加关注、`alerts` 判定到价；同价位不重复打扰；可投递 webhook |
+| **采集熔断** | ✅ 已跑通 | 连续失败 3 次暂停 6 小时，实测 `circuit_tripped` → `circuit_skip` |
 | Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
 | ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
 | Docker 部署 | ⚠️ 文件齐备，**镜像未真实构建过** | 开发机无 Docker；已用 `npm ci --omit=dev` + 容器启动路径等价验证 |
-| 降价提醒 | 🚧 未实现 | **没有 watchlist 表**，仅路线图 |
 | 多区服对比 | 🚧 未实现 | `region` 维度已在数据模型里 |
 | 小黑盒商城 | ⏸ 评估后暂缓 | 无公开接口，需逆向 `hkey` 签名 |
 | SteamPy | ⏸ 不接入 | 商品接口全部要求登录态（401），且是 C2C |
@@ -93,7 +94,8 @@
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
-| 收藏与降价提醒 | 🚧 | 无表结构 |
+| 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重；webhook 可选 |
+| 采集熔断 | ✅ | 连续失败自动暂停，避免持续撞墙 |
 | Fanatical / Humble / GOG | 🚧 | 站点可直连，适配器未写；`platforms` 字典已预留 code |
 | 多区服对比 | 🚧 | 模型已支持，未做展示 |
 
@@ -224,6 +226,8 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 |---|---|
 | `list` | 主榜：各游戏官方渠道最低价 + 是否史低 |
 | `chart` | 生成静态价格页（曲线图）到 `out/`（`--out`、`--days 90`、`--limit 200`） |
+| `watch add\|rm\|list` | 关注列表：`watch add 1091500 --target 99`（不带 target = 跌到史低才提醒） |
+| `alerts` | 检查到价（`--mark` 记录已通知、`--json` 机器可读、`--webhook URL` 投递） |
 | `history <appid>` | 终端画价格轨迹 + 史低判断（`--days 90`） |
 | `stats` | 数据量 + 最近 5 次采集健康度 |
 
@@ -265,6 +269,9 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 |---|---|---|
 | `DATABASE_URL` | 无（必填） | `postgres://user:pass@host:5432/db` |
 | `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
+| `ALERT_WEBHOOK_URL` | 空 | 空则只输出简报；填了才投递并记录已通知 |
+| `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | `1` / `360` | 提醒检查开关与间隔 |
+| `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | `3` / `360` | 连续失败 N 次后暂停多久 |
 | `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
 | `LOG_DIR` | `logs` | 日志目录 |
 | `DB_WAIT_SEC` | `0`（容器内 60） | 启动时最多等数据库多少秒 |
@@ -283,10 +290,11 @@ price_snapshots    历史快照，只追加；raw_hash 相同不写
 daily_prices       按天最低价聚合，画曲线只读这张
 fetch_runs         每次采集的成功/失败/跳过，先看这里再怀疑代码
 platforms          平台字典（official / authorized_reseller / c2c）
+watchlist          关注列表：目标价 / 上次通知价（同价位不重复打扰）
 v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 ```
 
-> 目前**共 7 张表 + 1 个视图**。`platforms` 里预置了 `itad` / `fanatical` / `humble` / `gog` / `steampy` 的 code，但**只有 `steam` / `sonkwo` / `itad` 有适配器**——预留 code 不等于已支持，见[数据源](#数据源)。
+> 目前**共 8 张表 + 1 个视图**。`platforms` 里预置了 `itad` / `fanatical` / `humble` / `gog` / `steampy` 的 code，但**只有 `steam` / `sonkwo` / `itad` 有适配器**——预留 code 不等于已支持，见[数据源](#数据源)。
 
 三个关键设计：
 
@@ -352,13 +360,15 @@ node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
-node test/scheduler.test.js  # 8 项：调度时刻表、首轮错开、参数透传
+node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报、webhook 失败不抛
+node test/watchlist.test.js  # 5 项：关注表 CRUD、候选查询、标记后不再提醒、级联删除
+node test/scheduler.test.js  # 11 项：调度时刻表、首轮错开、参数透传、熔断
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **62 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **78 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -369,17 +379,15 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
 5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
-6. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。收藏与提醒同理，都还没有。
-7. **没有失败熔断**。某源持续 403 时，调度器仍会按间隔重试，需要人工置 `*_ENABLED=0`。
+6. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。提醒只有 webhook / 终端两种出口，没有邮件通道。
 
 ## 路线图
 
-- [ ] 收藏与降价提醒（**需先建 watchlist 表**，目前不存在）
+- [ ] 提醒通道：邮件 / 企业微信（现在只有 webhook）
 - [ ] Fanatical / Humble / GOG 适配器
 - [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
-- [ ] 采集失败熔断（连续 N 次失败自动停用该源）
 - [ ] 曲线页接入 `chart` 的定时重建（采集完成后自动刷新）
 
 ## 项目结构
@@ -393,6 +401,7 @@ gameprice/
 │   ├── scheduler.js     常驻调度（子进程隔离）
 │   ├── ingest.js        入库：判重 / 快照 / 日聚合
 │   ├── report.js        静态价格页：内联 SVG 图表 + 纯函数渲染
+│   ├── alerts.js        降价提醒：判定 / 简报 / webhook 投递
 │   ├── log.js           结构化日志
 │   ├── http.js          唯一出网点（超时/重试/脱敏/观测）
 │   └── probe.js         目标可达性探针

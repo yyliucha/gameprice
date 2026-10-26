@@ -5,6 +5,7 @@ import { openStore, ping } from './store/index.js';
 import * as db from './store/pg.js';
 import { ingestOffers } from './ingest.js';
 import { buildSite } from './report.js';
+import { evaluateAlerts, renderDigest, toPayload, postWebhook } from './alerts.js';
 import { descriptor as steam, syncPrices, syncMeta } from './adapters/steam.js';
 import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
@@ -47,6 +48,19 @@ const sparkline = (values) => {
 };
 const readJson = (file, fallback) => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : fallback);
 
+/**
+ * 按需迁移：老库可能缺新表（例如加了 watchlist 之后的存量库）。
+ * 每次只做一次 `to_regclass` 检查，缺表才跑完整 DDL——不能让用户记住"先 init"。
+ */
+async function ensureSchema(store) {
+  const probe = await store.query(`select to_regclass('public.watchlist') is not null as ok`);
+  if (probe.rows[0]?.ok === true) return;
+  logger.info('db.migrate_auto', { reason: 'schema_incomplete' });
+  await db.migrate(store);
+}
+
+const SKIP_AUTO_MIGRATE = new Set(['ping', 'init', 'bootstrap']);
+
 async function withStore(fn) {
   // ping 是健康检查，必须快速返回；等库重试只对真正要干活的命令生效
   const attempts = dbWaitSec > 0 && command !== 'ping' ? Math.max(1, Math.ceil(dbWaitSec / 2)) : 1;
@@ -55,6 +69,7 @@ async function withStore(fn) {
     try {
       const store = await openStore(dbTarget, { logger });
       try {
+        if (!SKIP_AUTO_MIGRATE.has(command)) await ensureSchema(store);
         return await fn(store);
       } finally {
         await store.close();
@@ -264,6 +279,106 @@ async function cmdSyncItad() {
   logger.info('sync.done', { platform: itad.code, ...stats });
 }
 
+async function cmdWatch() {
+  const sub = args[1];
+  const appid = Number(args[2]);
+
+  if (sub === 'list' || sub === undefined) {
+    const rows = await withStore((store) => db.listWatches((sql, p) => store.query(sql, p)));
+    if (!rows.length) {
+      console.log('关注列表为空。用法：node src/cli.js watch add <steamAppid> --target 99');
+      return;
+    }
+    console.log(`${pad('游戏', 30)} ${pad('目标价', 10)} ${pad('上次提醒', 12)} ${pad('价格', 10)} 备注`);
+    console.log('-'.repeat(88));
+    for (const r of rows) {
+      const t = r.target_cents == null ? '史低才提醒' : yuan(r.target_cents);
+      const last = r.last_notified_at ? new Date(r.last_notified_at).toISOString().slice(5, 10) : '—';
+      console.log(`${pad(r.name, 30)} ${pad(t, 10)} ${pad(last, 12)} ${pad(yuan(r.last_notified_cents), 10)} ${r.note ?? ''}`);
+    }
+    return;
+  }
+
+  if (!Number.isFinite(appid) || appid <= 0) throw new Error('用法: node src/cli.js watch <add|rm|list> <steamAppid> [--target 99]');
+
+  if (sub === 'add') {
+    const targetYuan = flag('target', null);
+    const targetCents = flag('target-cents', null);
+    const target = targetCents != null ? Number(targetCents) : targetYuan != null ? Math.round(Number(targetYuan) * 100) : null;
+    if (target != null && (!Number.isFinite(target) || target <= 0)) throw new Error('--target 需要是正数（单位：元）');
+    const note = flag('note', null);
+
+    const result = await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      const game = await q('select id, name from games where steam_appid = $1', [appid]);
+      if (!game.rows.length) return { missing: true };
+      const id = await db.upsertWatch(q, { gameId: Number(game.rows[0].id), targetCents: target, note: typeof note === 'string' ? note : null });
+      logger.info('watch.saved', { appid, gameId: Number(game.rows[0].id), targetCents: target, watchId: id });
+      return { name: game.rows[0].name, id };
+    });
+    if (result.missing) throw new Error(`库里没有 appid ${appid}，先 node src/cli.js add ${appid} 或 seed`);
+    console.log(`已关注：${result.name ?? `appid ${appid}`}${target ? `（目标 ${yuan(target)}）` : '（跌至史低时提醒）'}`);
+    return;
+  }
+
+  if (sub === 'rm') {
+    const removed = await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      const game = await q('select id from games where steam_appid = $1', [appid]);
+      if (!game.rows.length) return 0;
+      return db.deleteWatch(q, { gameId: Number(game.rows[0].id) });
+    });
+    logger.info('watch.removed', { appid, removed });
+    console.log(removed ? `已取消关注 appid ${appid}` : `appid ${appid} 不在关注列表里`);
+    return;
+  }
+
+  throw new Error('用法: node src/cli.js watch <add|rm|list> <steamAppid> [--target 99] [--note 备注]');
+}
+
+async function cmdAlerts() {
+  const rows = await withStore((store) => db.watchCandidates((sql, p) => store.query(sql, p)));
+  const hits = evaluateAlerts(rows, { now: new Date() });
+  const webhook = String(flag('webhook', process.env.ALERT_WEBHOOK_URL ?? ''));
+  const mark = flag('mark', false) === true || flag('mark', false) === 'true';
+
+  logger.info('alert.evaluated', {
+    watched: rows.length,
+    hits: hits.length,
+    reasons: hits.reduce((acc, h) => ({ ...acc, [h.reason]: (acc[h.reason] ?? 0) + 1 }), {}),
+  });
+
+  if (!hits.length) {
+    console.log('没有需要提醒的价格。');
+    return;
+  }
+
+  if (flag('json', false) === true) {
+    console.log(JSON.stringify(toPayload(hits, { now: new Date() }), null, 2));
+  } else {
+    console.log(renderDigest(hits, { now: new Date() }));
+  }
+
+  let delivered = false;
+  if (webhook) {
+    const result = await postWebhook(webhook, toPayload(hits, { now: new Date() }), { logger });
+    delivered = result.ok;
+    console.log(delivered ? `\n已投递到 webhook（HTTP ${result.status}）` : `\nwebhook 投递失败（${result.status ?? result.error}）`);
+  }
+
+  if (mark && (delivered || !webhook)) {
+    await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      for (const h of hits) await db.markNotified(q, { watchId: h.watchId, priceCents: h.currentCents });
+    });
+    logger.info('alert.marked', { count: hits.length });
+    console.log(`已记录 ${hits.length} 条提醒，同价位不会重复通知。`);
+  } else if (mark && webhook && !delivered) {
+    logger.warn('alert.not_marked', { reason: 'webhook_failed' });
+    console.log('投递失败，未记录提醒状态（下轮会重试）。');
+  }
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', 'out'));
   const days = Number(flag('days', 90));
@@ -409,6 +524,8 @@ const commands = {
   'add-sku': cmdAddSku,
   list: cmdList,
   chart: cmdChart,
+  watch: cmdWatch,
+  alerts: cmdAlerts,
   history: cmdHistory,
   stats: cmdStats,
   logs: cmdLogs,
@@ -437,6 +554,8 @@ async function main() {
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）
   list                 主榜：各游戏官方渠道最低价
   chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
+  watch add|rm|list    关注列表：watch add 1091500 --target 99
+  alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   history <appid>      价格轨迹（--days 90）
   stats                数据量 + 采集健康度
   logs                 查日志（--level error --event http --since 60 --limit 50）

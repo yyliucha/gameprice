@@ -42,7 +42,33 @@ export function jobsFromEnv(env = process.env) {
       initialDelaySec: num(env.ITAD_INITIAL_DELAY_SEC, 300),
       enabled: env.ITAD_ENABLED !== '0',
     },
+    {
+      name: 'alerts',
+      // 有 webhook 才在检查后标记"已通知"，否则只做只读检查，避免静默吞掉提醒
+      args: env.ALERT_WEBHOOK_URL ? ['alerts', '--mark'] : ['alerts'],
+      intervalMin: num(env.ALERTS_INTERVAL_MIN, 360),
+      initialDelaySec: num(env.ALERTS_INITIAL_DELAY_SEC, 420),
+      enabled: env.ALERTS_ENABLED !== '0',
+    },
   ].filter((j) => j.enabled && j.intervalMin > 0);
+}
+
+/** 熔断参数：连续失败 threshold 次后，暂停该任务 cooldownMs。 */
+export const CIRCUIT = { threshold: 3, cooldownMs: 6 * 3600_000 };
+
+/** 记录一次任务结果，返回新的健康状态。纯函数，便于单测。 */
+export function recordJobResult(state, { code, nowMs, threshold = CIRCUIT.threshold, cooldownMs = CIRCUIT.cooldownMs }) {
+  if (code === 0) return { failures: 0, openUntil: null, opened: false };
+  const failures = (state?.failures ?? 0) + 1;
+  if (failures >= threshold) {
+    return { failures, openUntil: nowMs + cooldownMs, opened: true };
+  }
+  return { failures, openUntil: state?.openUntil ?? null, opened: false };
+}
+
+/** 熔断是否仍然生效。 */
+export function isCircuited(state, nowMs) {
+  return Boolean(state?.openUntil && nowMs < state.openUntil);
 }
 
 /**
@@ -80,7 +106,10 @@ export async function main() {
   const jobs = jobsFromEnv();
   const startedMs = Date.now();
   const lastRunMs = new Map();
+  const health = new Map(); // job.name -> { failures, openUntil }
   const running = new Set();
+  const circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
+  const circuitCooldownMs = num(process.env.CIRCUIT_COOLDOWN_MIN, CIRCUIT.cooldownMs / 60_000) * 60_000;
 
   let stopping = false;
   let currentChild = null;
@@ -142,14 +171,45 @@ export async function main() {
   });
 
   while (!stopping) {
-    const due = dueJobs(jobs, { nowMs: Date.now(), startedMs, lastRunMs });
+    const now = Date.now();
+    const due = dueJobs(jobs, { nowMs: now, startedMs, lastRunMs });
     for (const job of due) {
       if (stopping) break;
       if (running.has(job.name)) continue;
+
+      const state = health.get(job.name) ?? { failures: 0, openUntil: null };
+      if (isCircuited(state, now)) {
+        // 熔断期内不再打目标站：持续 403 时继续重试只会更快被封
+        logger.warn('scheduler.circuit_skip', {
+          job: job.name,
+          failures: state.failures,
+          openUntil: new Date(state.openUntil).toISOString(),
+        });
+        lastRunMs.set(job.name, now);
+        continue;
+      }
+
       running.add(job.name);
-      await runJob(job);
+      const { code } = await runJob(job);
       running.delete(job.name);
       lastRunMs.set(job.name, Date.now());
+
+      const next = recordJobResult(state, {
+        code,
+        nowMs: Date.now(),
+        threshold: circuitThreshold,
+        cooldownMs: circuitCooldownMs,
+      });
+      health.set(job.name, next);
+      if (next.opened) {
+        logger.error('scheduler.circuit_tripped', {
+          job: job.name,
+          failures: next.failures,
+          openUntil: new Date(next.openUntil).toISOString(),
+        });
+      } else if (code === 0 && (state.failures ?? 0) > 0) {
+        logger.info('scheduler.circuit_reset', { job: job.name, afterFailures: state.failures });
+      }
       if (stopping) break;
     }
     if (stopping) break;

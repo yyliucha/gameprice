@@ -2,6 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-26
+
+从"能看"到"会叫你"。
+
+### 新增
+
+- **关注列表**（`watchlist` 表，第 8 张表）
+  - `watch add <appid> --target 99`：到目标价提醒
+  - `watch add <appid>`：不带目标价时，跌到史低才提醒
+  - `watch rm` / `watch list`
+- **降价提醒** `alerts`
+  - 两种触发语义：目标价优先，未设目标时看是否破史低
+  - **按价格去重**：同价位不重复打扰，更便宜才再通知（不用时间窗口）
+  - `--json` 输出机器可读载荷、`--mark` 记录已通知、`--webhook URL` 投递
+  - 没配 webhook 时**不标记**已通知，避免静默吞掉提醒；投递失败不标记、下轮重试
+- **采集熔断**
+  - 同一任务连续失败 `CIRCUIT_THRESHOLD`（默认 3）次后暂停 `CIRCUIT_COOLDOWN_MIN`（默认 360）分钟
+  - 熔断期间只记 `scheduler.circuit_skip`，不再请求目标站；成功一次即复位
+- **老库自动迁移**：命令执行前检查 `to_regclass`，缺表自动补 DDL，不需要记住先跑 `init`
+- 调度器新增 `alerts` 任务（默认 6 小时一次）；`ALERT_WEBHOOK_URL` 存在时才传 `--mark`
+
+### 修复
+
+- 演示数据里多平台报价被归到同一平台的问题，现在会记 `ingest.platform_mismatch`（上个版本的行为修复，本次补测试）
+
 ## [0.2.0] - 2026-10-26
 
 价格历史终于能"看"了。

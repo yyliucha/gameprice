@@ -92,6 +92,9 @@ docker compose run --rm app diagnose
 | `DB_WAIT_SEC` | 60 | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | 1 | 首次启动是否导入 `data/games.json` |
 | `LOG_LEVEL` | info | trace/debug/info/warn/error |
+| `ALERT_WEBHOOK_URL` | 空 | 填了才投递提醒；空则只输出简报 |
+| `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | 1 / 360 | 提醒检查开关与间隔 |
+| `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | 3 / 360 | 连续失败 N 次后暂停多久 |
 | `TZ` | Asia/Shanghai | 影响日志与 `current_date` |
 | `RUN_MODE` | scheduler | `scheduler` 常驻；`once` 只 bootstrap 后退出 |
 
@@ -112,6 +115,10 @@ docker compose exec app node src/cli.js diagnose
 # 生成静态价格页（曲线图），输出到容器内 /app/out
 docker compose exec app node src/cli.js chart --out /app/out
 # 若想在宿主机看到，先加一个挂载：./out:/app/out，然后浏览器打开 out/index.html
+
+# 关注一款游戏，并立刻检查是否到价
+docker compose exec app node src/cli.js watch add 1091500 --target 100
+docker compose exec app node src/cli.js alerts
 
 # 加一个杉果 SKU 并关联 Steam 游戏
 vi data/skus.json        # 宿主机直接改，容器内可见（./data 已挂载）
