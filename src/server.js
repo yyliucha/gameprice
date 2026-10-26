@@ -179,6 +179,19 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       // ---- 单个游戏（匿名可读）----
+      // ---- 单个游戏（按内部 id，用于没有 Steam appid 的杉果游戏）----
+      const byIdMatch = path.match(/^\/api\/games\/by-id\/(\d+)$/);
+      if (byIdMatch && req.method === 'GET') {
+        const id = Number(byIdMatch[1]);
+        const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit: 500 });
+        const game = rows.find((g) => Number(g.id) === id);
+        if (!game) return json(res, 404, { error: '没有该游戏' });
+        const offers = await db.offersOfGame(q, { gameId: game.id, region: 'cn' });
+        const series = await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' });
+        if (user) await db.recordView(q, { userId: user.id, path: `/game/id/${id}`, appid: game.steam_appid ?? null });
+        return json(res, 200, { game, offers, series });
+      }
+
       const gameMatch = path.match(/^\/api\/games\/(\d+)$/);
       if (gameMatch && req.method === 'GET') {
         const appid = Number(gameMatch[1]);

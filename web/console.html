@@ -6,134 +6,271 @@
 <meta name="color-scheme" content="light dark">
 <title>SteamDeals · 控制台</title>
 <style>
-:root{--bg:#f6f7f9;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e5e7eb;--brand:#4f46e5;--good:#059669;--warn:#b45309;--hover:#f8fafc;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.18);--mono:ui-monospace,Menlo,Consolas,monospace}
-@media (prefers-color-scheme:dark){:root{--bg:#0b1020;--panel:#121a2e;--fg:#e6eaf2;--muted:#93a0b8;--border:#22304d;--brand:#818cf8;--good:#34d399;--warn:#fbbf24;--hover:#18233c;--shadow:0 1px 2px rgba(0,0,0,.4)}}
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e5e7eb;--brand:#4f46e5;--good:#059669;--good-bg:#ecfdf5;--warn:#b45309;--warn-bg:#fffbeb;--danger:#dc2626;--hover:#f8fafc;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.18);--mono:ui-monospace,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1020;--panel:#121a2e;--fg:#e6eaf2;--muted:#93a0b8;--border:#22304d;--brand:#818cf8;--good:#34d399;--good-bg:#0d2b24;--warn:#fbbf24;--warn-bg:#2b2109;--hover:#18233c;--shadow:0 1px 2px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 a{color:var(--brand);text-decoration:none}
-.wrap{max-width:960px;margin:0 auto;padding:0 20px}
-header{border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(8px);position:sticky;top:0}
-header .wrap{display:flex;align-items:center;gap:12px;height:56px}
-.brand{font-weight:700;color:var(--fg)}
-.spacer{flex:1}
-main{padding:26px 0 60px}
-h1{font-size:22px;margin:0 0 4px}
-h2{font-size:15px;margin:24px 0 8px;color:var(--muted);letter-spacing:.03em;text-transform:uppercase}
+.layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh}
+.brand{font-weight:700;display:block;margin-bottom:18px;color:var(--fg)}
+nav a{display:block;padding:8px 10px;border-radius:9px;color:var(--muted);font-size:14px;margin-bottom:2px}
+nav a:hover{background:var(--hover);color:var(--fg)}
+nav a.on{background:var(--hover);color:var(--fg);font-weight:600}
+main{padding:24px 28px 60px;max-width:1100px}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:15px;margin:26px 0 10px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .muted{color:var(--muted)}.small{font-size:12px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.card.pad{padding:16px}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;padding:10px 14px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border)}
-td{padding:11px 14px;border-bottom:1px solid var(--border)}
+th{text-align:left;padding:10px 14px;color:var(--muted);font-size:12px;text-transform:uppercase;border-bottom:1px solid var(--border)}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:0}
 tr:hover td{background:var(--hover)}
 .num{text-align:right;font-family:var(--mono)}
-.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:10px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:13px}
+.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:9px;padding:5px 11px;cursor:pointer;font-family:inherit;font-size:13px}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
-input{padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
-#msg{color:var(--warn);font-size:13px;min-height:20px}
+.btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border))}
+input,select,textarea{padding:7px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px}
+textarea{width:100%;min-height:110px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--hover);color:var(--muted)}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.off{background:var(--warn-bg);color:var(--warn)}
+#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
+#toast.on{opacity:.95}
 .hide{display:none}
 </style>
 </head>
 <body>
-<header><div class="wrap">
-  <a class="brand" href="/">← 返回网站</a>
-  <span class="muted small">控制台</span>
-  <span class="spacer"></span>
-  <span id="who" class="muted small"></span>
-  <button id="logout" class="btn hide">退出</button>
-</div></header>
+<div class="layout">
+  <aside>
+    <a class="brand" href="/">← 返回网站</a>
+    <nav>
+      <a href="#users" class="on">用户管理</a>
+      <a href="#games">游戏管理</a>
+      <a href="#stats">数据统计</a>
+    </nav>
+    <div style="margin-top:20px" class="small muted" id="who"></div>
+    <button class="btn" id="logout" style="margin-top:8px" hidden>退出</button>
+  </aside>
 
-<main class="wrap">
-  <h1>控制台</h1>
-  <p class="muted small">只有管理员可见。普通账号可浏览网站，但不能进入这里。</p>
+  <main>
+    <h1>控制台</h1>
+    <p class="muted small">只有管理员可用。价格由采集器写入，这里不能改价。</p>
 
-  <div id="loginBox" class="card" style="padding:20px;max-width:380px">
-    <strong>管理员登录</strong>
-    <div class="row">
-      <input id="u" placeholder="用户名" autocomplete="username">
-      <input id="p" type="password" placeholder="密码" autocomplete="current-password">
+    <div id="loginBox" class="card pad" style="max-width:380px">
+      <strong>管理员登录</strong>
+      <div class="row"><input id="u" placeholder="用户名" autocomplete="username"></div>
+      <div class="row"><input id="p" type="password" placeholder="密码" autocomplete="current-password"></div>
+      <div class="row"><button id="login" class="btn primary">登录</button></div>
+      <div id="msg" class="small" style="color:var(--warn);min-height:18px"></div>
     </div>
-    <div class="row"><button id="login" class="btn primary">登录</button></div>
-    <div id="msg"></div>
-  </div>
 
-  <div id="panel" class="hide">
-    <h2>用户</h2>
-    <div class="card"><table><thead><tr><th>用户名</th><th>角色</th><th>创建</th><th>最近登录</th></tr></thead><tbody id="users"></tbody></table></div>
-
-    <h2>浏览排行（90 天内）</h2>
-    <div class="card"><table><thead><tr><th>页面</th><th class="num">次数</th><th>最近</th></tr></thead><tbody id="views"></tbody></table></div>
-
-    <h2>游戏标记</h2>
-    <div class="card" style="padding:16px">
-      <div class="row">
-        <input id="appid" placeholder="Steam appid，如 413150" style="width:200px">
-        <button class="btn" id="markInterest">切换 感兴趣/不感兴趣</button>
-        <button class="btn" id="markOwned">切换 已拥有</button>
+    <div id="app" class="hide">
+      <h2 id="users">用户管理</h2>
+      <div class="card">
+        <table>
+          <thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>最近登录</th><th style="width:260px">操作</th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
       </div>
-      <p class="muted small">标记只影响网站上的展示与推荐，不影响价格采集与统计。</p>
-      <div id="markMsg" class="small"></div>
+      <div class="card pad" style="margin-top:12px">
+        <strong class="small">新增用户</strong>
+        <div class="row">
+          <input id="nu" placeholder="用户名" style="width:150px">
+          <input id="np" placeholder="初始密码（≥6位）" style="width:180px">
+          <select id="nr"><option value="user">普通用户</option><option value="admin">管理员</option></select>
+          <button class="btn primary" id="addUser">创建</button>
+          <span id="addMsg" class="small muted"></span>
+        </div>
+      </div>
+
+      <h2 id="games">游戏管理</h2>
+      <div class="card pad">
+        <div class="row">
+          <input id="gappid" placeholder="Steam appid，如 413150" style="width:200px">
+          <button class="btn" id="loadGame">载入</button>
+          <button class="btn" id="toggleBlock" disabled>禁用/启用</button>
+          <span id="gMsg" class="small muted"></span>
+        </div>
+        <div id="gBox" class="hide">
+          <div class="small muted" id="gName" style="margin-bottom:6px"></div>
+          <textarea id="gdesc" placeholder="游戏说明（Steam 同步只在为空时填写，人工编辑会保留）"></textarea>
+          <div class="row"><button class="btn primary" id="saveDesc">保存说明</button></div>
+        </div>
+      </div>
+
+      <div class="card pad" style="margin-top:12px">
+        <strong class="small">同步 Steam</strong>
+        <div class="row">
+          <button class="btn primary" id="syncAll">一键同步全部 Steam 游戏</button>
+          <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；后台运行，完成后刷新列表可见</span>
+        </div>
+      </div>
+
+      <h2 id="stats">数据统计</h2>
+      <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
     </div>
-  </div>
-</main>
+  </main>
+</div>
+<div id="toast"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const when = (v) => (v ? new Date(v).toISOString().slice(0, 16).replace('T', ' ') : '—');
+let toastTimer = null;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 1600);
+}
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'content-type': 'application/json', ...(opts.headers ?? {}) },
+    ...opts,
+  });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
+  return body;
+}
 
-async function me() {
-  const d = await (await fetch('/api/me')).json();
+async function boot() {
+  const d = await api('/api/me');
   const admin = d.user && d.user.role === 'admin';
   $('who').textContent = d.user ? d.user.username + '（' + d.user.role + '）' : '未登录';
+  $('logout').hidden = !d.user;
   $('loginBox').classList.toggle('hide', !!admin);
-  $('panel').classList.toggle('hide', !admin);
-  $('logout').classList.toggle('hide', !d.user);
-  if (admin) await load();
-  else if (d.user) $('msg').textContent = '该账号不是管理员，无法进入控制台。';
+  $('app').classList.toggle('hide', !admin);
+  if (admin) { await loadUsers(); await loadStats(); }
+  else if (d.user) $('msg').textContent = '该账号不是管理员。';
 }
 
-async function load() {
-  const [u, v] = await Promise.all([(await fetch('/api/admin/users')).json(), (await fetch('/api/admin/views')).json()]);
-  $('users').innerHTML = (u.users ?? []).map((x) =>
-    '<tr><td>' + esc(x.username) + '</td><td>' + esc(x.role) + '</td><td class="muted small">' + when(x.created_at) +
-    '</td><td class="muted small">' + when(x.last_login_at) + '</td></tr>').join('') || '<tr><td colspan="4" class="muted">还没有用户</td></tr>';
-  $('views').innerHTML = (v.views ?? []).map((x) =>
-    '<tr><td>' + esc(x.path) + '</td><td class="num">' + x.views + '</td><td class="muted small">' + when(x.last_at) + '</td></tr>').join('') ||
-    '<tr><td colspan="3" class="muted">还没有记录（登录用户访问游戏详情会记录）</td></tr>';
+async function loadUsers() {
+  const { users } = await api('/api/admin/users');
+  $('userRows').innerHTML = (users ?? []).map((u) => {
+    const name = esc(u.username);
+    const disabled = u.disabled === true;
+    return '<tr>' +
+      '<td>' + name + '</td>' +
+      '<td class="muted small">' + esc(u.display_name ?? '') + '</td>' +
+      '<td>' + esc(u.role) + '</td>' +
+      '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? '已禁用' : '正常') + '</span></td>' +
+      '<td class="muted small">' + when(u.last_login_at) + '</td>' +
+      '<td>' +
+        '<button class="btn" data-act="rename" data-user="' + name + '">改名</button> ' +
+        '<button class="btn" data-act="pwd" data-user="' + name + '">改密码</button> ' +
+        '<button class="btn ' + (disabled ? '' : 'danger') + '" data-act="toggle" data-user="' + name + '" data-disabled="' + disabled + '">' + (disabled ? '启用' : '禁用') + '</button>' +
+      '</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">还没有用户</td></tr>';
 }
+
+async function patchUser(username, body) {
+  await api('/api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', body: JSON.stringify(body) });
+  await loadUsers();
+  toast('已更新 ' + username);
+}
+
+$('userRows').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const username = btn.dataset.user;
+  try {
+    if (btn.dataset.act === 'rename') {
+      const v = prompt('新的显示名（留空清除）：', '');
+      if (v === null) return;
+      await patchUser(username, { display_name: v });
+    } else if (btn.dataset.act === 'pwd') {
+      const v = prompt('新密码（≥6 位，保存后该用户会被强制重新登录）：', '');
+      if (!v) return;
+      await api('/api/admin/users/' + encodeURIComponent(username) + '/password', { method: 'POST', body: JSON.stringify({ password: v }) });
+      toast('密码已重置：' + username);
+    } else if (btn.dataset.act === 'toggle') {
+      const disabled = btn.dataset.disabled === 'true';
+      await patchUser(username, { disabled: !disabled });
+    }
+  } catch (err) { toast('失败：' + err.message); }
+});
+
+$('addUser').onclick = async () => {
+  try {
+    await api('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ username: $('nu').value.trim(), password: $('np').value, role: $('nr').value }),
+    });
+    $('nu').value = ''; $('np').value = '';
+    $('addMsg').textContent = '已创建';
+    await loadUsers();
+  } catch (err) { $('addMsg').textContent = '失败：' + err.message; }
+};
+
+async function loadStats() {
+  const { views } = await api('/api/admin/views');
+  $('viewRows').innerHTML = (views ?? []).map((v) =>
+    '<tr><td>' + esc(v.path) + '</td><td class="num">' + v.views + '</td><td class="muted small">' + when(v.last_at) + '</td></tr>').join('')
+    || '<tr><td colspan="3" class="muted">还没有浏览记录</td></tr>';
+}
+
+let currentGame = null;
+$('loadGame').onclick = async () => {
+  const appid = $('gappid').value.trim();
+  if (!/^\d+$/.test(appid)) { $('gMsg').textContent = '请填数字 appid'; return; }
+  try {
+    const { game } = await api('/api/games/' + appid);
+    currentGame = game;
+    $('gBox').classList.remove('hide');
+    $('toggleBlock').disabled = false;
+    $('gName').textContent = (game.name ?? appid) + (game.blocked ? '（已禁用）' : '');
+    $('gdesc').value = game.description ?? '';
+    $('gMsg').textContent = '';
+  } catch (err) { $('gMsg').textContent = '载入失败：' + err.message; }
+};
+
+$('toggleBlock').onclick = async () => {
+  if (!currentGame) return;
+  try {
+    await api('/api/games/' + currentGame.steam_appid + '/blocked', {
+      method: 'POST', body: JSON.stringify({ blocked: !currentGame.blocked }),
+    });
+    currentGame.blocked = !currentGame.blocked;
+    $('gName').textContent = (currentGame.name ?? '') + (currentGame.blocked ? '（已禁用）' : '');
+    toast(currentGame.blocked ? '已禁用，网站不再显示' : '已恢复显示');
+  } catch (err) { toast('失败：' + err.message); }
+};
+
+$('saveDesc').onclick = async () => {
+  if (!currentGame) return;
+  try {
+    await api('/api/games/' + currentGame.steam_appid + '/description', {
+      method: 'POST', body: JSON.stringify({ description: $('gdesc').value, overwrite: true }),
+    });
+    toast('说明已保存');
+  } catch (err) { toast('失败：' + err.message); }
+};
+
+$('syncAll').onclick = async () => {
+  try {
+    const r = await api('/api/admin/sync', { method: 'POST' });
+    $('syncMsg').textContent = '已开始（pid ' + r.pid + '），完成后刷新网站列表';
+    toast('同步已开始');
+  } catch (err) { $('syncMsg').textContent = '失败：' + err.message; }
+};
 
 $('login').onclick = async () => {
   $('msg').textContent = '';
-  const res = await fetch('/api/login', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: $('u').value, password: $('p').value }),
-  });
-  const body = await res.json();
-  if (!res.ok) { $('msg').textContent = body.error ?? '登录失败'; return; }
-  await me();
+  try {
+    await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('u').value, password: $('p').value }) });
+    await boot();
+  } catch (err) { $('msg').textContent = err.message; }
 };
+$('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); await boot(); };
 
-$('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); await me(); };
-
-async function mark(kind) {
-  const appid = $('appid').value.trim();
-  if (!/^\d+$/.test(appid)) { $('markMsg').textContent = '请填数字 appid'; return; }
-  const cur = await fetch('/api/games/' + appid);
-  if (!cur.ok) { $('markMsg').textContent = '库里没有这个 appid'; return; }
-  const { game } = await cur.json();
-  const body = kind === 'interest' ? { interested: game.interested === false } : { owned: !game.owned };
-  const res = await fetch('/api/games/' + appid + '/' + kind, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-  });
-  $('markMsg').textContent = res.ok ? '已更新 ' + (game.name ?? appid) : '更新失败（需要管理员）';
-}
-$('markInterest').onclick = () => mark('interest');
-$('markOwned').onclick = () => mark('owned');
-
-me();
+boot();
 </script>
 </body>
 </html>

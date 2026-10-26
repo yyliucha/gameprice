@@ -180,9 +180,7 @@ function render() {
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
-    const link = g.steam_appid
-      ? '<a href="#" data-appid="' + esc(g.steam_appid) + '">' + esc(g.name) + '</a>'
-      : esc(g.name);
+    const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
       '<td><div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
       '<td class="num">' + yuan(g.current_low) + (gap != null ? '<div class="small muted">比次低便宜 ' + yuan(gap) + '</div>' : '') + '</td>' +
@@ -322,12 +320,12 @@ function chartSvg(series) {
     '</svg>';
 }
 
-async function openDetail(appid) {
+async function openDetail(appid, gid) {
   const dlg = document.getElementById('detailDlg');
   const box = document.getElementById('detail');
   box.innerHTML = '<p class="muted">加载中…</p>';
   dlg.showModal();
-  const res = await fetch('/api/games/' + appid);
+  const res = await fetch(appid ? '/api/games/' + appid : '/api/games/by-id/' + gid);
   if (!res.ok) { box.innerHTML = '<p class="muted">没有这个游戏</p>'; return; }
   const d = await res.json();
   const g = d.game;
@@ -382,10 +380,10 @@ async function openDetail(appid) {
 }
 
 document.getElementById('rows').addEventListener('click', (e) => {
-  const a = e.target.closest('a[data-appid]');
+  const a = e.target.closest('a[data-gid]');
   if (!a) return;
   e.preventDefault();
-  openDetail(a.dataset.appid);
+  openDetail(a.dataset.appid || null, a.dataset.gid);
 });
 
 me().then(load);
