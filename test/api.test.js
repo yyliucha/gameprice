@@ -156,3 +156,30 @@ test('密码哈希：加盐、可校验、不存明文', async () => {
   assert.equal(db.verifyPassword('secret124', a), false);
   assert.equal(db.verifyPassword('secret123', 'garbage'), false);
 });
+
+test('已拥有标记：匿名 401、普通用户 403、管理员可改', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const anon = await fetch(base + '/api/games/413150/owned', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owned: true }),
+    });
+    assert.equal(anon.status, 401);
+
+    const alice = await login(base, 'alice', 'alice123456');
+    const forbidden = await fetch(base + '/api/games/413150/owned', {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: alice.cookie }, body: JSON.stringify({ owned: true }),
+    });
+    assert.equal(forbidden.status, 403);
+
+    const admin = await login(base, 'admin', 'admin123456');
+    const ok = await fetch(base + '/api/games/413150/owned', {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: admin.cookie }, body: JSON.stringify({ owned: true }),
+    });
+    assert.equal(ok.status, 200);
+    const row = (await q('select owned from games where steam_appid = 413150')).rows[0];
+    assert.equal(row.owned, true, '标记要落库');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});

@@ -200,6 +200,18 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { game: row });
       }
 
+      // ---- 管理员：标记已拥有 ----
+      const ownedMatch = path.match(/^\/api\/games\/(\d+)\/owned$/);
+      if (ownedMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const appid = Number(ownedMatch[1]);
+        const row = await db.setOwned(q, { steamAppid: appid, owned: Boolean(body.owned) });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.owned', { appid, owned: row.owned, by: user.username });
+        return json(res, 200, { game: row });
+      }
+
       if (path === '/api/admin/users' && req.method === 'GET') {
         if (!requireAdmin()) return;
         return json(res, 200, { users: await db.listUsers(q) });

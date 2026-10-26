@@ -105,6 +105,10 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   </form>
 </dialog>
 
+<dialog id="detailDlg">
+  <div id="detail"></div>
+</dialog>
+
 <script>
 const state = { games: [], tab: 'all', sort: 'discount', user: null };
 
@@ -143,8 +147,11 @@ function render() {
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
+    const link = g.steam_appid
+      ? '<a href="#" data-appid="' + esc(g.steam_appid) + '">' + esc(g.name) + '</a>'
+      : esc(g.name);
     return '<tr>' +
-      '<td><div class="name">' + esc(g.name) + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
+      '<td><div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
       '<td class="num">' + yuan(g.current_low) + (gap != null ? '<div class="small muted">比次低便宜 ' + yuan(gap) + '</div>' : '') + '</td>' +
       '<td class="num">' + yuan(g.current_original) + '</td>' +
       '<td class="num">' + pct(g.discount) + '</td>' +
@@ -215,6 +222,95 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   msg.textContent = '';
   dlg.close();
   await me();
+});
+
+// ---------------- 详情页 ----------------
+
+function chartSvg(series) {
+  const pts = (series ?? []).filter((p) => p && p.price_cents != null);
+  if (pts.length < 2) return '<p class="muted small">数据不足，采集几天后会有走势</p>';
+  const W = 620, H = 150, pad = 24;
+  const prices = pts.map((p) => p.price_cents);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const span = max - min || 1;
+  const step = (W - pad * 2) / (pts.length - 1);
+  const xy = pts.map((p, i) => [pad + i * step, pad + (H - pad * 2) * (1 - (p.price_cents - min) / span)]);
+  const line = xy.map((c, i) => (i ? 'L' : 'M') + c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const area = line + ' L' + (W - pad).toFixed(1) + ',' + (H - pad) + ' L' + pad + ',' + (H - pad) + ' Z';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+    '<path d="' + area + '" fill="rgba(14,165,233,.12)"/>' +
+    '<path d="' + line + '" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linejoin="round"/>' +
+    '<text x="' + pad + '" y="' + (H - 6) + '" font-size="11" fill="#94a3b8">' + esc(pts[0].day) + '</text>' +
+    '<text x="' + (W - pad) + '" y="' + (H - 6) + '" font-size="11" fill="#94a3b8" text-anchor="end">' + esc(pts[pts.length - 1].day) + '</text>' +
+    '<text x="' + pad + '" y="' + (pad - 6) + '" font-size="11" fill="#94a3b8">最高 ' + yuan(max) + '</text>' +
+    '<text x="' + (W - pad) + '" y="' + (pad - 6) + '" font-size="11" fill="#94a3b8" text-anchor="end">最低 ' + yuan(min) + '</text>' +
+    '</svg>';
+}
+
+async function openDetail(appid) {
+  const dlg = document.getElementById('detailDlg');
+  const box = document.getElementById('detail');
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  dlg.showModal();
+  const res = await fetch('/api/games/' + appid);
+  if (!res.ok) { box.innerHTML = '<p class="muted">没有这个游戏</p>'; return; }
+  const d = await res.json();
+  const g = d.game;
+  const facts = [];
+  if (g.developers?.length) facts.push('开发商 ' + esc(g.developers.join(' / ')));
+  if (g.publishers?.length) facts.push('发行商 ' + esc(g.publishers.join(' / ')));
+  const genres = (g.genres ?? []).filter((x) => !String(x).startsWith('tag:'));
+  if (genres.length) facts.push('分类 ' + genres.map((x) => '<span class="pill">' + esc(x) + '</span>').join(' '));
+
+  const offers = (d.offers ?? []).map((o) =>
+    '<tr><td>' + esc(o.platform_name ?? o.platform_code) + '</td>' +
+    '<td class="num">' + yuan(o.price_cents) + '</td>' +
+    '<td class="num">' + yuan(o.original_cents) + '</td>' +
+    '<td class="num">' + pct(o.discount_pct) + '</td>' +
+    '<td>' + (o.buy_url ? '<a href="' + esc(o.buy_url) + '" target="_blank" rel="noopener noreferrer nofollow">去购买</a>' : '—') + '</td></tr>'
+  ).join('') || '<tr><td colspan="5" class="muted">当前没有在售报价</td></tr>';
+
+  const admin = state.user?.role === 'admin'
+    ? '<div class="bar"><button class="btn" id="toggleInterest">' + (g.interested === false ? '标记为感兴趣' : '标记不感兴趣') + '</button>' +
+      '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
+    : '';
+
+  box.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:start;gap:12px">' +
+    '<div><strong style="font-size:18px">' + esc(g.name) + '</strong>' +
+    (g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '') +
+    '<div class="muted small">' + facts.join(' · ') + '</div></div>' +
+    '<button class="btn" id="closeDetail">关闭</button></div>' +
+    '<div class="bar"><span class="pill">现价 ' + yuan(g.current_low) + '</span>' +
+    '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
+    '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
+    chartSvg(d.series) + admin +
+    '<div class="card" style="margin-top:12px"><table><thead><tr><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
+
+  document.getElementById('closeDetail').onclick = () => dlg.close();
+  if (admin) {
+    document.getElementById('toggleInterest').onclick = async () => {
+      await fetch('/api/games/' + appid + '/interest', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ interested: g.interested === false }),
+      });
+      dlg.close(); await load();
+    };
+    document.getElementById('toggleOwned').onclick = async () => {
+      await fetch('/api/games/' + appid + '/owned', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ owned: !g.owned }),
+      });
+      dlg.close(); await load();
+    };
+  }
+}
+
+document.getElementById('rows').addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-appid]');
+  if (!a) return;
+  e.preventDefault();
+  openDetail(a.dataset.appid);
 });
 
 me().then(load);
