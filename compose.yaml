@@ -89,5 +89,29 @@ services:
       retries: 3
       start_period: 40s
 
+  # 内置静态页服务：直接 IP:端口 访问，不需要外部 nginx（80 被占用时也不冲突）
+  # 只读页面，不连数据库；与 app 共用同一个镜像
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gameprice:latest
+    restart: unless-stopped
+    command: ["serve", "--port", "8080", "--dir", "data/out"]
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "${WEB_PORT:-8090}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   pgdata:

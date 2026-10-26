@@ -109,6 +109,7 @@
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
+| 内置静态页服务 | ✅ | `serve` 命令 / compose 的 `web` 服务，直接 `IP:端口` 访问，不依赖 nginx |
 | 曲线页自动重建 | ✅ | 采集成功后由调度器自动刷新 `out/`（`CHART_ON_SYNC=0` 可关） |
 | 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重 |
 | 提醒通道 | ✅ | webhook / 企业微信机器人 / 邮件（SMTP，支持 STARTTLS 与 AUTH PLAIN/LOGIN） |
@@ -274,6 +275,7 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `match` | 把杉果 SKU 对齐到 Steam 游戏（`--apply` 自动、`--confirm <skuId> <appid>` 手工）✅ |
 | `compare <appid>` | 多区服对比（`--region cn` 只看单区、`--json` 机器可读）✅ |
 | `import steam` | 导入游戏信息（`--appids 730,570` / `--urls <链接>` / `--file 清单`；`--backend auto\|official\|steamcmd`）✅ |
+| `serve` | 内置静态页服务（`--port 8090`、`--dir out`、`--host 0.0.0.0`）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
 | `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
@@ -319,7 +321,8 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `GOG_ENABLED` / `GOG_INTERVAL_MIN` | `1` / `720` | GOG 采集开关与间隔 |
 | `GOG_REGIONS` | `cn` | 多区服采集，逗号分隔（`cn,us,tr` 等；仅 GOG 支持） |
 | `CHART_ON_SYNC` | `1` | 采集成功后自动重建静态页；置 `0` 关闭 |
-| `OUT_DIR` | `out` | 静态页输出目录（容器内为 `/app/out`） |
+| `OUT_DIR` | `out` | 静态页输出目录（容器内为 `/app/out`；用内置服务时设 `data/out`） |
+| `WEB_PORT` | `8090` | 内置静态页服务的宿主机端口（容器内固定 8080） |
 | `STEAM_PROXY` | 空 | **只**给 Steam 域名用的代理（国内服务器必配）；支持 `http(s)://`，不支持 socks5 |
 | `HTTPS_PROXY` | 空 | 通用出网代理（受 `NO_PROXY` 排除） |
 | `NO_PROXY` | 空 | 排除列表，逗号分隔，支持后缀与 `*` |
@@ -418,6 +421,7 @@ node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校�
 node test/steam-meta.test.js # 11 项：appid 解析、双后端归一化、官方不可用时自动回落
 node test/gamemeta.test.js   # 5 项：元数据只补空缺、不覆盖人工维护的名字
 node test/proxy.test.js      # 10 项：代理决策、NO_PROXY、密码脱敏、本地代理真实转发
+node test/serve.test.js      # 5 项：路径穿越防护、内容类型、GET/HEAD/405
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
 node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
@@ -435,7 +439,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **185 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **195 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

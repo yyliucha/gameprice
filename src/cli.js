@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
 import * as db from './store/pg.js';
@@ -22,6 +22,7 @@ import { bestMatch, confidenceLabel } from './match.js';
 import { renderCompare, groupOffersByRegion } from './compare.js';
 import { extractAppId, fetchMetadata } from './adapters/steam-meta.js';
 import { describeProxy } from './proxy.js';
+import { startStaticServer } from './serve.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -803,6 +804,34 @@ async function cmdImport() {
   console.log('下一步：node src/cli.js list，或直接 node src/cli.js chart 看页面');
 }
 
+/** 内置静态页服务：直接 IP:端口 访问生成好的页面，不需要外部 nginx。 */
+async function cmdServe() {
+  const port = Number(flag('port', process.env.WEB_PORT ?? process.env.PORT ?? 8090));
+  const dir = String(flag('dir', process.env.OUT_DIR ?? 'out'));
+  const host = String(flag('host', '0.0.0.0'));
+  if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+    console.warn(`目录 ${dir} 不存在，已创建；先跑 node src/cli.js chart 生成页面`);
+  }
+
+  const srv = await startStaticServer({ rootDir: dir, port, host, logger });
+  const shown = srv.host === '0.0.0.0' ? '<服务器IP>' : srv.host;
+  console.log(`静态页服务已启动：http://${shown}:${srv.port}/`);
+  console.log(`目录：${dir}（采集完成后自动重建，刷新即可）`);
+  console.log('Ctrl+C 停止');
+
+  await new Promise((done) => {
+    const stop = () => {
+      logger.info('web.stopping', {});
+      srv.close().then(done);
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', process.env.OUT_DIR ?? 'out'));
   const days = Number(flag('days', 90));
@@ -959,6 +988,7 @@ const commands = {
   match: cmdMatch,
   compare: cmdCompare,
   import: cmdImport,
+  serve: cmdServe,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -997,6 +1027,7 @@ async function main() {
   match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
   compare <appid>      多区服对比（--region 只看某区、--json 机器可读）
   import steam         导入 Steam 游戏信息（--appids / --urls / --file，双后端自动回落）
+  serve                内置静态页服务：直接 IP:端口 访问页面（--port 8090 --dir out）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）

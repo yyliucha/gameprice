@@ -100,6 +100,17 @@ test('教程必须先建目录再 chown（logs/out 不在仓库里）', () => {
   assert.ok(existsSync(new URL('../data/wishlist.example.txt', import.meta.url)), '缺少 wishlist 模板');
 });
 
+test('内置静态页服务：不依赖 nginx，端口可配置', () => {
+  const doc = parse(read('compose.yaml'));
+  const web = doc.services.web;
+  assert.ok(web, '缺少 web 服务');
+  assert.equal(web.image, 'gameprice:latest', '复用同一镜像');
+  assert.deepEqual(web.command, ['serve', '--port', '8080', '--dir', 'data/out']);
+  assert.deepEqual(web.ports, ['${WEB_PORT:-8090}:8080'], '默认 8090，避免和已有 nginx(80)/其他服务冲突');
+  assert.ok(!JSON.stringify(doc).includes('nginx'), '不应引入外部 nginx');
+  assert.ok(web.healthcheck, 'web 需要健康检查');
+});
+
 test('.env.example 覆盖 compose 用到的可配置项', () => {
   const example = read('.env.example');
   for (const key of ['COMPOSE_PROFILES', 'POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {

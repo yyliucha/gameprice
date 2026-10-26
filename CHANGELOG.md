@@ -2,6 +2,33 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.14.0] - 2026-10-26
+
+不用 nginx，直接 `IP:端口` 看页面。
+
+### 新增
+
+- **内置静态页服务** `serve`（`src/serve.js`，零依赖，用 node:http）
+  - compose 新增 `web` 服务，复用同一个镜像，默认对外 **8090**（避开已被占用的 80）
+  - `WEB_PORT` 可改端口，`OUT_DIR` 决定服务哪个目录
+  - 安全边界：只读 `OUT_DIR` 之内（路径穿越 403）、只允许 GET/HEAD（其余 405）、
+    HTML 不缓存（页面上是价格）、`x-content-type-options: nosniff`
+- `serve --port/--dir/--host`，`--port 0` 时由系统分配
+
+### 说明
+
+宿主机上常有 nginx 占着 80，且用户只想"IP+端口直接访问"。为此不引 nginx、不加反代，
+而是把静态服务做进应用：少一个组件就少一处故障点。想挂到已有 nginx 也可以，
+把 `OUT_DIR` 设成 `data/out`，nginx 直接指过去（教程里有配置）。
+
+### 验证
+
+- `test/serve.test.js` 5 项：路径穿越（含 URL 编码 `../` 与空字节）、内容类型、GET/HEAD/405
+- 真实运行：对着 48 款游戏的生成目录起服务，
+  `GET /` 200（14KB）、`GET /game-105600.html` 200、`GET /nope` 404、`HEAD /` 只有头
+- 部署测试新增断言：web 服务复用镜像、端口 `${WEB_PORT:-8090}:8080`、不含 nginx
+- 合计 195 项
+
 ## [0.13.0] - 2026-10-26
 
 修掉两个会让首次部署直接失败的坑（是我之前的"零配置"说法不够准确）。

@@ -184,42 +184,59 @@ docker compose exec app node src/cli.js notify-test
 
 ---
 
-## 7. 看价格页
+## 7. 看价格页（内置服务，直接 IP:端口）
 
-页面在容器里的 `/app/out`（每轮采集后自动重建）。想让它在宿主机上能被 nginx 托管，
-把输出目录改到已挂载的 `data` 下：
-
-```bash
-echo 'OUT_DIR=data/out' >> .env
-docker compose up -d app
-docker compose exec app node src/cli.js chart     # 立刻生成一次
-ls data/out | head                                 # 宿主机上就能看到了
-```
-
-然后二选一：
-
-**A. 只是自己看** —— 拷到本地：
+镜像里自带一个静态页服务，**不需要 nginx，也不占 80 端口**（宿主机上已有 nginx 也不冲突）。
 
 ```bash
-docker compose cp app:/app/out ./out
-# 本地用浏览器直接打开 out/index.html
+echo 'OUT_DIR=data/out' >> .env      # 页面落到宿主机 data/out
+docker compose up -d --force-recreate --no-deps app
+docker compose exec app node src/cli.js chart
+
+docker compose up -d web             # 起内置服务
+docker compose ps                     # web 应监听 0.0.0.0:8090
 ```
 
-**B. 长期对外** —— 加个 nginx（记得在云厂商安全组放行 80）：
+访问 **`http://你的公网IP:8090/`**（安全组放行 TCP 8090）。
+
+换端口就改 `.env` 里的 `WEB_PORT`，然后 `docker compose up -d web`。
+
+页面是静态 HTML，采集完成后由调度器自动重建，**刷新浏览器即可，不用重启服务**。
+
+### 可选：只给自己看
+
+把端口绑到回环地址，或用 nginx 反代加密码：
 
 ```yaml
 # compose.override.yaml
 services:
   web:
-    image: nginx:alpine
-    restart: unless-stopped
-    ports: ["80:80"]
-    volumes:
-      - ./data/out:/usr/share/nginx/html:ro
+    ports: ["127.0.0.1:8090:8080"]
 ```
 
 ```bash
 docker compose up -d web
+# 然后从本机 SSH 隧道访问：ssh -L 8090:127.0.0.1:8090 root@服务器
+```
+
+### 可选：用现成的 nginx 托管
+
+如果你更想挂在已有的 nginx 下（80/443 已在用）：
+
+```bash
+# 页面已经在宿主机 data/out 里了，nginx 直接指过去
+# /etc/nginx/conf.d/gameprice.conf
+server {
+    listen 80;
+    server_name prices.example.com;
+    root /root/gameprice/data/out;
+    location / { try_files $uri $uri/ =404; }
+}
+```
+
+```bash
+nginx -t && systemctl reload nginx
+docker compose rm -sf web            # 内置服务可以停掉
 ```
 
 ---
