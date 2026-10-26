@@ -3,12 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "个人用：国区官方渠道游戏比价 + 价格历史",
+  "description": "中文游戏的价格履历：Steam 国区 / 杉果 / ITAD 官方渠道比价 + 价格历史，PostgreSQL 存储，Docker 一键部署",
+  "license": "MIT",
+  "author": "yyliucha <jacksunyx@outlook.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyliucha/gameprice.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yyliucha/gameprice/issues"
+  },
+  "homepage": "https://github.com/yyliucha/gameprice#readme",
+  "keywords": [
+    "game-price",
+    "price-tracker",
+    "price-history",
+    "steam",
+    "sonkwo",
+    "itad",
+    "postgresql",
+    "docker",
+    "nodejs"
+  ],
   "engines": {
     "node": ">=22.5.0"
   },
   "scripts": {
-    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/scheduler.test.js && node test/deploy.test.js",
+    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/scheduler.test.js && node test/deploy.test.js && node test/docs.test.js",
     "init": "node src/cli.js init",
     "bootstrap": "node src/cli.js bootstrap",
     "ping": "node src/cli.js ping",
