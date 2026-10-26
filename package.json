@@ -1,0 +1,32 @@
+{
+  "name": "gameprice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "个人用：国区官方渠道游戏比价 + 价格历史",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/scheduler.test.js && node test/deploy.test.js",
+    "init": "node src/cli.js init",
+    "bootstrap": "node src/cli.js bootstrap",
+    "ping": "node src/cli.js ping",
+    "scheduler": "node src/scheduler.js",
+    "seed": "node src/cli.js seed",
+    "sync:steam": "node src/cli.js sync steam",
+    "sync:sonkwo": "node src/cli.js sync sonkwo",
+    "sync:itad": "node src/cli.js sync itad",
+    "list": "node src/cli.js list",
+    "stats": "node src/cli.js stats",
+    "diagnose": "node src/cli.js diagnose",
+    "logs": "node src/cli.js logs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
+}

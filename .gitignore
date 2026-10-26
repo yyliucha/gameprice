@@ -1,0 +1,10 @@
+node_modules/
+logs/
+data/pgdata/
+data/*.jsonl
+.env
+.env.local
+.npm-cache/
+*.db
+*.db-wal
+*.db-shm

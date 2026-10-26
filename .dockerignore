@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log*
+.npm-cache
+.git
+.gitignore
+logs
+data/pgdata
+data/*.jsonl
+data/*.db
+data/*.db-*
+test
+docs
+*.md
+!README.md
+.env
+.env.*
+!.env.example

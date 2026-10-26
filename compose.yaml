@@ -1,0 +1,62 @@
+name: gameprice
+
+# 默认带一个 PostgreSQL 15（和你线上 15.17 同大版本）。
+# 若要用你自己的外部数据库：把 .env 里的 COMPOSE_PROFILES 清空、填好 DATABASE_URL，
+# 然后 `docker compose up -d --build` 就只会起 app。
+services:
+  db:
+    image: postgres:15-alpine
+    profiles: ["bundled"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gameprice}
+      POSTGRES_USER: ${POSTGRES_USER:-gameprice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里设置 POSTGRES_PASSWORD（别用默认值）}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gameprice:latest
+    restart: unless-stopped
+    # required: false 让"只用外部数据库"时不必启动 db（Compose ≥ 2.20）
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-gameprice}:${POSTGRES_PASSWORD:-gameprice}@db:5432/${POSTGRES_DB:-gameprice}}
+      TZ: ${TZ:-Asia/Shanghai}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SEED_ON_START: ${SEED_ON_START:-1}
+      DB_WAIT_SEC: ${DB_WAIT_SEC:-60}
+      RUN_MODE: ${RUN_MODE:-scheduler}
+      ITAD_API_KEY: ${ITAD_API_KEY:-}
+      STEAM_ENABLED: ${STEAM_ENABLED:-1}
+      SONKWO_ENABLED: ${SONKWO_ENABLED:-1}
+      ITAD_ENABLED: ${ITAD_ENABLED:-1}
+      STEAM_INTERVAL_MIN: ${STEAM_INTERVAL_MIN:-60}
+      SONKWO_INTERVAL_MIN: ${SONKWO_INTERVAL_MIN:-60}
+      ITAD_INTERVAL_MIN: ${ITAD_INTERVAL_MIN:-1440}
+    volumes:
+      # 日志和 SKU 清单放宿主机，容器重建不丢
+      - ./logs:/app/logs
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "src/cli.js", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  pgdata:

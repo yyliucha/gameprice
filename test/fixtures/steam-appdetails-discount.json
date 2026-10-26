@@ -1,0 +1,48 @@
+{
+  "730": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Counter-Strike 2",
+      "steam_appid": 730,
+      "is_free": true
+    }
+  },
+  "999999": {
+    "success": false
+  },
+  "1091500": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "赛博朋克 2077",
+      "steam_appid": 1091500,
+      "is_free": false,
+      "price_overview": {
+        "currency": "CNY",
+        "initial": 29800,
+        "final": 9900,
+        "discount_percent": 67,
+        "initial_formatted": "¥ 298.00",
+        "final_formatted": "¥ 99.00"
+      }
+    }
+  },
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "艾尔登法环",
+      "steam_appid": 1245620,
+      "is_free": false,
+      "price_overview": {
+        "currency": "CNY",
+        "initial": 39800,
+        "final": 39800,
+        "discount_percent": 0,
+        "initial_formatted": "¥ 398.00",
+        "final_formatted": "¥ 398.00"
+      }
+    }
+  }
+}
