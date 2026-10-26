@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "中文游戏的价格履历：Steam 国区 / 杉果 / ITAD 官方渠道比价 + 价格历史，PostgreSQL 存储，Docker 一键部署",
+  "description": "中文游戏的价格履历：官方渠道比价 + 价格历史。PostgreSQL 15 存储，CLI 与 Docker 部署；当前可用采集源为杉果，Steam 与 ITAD 待网络/凭据就绪。",
   "license": "MIT",
   "author": "yyliucha <jacksunyx@outlook.com>",
   "repository": {

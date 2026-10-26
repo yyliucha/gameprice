@@ -13,6 +13,7 @@
 
 ## 目录
 
+- [现在的真实状态](#现在的真实状态)
 - [它解决什么](#它解决什么)
 - [它明确不做什么](#它明确不做什么)
 - [功能](#功能)
@@ -31,6 +32,28 @@
 - [许可与免责](#许可与免责)
 
 ---
+
+## 现在的真实状态
+
+一句话：**开箱即用的只有杉果。**
+
+| 能力 | 状态 | 依据 |
+|---|---|---|
+| 杉果价格采集 | ✅ 已跑通 | 真实页面端到端验证：解析 ¥198 → 入库 → 写快照 |
+| 价格历史 / 史低判断 | ✅ 已跑通 | 53 项测试，含真 PG 语义（PGlite）验证 |
+| 只收官方渠道的结构约束 | ✅ 已生效 | 视图 + 查询层双重过滤 + 回归断言 |
+| 定时采集调度 | ✅ 已跑通 | 子进程隔离实测：真实任务完成、单任务失败不影响调度器 |
+| 结构化日志 / 自检 | ✅ 已跑通 | `diagnose` 输出 11 项检查并落盘 |
+| Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
+| ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
+| Docker 部署 | ⚠️ 文件齐备，**镜像未真实构建过** | 开发机无 Docker；已用 `npm ci --omit=dev` + 容器启动路径等价验证 |
+| 价格曲线网页 | 🚧 未实现 | `daily_prices` 已按天聚合，缺前端 |
+| 降价提醒 | 🚧 未实现 | **没有 watchlist 表**，仅路线图 |
+| 多区服对比 | 🚧 未实现 | `region` 维度已在数据模型里 |
+| 小黑盒商城 | ⏸ 评估后暂缓 | 无公开接口，需逆向 `hkey` 签名 |
+| SteamPy | ⏸ 不接入 | 商品接口全部要求登录态（401），且是 C2C |
+
+> 这张表随代码更新。**任何标 ✅ 的能力都必须能被测试或一次真实运行验证**；做不到就写 ⚠️。
 
 ## 它解决什么
 
@@ -55,19 +78,24 @@
 
 ## 功能
 
-| 能力 | 状态 | 说明 |
+状态含义：**✅ 已验证** / **⚠️ 已实现但受限或未验证** / **🚧 未实现** / **⏸ 评估后暂缓**
+
+| 功能 | 状态 | 说明 |
 |---|---|---|
-| Steam 国区价格采集 | ✅ | 官方 `appdetails`，批量 + 限速 |
-| 杉果价格采集 | ✅ | 商品页内嵌 JSON 解析（不依赖 DOM 选择器） |
-| ITAD 官方 API | ✅ | 40+ 海外授权店，需自备免费 key |
-| 价格历史与史低判断 | ✅ | 变化才写快照，按天聚合，终端直接画轨迹 |
-| 只收官方渠道的结构约束 | ✅ | 数据库视图 + 查询层双重过滤 |
-| 定时采集调度 | ✅ | 每个平台独立子进程，崩溃不影响其它任务 |
-| 结构化日志与自检 | ✅ | JSONL + runId 串联 + 密钥脱敏 + `diagnose` |
-| Docker 一键部署 | ✅ | 非 root、tini、healthcheck、内置 PG 15 |
-| 价格曲线图（网页） | 🚧 | 数据已按天聚合好，缺前端 |
-| 降价提醒（邮件/微信） | 🚧 | 表结构已预留 `watchlist` 语义 |
-| 小黑盒商城 | ⏸ | 无公开接口，需逆向 `hkey` 签名，评估后暂缓 |
+| Steam 国区采集 | ⚠️ | 官方 `appdetails`，批量 + 限速；单测覆盖解析，真实网络被阻断 |
+| 杉果采集 | ✅ | 商品页内嵌 JSON 解析，不依赖 DOM 选择器；真实页面验证 |
+| ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
+| 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
+| 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
+| 定时采集 | ✅ | 每平台独立子进程，默认每小时 / 每天 |
+| 结构化日志 | ✅ | JSONL + `runId` 串联 + 密钥脱敏 + 轮转 |
+| 自检 `diagnose` | ✅ | 环境 / 数据库 / 网络逐项检查，报告落盘 |
+| 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
+| Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
+| 价格曲线网页 | 🚧 | 数据已就绪 |
+| 收藏与降价提醒 | 🚧 | 无表结构 |
+| Fanatical / Humble / GOG | 🚧 | 站点可直连，适配器未写；`platforms` 字典已预留 code |
+| 多区服对比 | 🚧 | 模型已支持，未做展示 |
 
 ## 设计原则
 
@@ -95,7 +123,7 @@
                         │  src/adapters/    每平台一个，统一吐 RawOffer │
                         │  ├ steam.js   官方 appdetails（批量+限速）  │
                         │  ├ sonkwo.js  商品页 → 内嵌 JSON → 报价     │
-                        │  └ itad.js    官方 REST API（40+ 海外店）   │
+                        │  └ itad.js    官方 REST API（按商店拆分）    │
                         └──────────────────┬───────────────────────┘
                                            │  RawOffer
                                            ▼
@@ -136,7 +164,7 @@ cli.js 生成 runId
 
 ## 快速开始
 
-### 方式一：Docker（推荐）
+### 方式一：Docker
 
 ```bash
 cp .env.example .env          # 至少改 POSTGRES_PASSWORD
@@ -145,13 +173,13 @@ docker compose ps             # app 应为 healthy
 docker compose logs -f app    # 看到 bootstrap.done 即启动成功
 ```
 
-自带 `postgres:15-alpine`。`app` 启动后先建表、首次导入游戏，然后进入常驻调度器，按间隔自动采集。
+自带 `postgres:15-alpine`。`app` 启动后先建表、首次导入游戏，然后进入常驻调度器。
 
-用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL` 即可，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
-镜像特征：非 root 运行、`tini` 转发信号、`npm ci --omit=dev`、healthcheck 走 `node src/cli.js ping`。
+> 镜像本身尚未在真实 Docker 环境验证过（开发机无 Docker）。首次部署请按 [DEPLOY.md 的故障排查表](docs/DEPLOY.md#故障排查) 对照日志。
 
-### 方式二：本地运行
+### 方式二：本地运行（推荐先这样验证）
 
 要求 **Node ≥ 22.5**、**PostgreSQL ≥ 15**（开发机上实测 15.17）。
 
@@ -170,12 +198,12 @@ node src/cli.js init --db pglite:./data/pgdata
 node src/cli.js seed --db pglite:./data/pgdata
 ```
 
-### 验证安装是否正常
+### 确认安装正常
 
 ```bash
-node src/cli.js ping          # 只验证数据库，静默退出 0
-node src/cli.js sync sonkwo --limit 1    # 这一个源国内网络可直接访问
-node src/cli.js list
+node src/cli.js ping                      # 只验证数据库，静默退出 0
+node src/cli.js sync sonkwo --limit 1     # 唯一开箱即用的源，真实抓一次
+node src/cli.js list                      # 应能看到价格与史低标记
 ```
 
 ## 命令参考
@@ -192,9 +220,9 @@ node src/cli.js list
 
 | 命令 | 说明 |
 |---|---|
-| `sync steam` | Steam 国区价格（`--limit 500`） |
-| `sync sonkwo` | 按 `data/skus.json` 抓杉果（`--limit`、`--rate 1200`） |
-| `sync itad` | ITAD 官方 API（需 `ITAD_API_KEY`，未配置则跳过） |
+| `sync steam` | Steam 国区价格（`--limit 500`）⚠️ 需能访问 Steam |
+| `sync sonkwo` | 按 `data/skus.json` 抓杉果（`--limit`、`--rate 1200`）✅ |
+| `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `add-sku <id...>` | 往 `data/skus.json` 加 SKU，`--appid 123` 关联 Steam 游戏 |
 
 **运维与排障**
@@ -207,8 +235,18 @@ node src/cli.js list
 | `seed` | 从 `data/games.json` 导入游戏 |
 | `logs` | 查日志（`--level` `--event` `--run` `--since`） |
 | `diagnose` | 环境/数据库/网络自检，报告落盘 `logs/diagnose-*.json` |
+| `probe` | 目标可达性探针，见下 |
 
 通用参数：`--db <target>`（`postgres://…` 或 `pglite:./path`）、`--level`、`--log-dir`、`--wait-db <秒>`。
+
+探针用于接入新平台前的可达性判断，不写库、不依赖 DATABASE_URL：
+
+```bash
+node src/probe.js --url-file scripts/probe-targets.txt --rounds 1
+node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时看稳定性
+```
+
+输出每轮的状态码、延迟、响应体大小，最后给成功率与 p50/p95；出现 403/429 会提示风控。
 
 ## 配置
 
@@ -237,6 +275,8 @@ platforms          平台字典（official / authorized_reseller / c2c）
 v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 ```
 
+> 目前**共 7 张表 + 1 个视图**。`platforms` 里预置了 `itad` / `fanatical` / `humble` / `gog` / `steampy` 的 code，但**只有 `steam` / `sonkwo` / `itad` 有适配器**——预留 code 不等于已支持，见[数据源](#数据源)。
+
 三个关键设计：
 
 - **区服是独立维度。** 国区 298、全球 60 美元、土区 30 里拉不是"同一个东西的不同价格"，混着比就是错的。
@@ -249,11 +289,12 @@ v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 
 | 来源 | 方式 | 状态 |
 |---|---|---|
-| Steam | 官方 `appdetails` | 代码完成；**国内网络直连不可达**，需出口或走 ITAD |
-| 杉果 | 商品页内嵌 `__remixContext` JSON | 可用（无可用搜索接口，SKU 人工维护） |
-| IsThereAnyDeal | 官方 REST API | 可用，需免费 key |
-| Fanatical / Humble / GOG | 站点可直连 | 待接适配器 |
-| SteamPy | 需登录态 | 未接入 |
+| 杉果 | 商品页内嵌 `__remixContext` JSON | ✅ 可用（无搜索接口，SKU 人工维护） |
+| Steam | 官方 `appdetails` | ⚠️ 代码完成，国内网络直连不可达 |
+| IsThereAnyDeal | 官方 REST API | ⚠️ 需免费 key，结构未真实验证 |
+| Fanatical / Humble / GOG | 站点可直连 | 🚧 适配器未写 |
+| 小黑盒 | SPA + `hkey` 签名 | ⏸ 暂缓 |
+| SteamPy | 需登录态（401） | ⏸ 不接入 |
 
 可达性实测、接口细节、复现命令都记在 **[docs/DATA-SOURCES.md](docs/DATA-SOURCES.md)**。那份文档记录了每个源"怎么探出来的"，包括失败的尝试——避免下次重新踩。
 
@@ -305,45 +346,47 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **53 项**断言。
+共 **53 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
-发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
 ## 已知限制
 
-1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`）。代码完整，但需要给采集机配出口，或改用 ITAD 的 Steam 价。
-2. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
-3. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
-4. **ITAD 响应结构按官方文档实现，尚未用真 key 验证**。结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
-5. **Docker 镜像未在本机验证**（开发机无 Docker）。构建步骤已用等价方式验证：干净目录 `npm ci --omit=dev` + 执行容器启动路径。
-6. **无前端**。当前只有 CLI；`daily_prices` 已经按天聚合好，接页面即可。
+1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`，12 秒超时）。代码完整、单测覆盖，但没有在真实网络跑通过。需要给采集机配出口，或改用 ITAD 的 Steam 价。
+2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
+3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
+4. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
+5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
+6. **没有前端**。当前只有 CLI；`daily_prices` 已经按天聚合好，接页面即可。
+7. **没有失败熔断**。某源持续 403 时，调度器仍会按间隔重试，需要人工置 `*_ENABLED=0`。
 
 ## 路线图
 
 - [ ] 价格曲线网页（只读 `daily_prices`，无后端）
-- [ ] 收藏与降价提醒（邮件优先）
+- [ ] 收藏与降价提醒（**需先建 watchlist 表**，目前不存在）
 - [ ] Fanatical / Humble / GOG 适配器
 - [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
+- [ ] 采集失败熔断（连续 N 次失败自动停用该源）
 
 ## 项目结构
 
 ```
 gameprice/
 ├── src/
-│   ├── adapters/        平台适配器，统一吐 RawOffer
+│   ├── adapters/        平台适配器，统一吐 RawOffer（steam / sonkwo / itad）
 │   ├── store/           PG 存储层（SQL 与连接池）
 │   ├── cli.js           命令行入口
 │   ├── scheduler.js     常驻调度（子进程隔离）
 │   ├── ingest.js        入库：判重 / 快照 / 日聚合
 │   ├── log.js           结构化日志
 │   ├── http.js          唯一出网点（超时/重试/脱敏/观测）
-│   └── probe.js         联网可行性探针
-├── test/                43 项断言 + 真实页面夹具
+│   └── probe.js         目标可达性探针
+├── test/                53 项断言 + 真实页面夹具
 ├── data/                games.json（游戏清单）、skus.json（杉果 SKU）
 ├── docs/                ARCHITECTURE / DATA-SOURCES / DEPLOY
-├── scripts/             勘查工具 + 容器入口
+├── scripts/             勘查工具（inspect / mine-bundle / hit）+ 凭据扫描 + 容器入口
 ├── Dockerfile
 ├── compose.yaml
 └── .env.example

@@ -14,6 +14,7 @@ node test/pg.test.js
 node test/scheduler.test.js
 node test/deploy.test.js
 node test/docs.test.js
+node test/secrets.test.js
 ```
 
 全部通过才算完成。**没有跑过验证就说"改好了"是最严重的问题**——这个项目里已经出现过三次"代码看起来对、数据其实错"的情况（见 [CHANGELOG](CHANGELOG.md#修复)）。
