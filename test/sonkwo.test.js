@@ -6,6 +6,7 @@ import {
   extractRemixContext,
   findSkuObjects,
   parseListingCards,
+  isStoreShell,
 } from '../src/adapters/sonkwo.js';
 
 // 真实页面快照（2026-10-26 抓取），不是手写样例——这样解析器改动会立刻暴露
@@ -60,6 +61,26 @@ test('没有内嵌 JSON 时退化为 DOM 解析，并且能算折扣', () => {
 
 test('页面既无 JSON 也无价格时返回 null（不能编造价格）', () => {
   assert.equal(parseSkuPage('<html><title>x</title></html>', { skuId: 1 }), null);
+});
+
+test('空壳页识别：通用站名页算空壳，真实商品页不算', () => {
+  // 杉果对未上架/下架的 id 返回 200 + 13KB 通用页
+  const shell = '<html><head><title>杉果游戏（SONKWO.COM）-全方位正版游戏服务平台</title></head><body>x</body></html>';
+  assert.equal(isStoreShell(shell), true);
+  assert.equal(isStoreShell(skuHtml), false, '真实商品页不能被当成空壳');
+  assert.equal(isStoreShell('<html>tiny</html>'), true, '短页且无 sku_id 视为空壳');
+  assert.equal(isStoreShell('<html><span class="SKC-sale-price">￥1</span></html>'), false, '有价格就不算空壳');
+});
+
+test('空壳页解析返回 null 且不产生 error 日志', () => {
+  const lines = [];
+  const logger = { debug: (e, f) => lines.push([e, f]), error: (e, f) => lines.push([e, f]), warn: () => {} };
+  const shell = '<html><head><title>杉果游戏（SONKWO.COM）-全方位正版游戏服务平台</title></head><body>x</body></html>';
+  assert.equal(parseSkuPage(shell, { skuId: 999, logger }), null);
+
+  const events = lines.map((l) => l[0]);
+  assert.ok(!events.includes('adapter.sonkwo.no_price'), '空壳不能记成 no_price（那是 error 级）');
+  assert.equal(events[events.length - 1], 'adapter.sonkwo.not_a_product', '最后一条应为 not_a_product');
 });
 
 test('活动页能解析出卡片（名称+价格）', () => {

@@ -16,9 +16,15 @@ const baseIdx = process.argv.indexOf('--base');
 const base = baseIdx > -1 ? process.argv[baseIdx + 1].replace(/\/$/, '') : null;
 
 const html = readFileSync(file, 'utf8');
-// 同时匹配带引号和不带引号的 src
+// 同时匹配：<script src>（带/不带引号）与 <link rel="modulepreload" href>（Remix/Vite 用后者）
 const scriptRe = /<script\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi;
-const scripts = [...html.matchAll(scriptRe)].map((m) => m[1] || m[2] || m[3]);
+const preloadRe = /<link\b[^>]*\bhref\s*=\s*"([^"]+\.js)"/gi;
+const scripts = [
+  ...new Set([
+    ...[...html.matchAll(scriptRe)].map((m) => m[1] || m[2] || m[3]),
+    ...[...html.matchAll(preloadRe)].map((m) => m[1]),
+  ]),
+];
 console.log(`发现 ${scripts.length} 个脚本：`);
 for (const s of scripts) console.log(`  ${s}`);
 

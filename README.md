@@ -40,6 +40,7 @@
 | 能力 | 状态 | 依据 |
 |---|---|---|
 | 杉果价格采集 | ✅ 已跑通 | 真实页面端到端验证：解析 ¥198 → 入库 → 写快照 |
+| **杉果 SKU 自动发现** | ✅ 已跑通 | 实测扫 120 个 id 命中 46 个商品、新增 45 条，连续空壳自动停 |
 | **GOG 价格采集** | ✅ 已跑通 | catalog 接口真实运行：24 款匹配 8 款，中文名合并正确 |
 | **Humble 价格采集** | ⚠️ 可用但命中率受限 | 按 slug 探测 + JSON-LD 校验；没探测到的游戏会静默跳过 |
 | 价格历史 / 史低判断 | ✅ 已跑通 | 96 项测试，含真 PG 语义（PGlite）验证 |
@@ -90,6 +91,7 @@
 |---|---|---|
 | Steam 国区采集 | ⚠️ | 官方 `appdetails`，批量 + 限速；单测覆盖解析，真实网络被阻断 |
 | 杉果采集 | ✅ | 商品页内嵌 JSON 解析，不依赖 DOM 选择器；真实页面验证 |
+| 杉果 SKU 自动发现 | ✅ | 按 id 从前沿向后探测，连续空壳即停；发现的 SKU 自动并入 `data/skus.json` |
 | ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
 | 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
 | 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
@@ -254,6 +256,7 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 |---|---|
 | `sync steam` | Steam 国区价格（`--limit 500`）⚠️ 需能访问 Steam |
 | `sync sonkwo` | 按 `data/skus.json` 抓杉果（`--limit`、`--rate 1200`）✅ |
+| `discover sonkwo` | 自动发现新 SKU（`--ahead`、`--max-misses`、`--from/--to`）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
 | `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
@@ -334,7 +337,7 @@ v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 
 | 来源 | 方式 | 状态 |
 |---|---|---|
-| 杉果 | 商品页内嵌 `__remixContext` JSON | ✅ 可用（无搜索接口，SKU 人工维护） |
+| 杉果 | 商品页内嵌 `__remixContext` JSON | ✅ 可用；SKU 靠 `discover` 按 id 增量发现 |
 | GOG | 官方 catalog JSON（`catalog.gog.com`） | ✅ 可用，按英文名精确匹配 |
 | Humble | 商品页 JSON-LD `offers.price` | ⚠️ 可用但命中率取决于 slug 命名 |
 | Steam | 官方 `appdetails` | ⚠️ 代码完成，国内网络直连不可达 |
@@ -388,6 +391,7 @@ node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
 node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
+node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/store.test.js      # 10 项：URL 解析、建库 SQL、真 TCP PG 协议下自动建库
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
@@ -400,7 +404,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **117 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **128 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -409,7 +413,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`，12 秒超时）。代码完整、单测覆盖，但没有在真实网络跑通过。需要给采集机配出口，或改用 ITAD 的 Steam 价。
 2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
-4. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
+4. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
 5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
 5. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品（搜 `elden ring` 会返回 Whispers in the Moss）。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
 6. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，实测 8 个里命中 4 个；没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
@@ -418,10 +422,10 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 
 ## 路线图
 
-- [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
 - [ ] 曲线页接入 `chart` 的定时重建（采集完成后自动刷新）
+- [ ] 杉果历史 SKU 回填（`discover --from/--to` 的批量模式）
 
 ## 项目结构
 
@@ -429,6 +433,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 gameprice/
 ├── src/
 │   ├── adapters/        平台适配器（steam / sonkwo / itad / gog / humble）
+│   │   └── sonkwo-discover.js  杉果 SKU 增量发现（按 id 探测）
 │   ├── store/           PG 存储层（SQL 与连接池）
 │   ├── cli.js           命令行入口
 │   ├── scheduler.js     常驻调度（子进程隔离）

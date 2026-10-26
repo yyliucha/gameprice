@@ -2,6 +2,38 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-10-26
+
+杉果不用再手工加 SKU 了。
+
+### 新增
+
+- **杉果 SKU 自动发现** `discover sonkwo`
+  - 杉果没有搜索接口（loader 服务端报错、`/api/*` 已下线 410），改为**按 sku id 顺序探测**：
+    id 连续、密度约 70%，未上架/已下架的 id 返回 200 的空壳页（无价格），用解析结果区分
+  - 策略：从前沿（已知最大 id）向后扫，**连续 N 个空壳即停**，通常十几到几十次请求
+  - 发现的 SKU（含名称）自动并入 `data/skus.json`，已有 `appid` 映射与名称不会被覆盖
+  - 扫描水位记录在 `data/sonkwo-discovery.json`（已 gitignore）
+  - 调度器新增 `discover` 任务（默认 12 小时一次）
+- 实测：扫 120 个 id 命中 46 个商品（111442–111491 密集区，111492 后为空壳），新增 45 条
+
+### 修复
+
+- **空壳页被记成 ERROR**：批量发现时 74 个空壳页产生 74 条 `adapter.sonkwo.no_price` 错误日志，
+  会污染 `error-*.jsonl`。现在能区分"这个 id 没有商品"（`adapter.sonkwo.not_a_product`，debug 级）
+  与"商品页解析不出价格"（仍是 error 级）。
+
+### 工具
+
+- `scripts/probe-skus.js`：按区间抽样统计 SKU 密度，用于设计扫描窗口；
+  判定标准与适配器一致（能解析出报价才算商品）
+
+### 测试
+
+- 新增 `test/discover.test.js` 9 项：区间计算、连续空壳停止、404/异常容错、合并去重
+- sonkwo 测试补空壳识别 2 项
+- 合计 128 项
+
 ## [0.6.0] - 2026-10-26
 
 真正做到一键部署、零配置开箱即用。

@@ -90,6 +90,18 @@ const toCents = (value) => {
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 };
 
+/**
+ * 判断是不是"空壳页"：杉果对未上架/已下架的 sku id 会返回 200 + 通用站名页
+ * （约 13KB、无价格）。这在按 id 扫描发现 SKU 时是常态，不该记为 error。
+ */
+export function isStoreShell(html, title = null) {
+  const text = String(html ?? '');
+  if (/SKC-sale-price/.test(text)) return false;
+  const t = title ?? text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '';
+  if (/全方位正版游戏服务平台/.test(t)) return true;
+  return text.length < 20000 && !/sku_id/.test(text);
+}
+
 function titleOf(html) {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (!m) return null;
@@ -124,7 +136,13 @@ export function parseSkuPage(html, { skuId, logger = null } = {}) {
     const anyPrice = html.match(/SKC-sale-price[^>]*>\s*￥?\s*([\d.]+)/);
     const domPrice = purchaseBlock ?? anyPrice;
     if (!domPrice) {
-      logger?.error('adapter.sonkwo.no_price', { skuId, htmlBytes: html.length, title: titleOf(html) });
+      const title = titleOf(html);
+      if (isStoreShell(html, title)) {
+        // 空壳页：该 id 没有对应商品（未上架/已下架），属于正常结果
+        logger?.debug('adapter.sonkwo.not_a_product', { skuId, htmlBytes: html.length });
+      } else {
+        logger?.error('adapter.sonkwo.no_price', { skuId, htmlBytes: html.length, title });
+      }
       return null;
     }
     priceSource = 'dom';
@@ -181,14 +199,19 @@ export async function fetchSku(skuId, { logger }) {
   const log = (logger ?? console).child?.({ platform: descriptor.code, skuId }) ?? logger;
   const res = await fetchText(url, { logger: log, label: 'sonkwo.sku', retries: 2 });
   const offer = parseSkuPage(res.body, { skuId, logger: log });
-  log?.info('adapter.sonkwo.sku_done', {
-    skuId,
-    ok: Boolean(offer),
-    priceCents: offer?.priceCents ?? null,
-    name: offer?.title ?? null,
-    bytes: res.bytes,
-    elapsedMs: res.elapsedMs,
-  });
+  if (offer) {
+    log?.info('adapter.sonkwo.sku_done', {
+      skuId,
+      ok: true,
+      priceCents: offer.priceCents,
+      name: offer.title,
+      bytes: res.bytes,
+      elapsedMs: res.elapsedMs,
+    });
+  } else {
+    // 空壳页在批量发现时是常态，不该按 info 刷屏
+    log?.debug('adapter.sonkwo.sku_empty', { skuId, bytes: res.bytes, elapsedMs: res.elapsedMs });
+  }
   return offer;
 }
 

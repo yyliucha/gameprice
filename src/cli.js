@@ -12,6 +12,12 @@ import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
 import { descriptor as gogDescriptor, searchOffer as gogSearch } from './adapters/gog.js';
 import { descriptor as humbleDescriptor, searchOffer as humbleSearch } from './adapters/humble.js';
+import {
+  DEFAULT_STATE as DEFAULT_DISCOVERY_STATE,
+  planScan,
+  discoverSkus,
+  mergeSkuEntries,
+} from './adapters/sonkwo-discover.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -482,6 +488,71 @@ async function cmdSyncHumble() {
   await syncByTitle(humble, { label: 'Humble', limit: Number(flag('limit', 50)), rate: Number(flag('rate', 1500)) });
 }
 
+/** 杉果 SKU 自动发现：从前沿向后探测，连续空壳即停。 */
+async function cmdDiscover() {
+  const target = args[1];
+  if (target !== 'sonkwo') {
+    throw new Error('用法: node src/cli.js discover sonkwo [--ahead 120] [--from N --to M] [--rate 1200] [--max-misses 15]');
+  }
+
+  const skuFile = 'data/skus.json';
+  const stateFile = 'data/sonkwo-discovery.json';
+  const entries = readJson(skuFile, []);
+  const state = { ...DEFAULT_DISCOVERY_STATE, ...readJson(stateFile, {}) };
+  const knownMax = entries.reduce((max, e) => Math.max(max, Number(e.skuId) || 0), 0);
+
+  const explicitFrom = flag('from', null);
+  const explicitTo = flag('to', null);
+  const range =
+    explicitFrom != null && explicitTo != null
+      ? { from: Number(explicitFrom), to: Number(explicitTo) }
+      : planScan({ knownMax, state, ahead: Number(flag('ahead', 120)), overlap: Number(flag('overlap', 3)) });
+
+  if (!range) throw new Error('没有已知 SKU 作为起点：先 add-sku，或用 --from/--to 指定区间');
+  if (!Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to < range.from) {
+    throw new Error(`区间不合法：${JSON.stringify(range)}`);
+  }
+
+  const rate = Number(flag('rate', 1200));
+  const maxMisses = Number(flag('max-misses', 15));
+  console.log(`扫描 ${range.from}..${range.to}（间隔 ${rate}ms，连续 ${maxMisses} 个空壳即停）`);
+
+  const result = await discoverSkus({
+    ...range,
+    rate,
+    stopAfterMisses: maxMisses,
+    logger,
+    fetchSku: (id) => fetchSku(id, { logger }),
+  });
+
+  const merged = mergeSkuEntries(entries, result.found);
+  writeFileSync(skuFile, `${JSON.stringify(merged.entries, null, 2)}\n`, 'utf8');
+
+  const discoveredMax = result.found.reduce((max, f) => Math.max(max, f.skuId), 0);
+  const highWaterMark = Math.max(knownMax, Number(state.highWaterMark) || 0, discoveredMax);
+  writeFileSync(
+    stateFile,
+    `${JSON.stringify(
+      {
+        highWaterMark,
+        lastRunAt: new Date().toISOString(),
+        lastRange: range,
+        lastStopReason: result.stopReason,
+        totalFound: (Number(state.totalFound) || 0) + merged.added,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+
+  console.log(
+    `探测 ${result.probed} 个 id：命中 ${result.found.length}，新增 ${merged.added} 条，` +
+      `补名称 ${merged.named} 条，当前共 ${merged.total} 条（停止原因：${result.stopReason}）`,
+  );
+  if (merged.added) console.log(`已写入 ${skuFile}；接着跑 node src/cli.js sync sonkwo 拉价格。`);
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', 'out'));
   const days = Number(flag('days', 90));
@@ -629,6 +700,7 @@ const commands = {
   chart: cmdChart,
   watch: cmdWatch,
   alerts: cmdAlerts,
+  discover: cmdDiscover,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -663,6 +735,7 @@ async function main() {
   list                 主榜：各游戏官方渠道最低价
   chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
   watch add|rm|list    关注列表：watch add 1091500 --target 99
+  discover sonkwo      自动发现杉果 SKU（从前沿向后探测，连续空壳即停）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）

@@ -58,6 +58,14 @@ export function jobsFromEnv(env = process.env) {
       enabled: env.HUMBLE_ENABLED !== '0',
     },
     {
+      name: 'discover',
+      // 杉果 SKU 增量发现：从前沿向后探测，连续空壳即停，通常十几到几十次请求
+      args: ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12'],
+      intervalMin: num(env.DISCOVER_INTERVAL_MIN, 720),
+      initialDelaySec: num(env.DISCOVER_INITIAL_DELAY_SEC, 900),
+      enabled: env.DISCOVER_ENABLED !== '0',
+    },
+    {
       name: 'alerts',
       // 只有配了任意提醒通道才在检查后标记已通知，否则只做只读检查，避免静默吞掉提醒
       args: hasNotifier(env) ? ['alerts', '--mark'] : ['alerts'],
