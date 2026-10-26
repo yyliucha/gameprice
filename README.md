@@ -190,7 +190,8 @@ cli.js 生成 runId
 **部署到云服务器的完整教程见 [docs/QUICKSTART.md](docs/QUICKSTART.md)**（含装 Docker、权限、验收、排障）。
 
 ```bash
-sudo chown -R 1000:1000 ./data ./logs   # 必做：容器以 uid 1000 运行
+mkdir -p logs out                       # 这两个目录不在仓库里，必须自己建
+sudo chown -R 1000:1000 ./data ./logs   # 容器以 uid 1000 运行
 docker compose up -d --build
 docker compose ps             # app 应为 healthy
 docker compose logs -f app    # 看到 bootstrap.done 即启动成功

@@ -86,6 +86,15 @@ test('compose 默认零配置可启动：不强制密码，库端口不对外', 
   assert.match(doc.services.app.environment.DATABASE_URL, /postgres:\/\/.*@db:5432/);
 });
 
+test('教程必须先建目录再 chown（logs/out 不在仓库里）', () => {
+  const doc = read('docs/QUICKSTART.md');
+  const mkdirAt = doc.indexOf('mkdir -p logs out');
+  const chownAt = doc.indexOf('chown -R 1000:1000');
+  assert.ok(mkdirAt > -1, '教程缺少 mkdir -p logs out');
+  assert.ok(chownAt > mkdirAt, 'mkdir 必须在 chown 之前');
+  assert.ok(existsSync(new URL('../data/wishlist.example.txt', import.meta.url)), '缺少 wishlist 模板');
+});
+
 test('.env.example 覆盖 compose 用到的可配置项', () => {
   const example = read('.env.example');
   for (const key of ['COMPOSE_PROFILES', 'POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {

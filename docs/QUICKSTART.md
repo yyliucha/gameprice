@@ -49,15 +49,20 @@ cd gameprice
 
 ---
 
-## 3. 修目录权限（**必做，跳过必挂**）
+## 3. 建目录并修权限（**必做，跳过必挂**）
 
 ```bash
+mkdir -p logs out                       # logs/ out/ 不在仓库里（gitignore 了），必须自己建
 sudo chown -R 1000:1000 ./data ./logs
 ```
 
-原因：容器以 `node`（uid 1000）运行，而 `./data`、`./logs` 是 bind mount。
-宿主机目录属主不对，容器里写日志会 `EACCES`，报错藏在启动日志深处。
-入口脚本会提前检查并直接告诉你这条命令。
+两个原因：
+
+1. `logs/` 和 `out/` 被 `.gitignore` 排除，全新克隆**没有这两个目录**；
+2. 容器以 `node`（uid 1000）运行，而 `./data`、`./logs` 是 bind mount。
+   如果目录是 Docker 自动创建的（root:root），容器里写日志会 `EACCES`，报错藏在启动日志深处。
+
+入口脚本会提前检查并直接告诉你修复命令。
 
 ---
 
@@ -222,7 +227,11 @@ docker compose exec app node src/cli.js watch add 2358720 --target 200
 docker compose exec app node src/cli.js import steam --file data/wishlist.txt
 ```
 
-`data/wishlist.txt` 内容形如：
+`data/wishlist.txt` 内容形如（仓库里有模板 `data/wishlist.example.txt`，先复制再改）：
+
+```bash
+cp data/wishlist.example.txt data/wishlist.txt
+```
 
 ```
 https://store.steampowered.com/app/2358720/

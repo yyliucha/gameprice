@@ -1,0 +1,11 @@
+# 批量导入用的游戏清单（每行一个）
+# 用法：把本文件复制成 wishlist.txt 后编辑，然后
+#   node src/cli.js import steam --file data/wishlist.txt
+#
+# 支持两种写法：Steam 商店链接，或纯 appid。
+# 以 # 开头的行会被忽略。
+
+https://store.steampowered.com/app/2358720/
+https://store.steampowered.com/app/1091500/
+https://store.steampowered.com/app/1245620/
+# 731
