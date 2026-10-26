@@ -273,3 +273,43 @@ test('平台覆盖：逐源说明为什么没有报价', () => {
   assert.match(html, /缺少英文名/);
   assert.match(html, /没有 Steam appid/);
 });
+
+test('列表页：感兴趣/不感兴趣标签页，行上带过滤标记', () => {
+  const games = [
+    { id: 1, steam_appid: 1, name: '喜欢的', current_low: 100, current_original: 100, discount: 0, hist_low: 100, series: [], interested: true },
+    { id: 2, steam_appid: 2, name: '不喜欢的', current_low: 200, current_original: 200, discount: 0, hist_low: 200, series: [], interested: false },
+  ];
+  const html = renderIndex({ games, generatedAt: '2026-10-26 11:00:00' });
+  assert.match(html, /class="tabs"/);
+  assert.match(html, /全部 <b>2<\/b>/);
+  assert.match(html, /感兴趣 <b>1<\/b>/);
+  assert.match(html, /不感兴趣 <b>1<\/b>/);
+  assert.match(html, /data-interested="1"/);
+  assert.match(html, /data-interested="0"/);
+  assert.match(html, /querySelectorAll\('\.tab'\)/, '要有前端过滤脚本');
+});
+
+test('详情页：开发商/发行商/分类与不感兴趣标记', () => {
+  const html = renderGame({
+    game: {
+      id: 1,
+      steam_appid: 1091500,
+      name: '赛博朋克 2077',
+      name_en: 'Cyberpunk 2077',
+      interested: false,
+      developers: ['CD PROJEKT RED'],
+      publishers: ['CD PROJEKT RED'],
+      genres: ['角色扮演', '动作'],
+    },
+    series: seriesOf([29800, 9900]),
+    histLow: 9900,
+    generatedAt: '2026-10-26 11:00:00',
+    offers: [],
+  });
+  assert.match(html, /开发商/);
+  assert.match(html, /CD PROJEKT RED/);
+  assert.match(html, /发行商/);
+  assert.match(html, /分类/);
+  assert.match(html, /角色扮演/);
+  assert.match(html, /不感兴趣/);
+});

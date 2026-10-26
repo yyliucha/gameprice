@@ -805,6 +805,20 @@ async function cmdImport() {
   console.log('下一步：node src/cli.js list，或直接 node src/cli.js chart 看页面');
 }
 
+/** 标记感兴趣 / 不感兴趣。不感兴趣只影响列表展示，采集与统计照常。 */
+async function cmdInterest() {
+  const appid = Number(args[1]);
+  const value = String(args[2] ?? '').toLowerCase();
+  if (!Number.isFinite(appid) || !['on', 'off'].includes(value)) {
+    throw new Error('用法: node src/cli.js interest <steamAppid> on|off');
+  }
+  const interested = value === 'on';
+  const row = await withStore(async (store) => db.setInterest((sql, p) => store.query(sql, p), { steamAppid: appid, interested }));
+  if (!row) throw new Error(`库里没有 appid ${appid}`);
+  logger.info('interest.set', { appid, interested });
+  console.log(`${row.name ?? appid} → ${interested ? '感兴趣' : '不感兴趣'}（采集与金额统计不受影响）`);
+}
+
 /** 内置静态页服务：直接 IP:端口 访问生成好的页面，不需要外部 nginx。 */
 async function cmdServe() {
   const port = Number(flag('port', process.env.WEB_PORT ?? process.env.PORT ?? 8090));
@@ -990,6 +1004,7 @@ const commands = {
   compare: cmdCompare,
   import: cmdImport,
   serve: cmdServe,
+  interest: cmdInterest,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -1076,6 +1091,7 @@ async function main() {
   match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
   compare <appid>      多区服对比（--region 只看某区、--json 机器可读）
   import steam         导入 Steam 游戏信息（--appids / --urls / --file，双后端自动回落）
+  interest <appid> on|off   标记感兴趣 / 不感兴趣
   serve                内置静态页服务：直接 IP:端口 访问页面（--port 8090 --dir out）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）

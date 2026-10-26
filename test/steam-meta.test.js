@@ -132,3 +132,19 @@ test('空 appid 列表直接返回，不发请求', async () => {
   assert.equal(backend, null);
   assert.deepEqual(items, []);
 });
+
+test('steamcmd 元数据：开发发行商、分类名、标签 id', () => {
+  const item = normalizeSteamcmd(1091500, app);
+  assert.deepEqual(item.developers, ['CD PROJEKT RED']);
+  assert.deepEqual(item.publishers, ['CD PROJEKT RED']);
+  assert.ok(item.genres.includes('角色扮演'), `分类应映射成中文名，实际：${JSON.stringify(item.genres)}`);
+  // 夹具里裁掉了 store_tags，这里用合成数据验证前缀约定
+  const withTags = normalizeSteamcmd(1, { common: { name: 'X', store_tags: { 0: '4115', 1: '1695' } } });
+  assert.deepEqual(withTags.tags, ['tag:4115', 'tag:1695']);
+  assert.equal(item.tags, null, '没有 store_tags 时不该编造');
+});
+
+test('未知分类 id 原样保留，不瞎猜名字', () => {
+  const item = normalizeSteamcmd(1, { common: { name: 'X', genres: { 0: '999' } } });
+  assert.deepEqual(item.genres, ['genre:999']);
+});

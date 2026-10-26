@@ -119,8 +119,21 @@ where p.kind in ('official', 'authorized_reseller') and o.in_stock
 group by o.game_id, o.region;
 `;
 
+// 增量迁移：老库通过 alter 补齐，新库由上面的 create table 负责
+const ALTERS = [
+  'alter table games add column if not exists interested boolean not null default true',
+  'alter table games add column if not exists developers text[]',
+  'alter table games add column if not exists publishers text[]',
+  'alter table games add column if not exists genres text[]',
+  'alter table games add column if not exists tags text[]',
+];
+
 export async function migrate(store) {
   await store.exec(SCHEMA);
+  // 老库补列：必须幂等，容器每次启动都会跑
+  for (const ddl of ALTERS) {
+    await store.exec(ddl);
+  }
   await store.query(
     `insert into platforms (code, name, kind) values
        ('steam',   'Steam 国区', 'official'),
@@ -374,6 +387,11 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
             g.steam_appid,
             coalesce(g.name, 'appid:' || g.steam_appid) as name,
             g.name_en,
+            g.interested,
+            g.developers,
+            g.publishers,
+            g.genres,
+            g.tags,
             (select min(o.price_cents) from offers o
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
@@ -548,8 +566,9 @@ export async function watchCandidates(q, { region = 'cn' } = {}) {
  */
 export async function upsertGameMeta(q, item) {
   const r = await q(
-    `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date)
-     values ($1, $2, $3, $4, coalesce($5, false), $6, $7)
+    `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date,
+                        developers, publishers, genres, tags)
+     values ($1, $2, $3, $4, coalesce($5, false), $6, $7, $8, $9, $10, $11)
      on conflict (steam_appid) do update set
        name = coalesce(games.name, excluded.name),
        name_en = coalesce(games.name_en, excluded.name_en),
@@ -557,6 +576,10 @@ export async function upsertGameMeta(q, item) {
        is_free = case when $5::boolean is null then games.is_free else $5::boolean end,
        header_image = coalesce(excluded.header_image, games.header_image),
        release_date = coalesce(excluded.release_date, games.release_date),
+       developers = coalesce(excluded.developers, games.developers),
+       publishers = coalesce(excluded.publishers, games.publishers),
+       genres = coalesce(excluded.genres, games.genres),
+       tags = coalesce(excluded.tags, games.tags),
        updated_at = now()
      returning id, (xmax = 0) as inserted`,
     [
@@ -567,10 +590,31 @@ export async function upsertGameMeta(q, item) {
       item.isFree ?? null,
       item.headerImage ?? null,
       item.releaseDate ?? null,
+      item.developers ?? null,
+      item.publishers ?? null,
+      item.genres ?? null,
+      item.tags ?? null,
     ],
   );
   const row = r.rows[0];
   return { id: Number(row.id), created: row.inserted === true };
+}
+
+/** 标记感兴趣 / 不感兴趣。不感兴趣只影响展示，不影响采集与金额统计。 */
+export async function setInterest(q, { steamAppid = null, gameId = null, interested }) {
+  const params = [Boolean(interested)];
+  let where = null;
+  if (steamAppid != null) {
+    where = 'steam_appid = $2';
+    params.push(steamAppid);
+  } else if (gameId != null) {
+    where = 'id = $2';
+    params.push(gameId);
+  } else {
+    throw new Error('setInterest 需要 steamAppid 或 gameId');
+  }
+  const r = await q(`update games set interested = $1, updated_at = now() where ${where} returning id, name, interested`, params);
+  return r.rows[0] ?? null;
 }
 
 export async function markNotified(q, { watchId, priceCents }) {

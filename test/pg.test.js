@@ -217,3 +217,47 @@ test('没有 appid 的游戏：再次采集时能补上英文名（杉果 sku_en
     await store.close();
   }
 });
+
+test('兴趣开关：不感兴趣只改标记，报价与统计照常', async () => {
+  const store = await freshStore();
+  try {
+    const q = (sql, p) => store.query(sql, p);
+    await ingestOffers(store, { platform: steamPlatform, offers: [offer(730, 9900)] });
+
+    const off = await db.setInterest(q, { steamAppid: 730, interested: false });
+    assert.equal(off.interested, false);
+
+    const overview = await db.gameOverview(q, { region: 'cn' });
+    assert.equal(overview.length, 1, '不感兴趣的游戏仍然出现在数据里');
+    assert.equal(overview[0].interested, false);
+    assert.equal(overview[0].current_low, 9900, '价格统计不受影响');
+
+    const on = await db.setInterest(q, { steamAppid: 730, interested: true });
+    assert.equal(on.interested, true);
+    assert.equal(await db.setInterest(q, { steamAppid: 999999, interested: true }), null);
+  } finally {
+    await store.close();
+  }
+});
+
+test('元数据写入开发商/发行商/分类/标签', async () => {
+  const store = await freshStore();
+  try {
+    const q = (sql, p) => store.query(sql, p);
+    await db.upsertGameMeta(q, {
+      steamAppid: 1091500,
+      nameZh: '赛博朋克 2077',
+      nameEn: 'Cyberpunk 2077',
+      developers: ['CD PROJEKT RED'],
+      publishers: ['CD PROJEKT RED'],
+      genres: ['角色扮演'],
+      tags: ['tag:4115'],
+    });
+    const row = (await q('select developers, publishers, genres, tags from games where steam_appid = 1091500')).rows[0];
+    assert.deepEqual(row.developers, ['CD PROJEKT RED']);
+    assert.deepEqual(row.genres, ['角色扮演']);
+    assert.deepEqual(row.tags, ['tag:4115']);
+  } finally {
+    await store.close();
+  }
+});

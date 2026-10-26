@@ -10,6 +10,23 @@
 // `backend: 'auto'` 会先探官方（短超时），失败再回落镜像，并把实际用的后端记进日志。
 import { fetchJson } from '../http.js';
 
+// Steam 官方分类 id → 中文名。只收录确定的那几个，未知 id 原样保留为 genre:<id>，
+// 宁可显示得少，也不瞎猜名字（Steam 的分类 id 表不是公开稳定的文档）。
+export const GENRES = {
+  1: '动作',
+  2: '策略',
+  3: '角色扮演',
+  4: '休闲',
+  5: '竞速',
+  6: '体育',
+  25: '冒险',
+  28: '模拟',
+};
+
+export function genreName(id) {
+  return GENRES[Number(id)] ?? `genre:${id}`;
+}
+
 export const descriptor = { code: 'steam', name: 'Steam 元数据' };
 
 const OFFICIAL_DETAILS = 'https://store.steampowered.com/api/appdetails';
@@ -42,6 +59,8 @@ export function normalizeOfficial(appid, data) {
     releaseDate: data.release_date?.date && !/coming soon/i.test(data.release_date.date) ? data.release_date.date : null,
     developers: data.developers ?? null,
     publishers: data.publishers ?? null,
+    genres: Array.isArray(data.genres) ? data.genres.map((g) => g.description).filter(Boolean) : null,
+    tags: null,
     source: 'official',
   };
 }
@@ -54,14 +73,23 @@ export function normalizeSteamcmd(appid, app) {
   const zh = localized.schinese ?? localized.sc_schinese ?? localized.tchinese ?? null;
   const header = common.header_image ?? {};
   const headerFile = header.schinese ?? header.english ?? null;
-  const devs = Object.values(common.associations ?? {})
+  let devs = Object.values(common.associations ?? {})
     .filter((a) => a?.type === 'developer')
     .map((a) => a.name)
     .filter(Boolean);
-  const pubs = Object.values(common.associations ?? {})
+  let pubs = Object.values(common.associations ?? {})
     .filter((a) => a?.type === 'publisher')
     .map((a) => a.name)
     .filter(Boolean);
+  // 有些条目只有 extended 里的字符串
+  if (!devs.length && app?.extended?.developer) devs = [app.extended.developer];
+  if (!pubs.length && app?.extended?.publisher) pubs = [app.extended.publisher];
+
+  const genreIds = Object.values(common.genres ?? {});
+  const genres = genreIds.length ? [...new Set(genreIds.map(genreName))] : null;
+  // 商店标签在 PICS 数据里只有数字 id，没有名字
+  const tagIds = Object.values(common.store_tags ?? {});
+  const tags = tagIds.length ? [...new Set(tagIds.map((id) => `tag:${id}`))] : null;
 
   return {
     steamAppid: Number(appid),
@@ -73,6 +101,8 @@ export function normalizeSteamcmd(appid, app) {
     releaseDate: toDate(common.steam_release_date),
     developers: devs.length ? [...new Set(devs)] : null,
     publishers: pubs.length ? [...new Set(pubs)] : null,
+    genres,
+    tags,
     source: 'steamcmd',
   };
 }

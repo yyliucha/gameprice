@@ -220,6 +220,16 @@ tbody a{font-weight:600}
 /* 徽标 */
 .tag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--good-bg);color:var(--good);font-size:11.5px;font-weight:700;margin-left:6px;vertical-align:1px}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tabs{display:flex;gap:8px;margin:0 0 14px}
+.tab{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+.tab:hover{color:var(--fg)}
+.tab.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tab b{font-weight:600;margin-left:4px}
+.facts{display:flex;flex-wrap:wrap;gap:18px;margin:10px 0 6px}
+.fact{display:flex;flex-direction:column;gap:2px}
+.fk{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.fv{font-size:13.5px}
+.fv .chip{margin:0 4px 0 0}
 
 /* 平台价标签 */
 .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border:1px solid var(--border);border-radius:999px;font-size:12px;white-space:nowrap;margin:1px 2px;background:var(--panel);color:var(--muted)}
@@ -302,6 +312,19 @@ ${body}
     }
     return Promise.resolve(legacyCopy(text));
   }
+  var tabsEls=document.querySelectorAll('.tab');
+  for(var i=0;i<tabsEls.length;i++){
+    tabsEls[i].addEventListener('click',function(ev){
+      var btn=ev.currentTarget, want=btn.getAttribute('data-tab');
+      for(var j=0;j<tabsEls.length;j++) tabsEls[j].classList.remove('on');
+      btn.classList.add('on');
+      var rows=document.querySelectorAll('tbody tr[data-interested]');
+      for(var k=0;k<rows.length;k++){
+        var v=rows[k].getAttribute('data-interested');
+        rows[k].style.display=(want==='all'||want===v)?'':'none';
+      }
+    });
+  }
   var toastEl=document.getElementById('toast'), timer=null;
   function toast(msg){
     if(!toastEl) return;
@@ -324,10 +347,20 @@ ${body}
 
 /** 列表页。games 来自 store.gameOverview，带上各自的 series 用于 sparkline。 */
 export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
+  const total = games.length;
+  const onCount = games.filter((g) => g.interested !== false).length;
+  const offCount = total - onCount;
+  const tabs = '<div class="tabs" role="tablist">' +
+    '<button class="tab on" data-tab="all" role="tab">全部 <b>' + total + '</b></button>' +
+    '<button class="tab" data-tab="1" role="tab">感兴趣 <b>' + onCount + '</b></button>' +
+    '<button class="tab" data-tab="0" role="tab">不感兴趣 <b>' + offCount + '</b></button>' +
+    '</div>';
+
   const rows = games
     .map((g) => {
       const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
       const href = `game-${g.steam_appid ?? `n${g.id}`}.html`;
+      const interested = g.interested !== false;
       const offers = Array.isArray(g.all_offers) ? g.all_offers : [];
       // 平台标签：按价格升序，最低价那个高亮；超过 3 个只显示前 3 个
       const chips = offers
@@ -336,7 +369,7 @@ export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
         .join(' ');
       const more = offers.length > 3 ? `<span class="muted">+${offers.length - 3}</span>` : '';
       const gap = offers.length > 1 ? offers[1].price - offers[0].price : null;
-      return `<tr>
+      return `<tr data-interested="${interested ? '1' : '0'}">
   <td>${nameBlock({ name: g.name, nameEn: g.name_en, href, tag: atLow ? '史低' : null })}</td>
   <td class="num">${esc(fmtYuan(g.current_low))}${
     gap != null ? `<div class="muted small">比次低便宜 ${esc(fmtYuan(gap))}</div>` : ''
@@ -352,6 +385,7 @@ export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
 
   const body = `<h1>游戏价格轨迹</h1>
 <p class="meta">${esc(OFFICIAL_FILTER_NOTE)} · 区服 ${esc(region)} · 近 ${esc(days)} 天 · 生成于 ${esc(generatedAt)} · 共 ${games.length} 款</p>
+${games.length ? tabs : ''}
 ${
   games.length
     ? `<table>
@@ -399,6 +433,16 @@ export function renderGame({ game, series, offers, histLow, generatedAt, days = 
   const runnerUp = offers.filter((o) => o.price_cents > cheapest).map((o) => o.price_cents);
   const gap = runnerUp.length ? Math.min(...runnerUp) - cheapest : null;
 
+  const facts = [];
+  if (Array.isArray(game.developers) && game.developers.length) facts.push(["开发商", game.developers.join(" / ")]);
+  if (Array.isArray(game.publishers) && game.publishers.length) facts.push(["发行商", game.publishers.join(" / ")]);
+  const genreList = Array.isArray(game.genres) ? game.genres.filter((x) => !String(x).startsWith("tag:")) : [];
+  const factsHtml = facts.length
+    ? '<div class="facts">' + facts.map(([k, v]) => '<div class="fact"><span class="fk">' + esc(k) + '</span><span class="fv">' + esc(v) + '</span></div>').join('') + '</div>'
+    : '';
+  const genreHtml = genreList.length
+    ? '<div class="facts"><div class="fact"><span class="fk">分类</span><span class="fv">' + genreList.map((g) => '<span class="chip">' + esc(g) + '</span>').join(" ") + '</span></div></div>'
+    : '';
   const offerRows = offers
     .map(
       (o) => `<tr${o.price_cents === cheapest ? ' class="best"' : ''}>
@@ -412,12 +456,14 @@ export function renderGame({ game, series, offers, histLow, generatedAt, days = 
     .join('\n');
 
   const body = `<p class="meta"><a href="index.html">← 返回列表</a></p>
-<h1>${esc(game.name)}${copyBtn(game.name, '中文名')}${atLow ? '<span class="tag">史低</span>' : ''}</h1>
+<h1>${esc(game.name)}${copyBtn(game.name, '中文名')}${atLow ? '<span class="tag">史低</span>' : ''}${game.interested === false ? '<span class="tag warn">不感兴趣</span>' : ''}</h1>
 ${
     game.name_en && String(game.name_en).trim() !== String(game.name).trim()
       ? `<p class="meta name-en">${esc(game.name_en)}${copyBtn(game.name_en, '英文名')}</p>`
       : ''
   }
+${factsHtml}
+${genreHtml}
 <p class="meta">${esc(OFFICIAL_FILTER_NOTE)} · 近 ${esc(days)} 天 · 生成于 ${esc(generatedAt)}${
     game.steam_appid ? ` · <a href="https://store.steampowered.com/app/${esc(game.steam_appid)}/" rel="noopener noreferrer nofollow" target="_blank">Steam 商店</a>` : ''
   }</p>
