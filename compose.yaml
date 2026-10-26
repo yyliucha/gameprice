@@ -30,6 +30,10 @@ services:
       dockerfile: Dockerfile
     image: gameprice:latest
     restart: unless-stopped
+    # 用宿主机上现成的 PostgreSQL 时，容器里要能用 host.docker.internal 访问宿主机
+    # （Linux 上 Docker 默认不提供这个名字，需要显式映射到网关）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # required: false 让"只用外部数据库"时不必启动 db（Compose ≥ 2.20）
     depends_on:
       db:

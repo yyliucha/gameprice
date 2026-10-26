@@ -80,6 +80,35 @@ postgres 容器创建库 gameprice
   → scheduler（按间隔采集，采集完自动重建 HTML）
 ```
 
+### 4b. 如果你已经有一个 PostgreSQL（不用自带库）
+
+**必须是 PostgreSQL，MySQL 不行**（数据层用了 `on conflict`、`least`、视图等 PG 特性）。
+
+```bash
+# 1) 在现成的 PG 上建用户和库（库也可以不建，app 会自己 create database，但需要有 CREATEDB 权限）
+sudo -u postgres psql -c "create user gameprice with password '换成你的密码'"
+sudo -u postgres psql -c "create database gameprice owner gameprice"
+
+# 2) 让 PG 接受来自 Docker 网段的连接
+#    postgresql.conf: listen_addresses = '*'
+#    pg_hba.conf 追加: host all all 172.16.0.0/12 scram-sha-256
+sudo systemctl reload postgresql
+
+# 3) 告诉应用连哪里（host.docker.internal 已在 compose 里映射到宿主机）
+cat >> .env <<'EOF'
+DATABASE_URL=postgres://gameprice:密码@host.docker.internal:5432/gameprice
+EOF
+
+# 4) 只起 app，不再启动自带的 db
+docker compose up -d --no-deps app
+docker compose rm -sf db
+```
+
+表结构、平台字典、首次游戏导入仍然全自动（`migrate` + `bootstrap`）。
+验证：`docker compose exec app node src/cli.js ping`。
+
+数据库在**另一台机器**时，URL 换成那台机器的内网地址，并加 `?sslmode=require`。
+
 ---
 
 ## 5. 验收（4 条命令，逐条看输出）

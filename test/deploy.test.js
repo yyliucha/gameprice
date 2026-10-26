@@ -86,6 +86,11 @@ test('compose 默认零配置可启动：不强制密码，库端口不对外', 
   assert.match(doc.services.app.environment.DATABASE_URL, /postgres:\/\/.*@db:5432/);
 });
 
+test('app 能用 host.docker.internal 连宿主机上的现成 PostgreSQL', () => {
+  const doc = parse(read('compose.yaml'));
+  assert.deepEqual(doc.services.app.extra_hosts, ['host.docker.internal:host-gateway']);
+});
+
 test('教程必须先建目录再 chown（logs/out 不在仓库里）', () => {
   const doc = read('docs/QUICKSTART.md');
   const mkdirAt = doc.indexOf('mkdir -p logs out');
