@@ -125,9 +125,9 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       if (path === '/api/login' && req.method === 'POST') {
         const body = await readBody(req);
         const found = await db.findUserByName(q, String(body.username ?? ''));
-        if (!found || !db.verifyPassword(String(body.password ?? ''), found.password_hash)) {
-          logger?.warn('api.login_failed', { username: String(body.username ?? '').slice(0, 32) });
-          return json(res, 401, { error: '用户名或密码错误' });
+        if (!found || found.disabled || !db.verifyPassword(String(body.password ?? ''), found.password_hash)) {
+          logger?.warn('api.login_failed', { username: String(body.username ?? '').slice(0, 32), disabled: Boolean(found?.disabled) });
+          return json(res, 401, { error: found?.disabled ? '账号已被禁用' : '用户名或密码错误' });
         }
         const sessionToken = await db.createSession(q, { userId: found.id });
         logger?.info('api.login', { userId: found.id, username: found.username });
@@ -162,10 +162,13 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       if (path === '/api/games' && req.method === 'GET') {
         const interest = url.searchParams.get('interest') ?? 'all';
         const ownedParam = url.searchParams.get('owned') ?? 'exclude';
+        const blockedParam = url.searchParams.get('blocked') ?? 'exclude';
         const sort = url.searchParams.get('sort') ?? 'discount';
         const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 500);
         const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit });
         const filtered = rows.filter((g) => {
+          if (blockedParam === 'exclude' && g.blocked === true) return false;
+          if (blockedParam === 'only' && g.blocked !== true) return false;
           if (ownedParam === 'exclude' && g.owned === true) return false;
           if (ownedParam === 'only' && g.owned !== true) return false;
           if (interest === 'on') return g.interested !== false;
@@ -210,6 +213,73 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         if (!row) return json(res, 404, { error: '没有该游戏' });
         logger?.info('api.owned', { appid, owned: row.owned, by: user.username });
         return json(res, 200, { game: row });
+      }
+
+      // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
+      const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (userMatch && req.method === 'PATCH') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const username = decodeURIComponent(userMatch[1]);
+        const row = await db.updateUser(q, {
+          username,
+          displayName: body.display_name,
+          role: body.role,
+          disabled: body.disabled,
+        });
+        if (!row) return json(res, 404, { error: '没有该用户或没有要改的字段' });
+        logger?.info('api.user_updated', { username, by: user.username, ...body });
+        return json(res, 200, { user: row });
+      }
+
+      const pwdMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+      if (pwdMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const password = String(body.password ?? '');
+        if (password.length < 6) return json(res, 400, { error: '密码至少 6 位' });
+        const row = await db.setUserPassword(q, { username: decodeURIComponent(pwdMatch[1]), password });
+        if (!row) return json(res, 404, { error: '没有该用户' });
+        logger?.info('api.user_password_reset', { username: decodeURIComponent(pwdMatch[1]), by: user.username });
+        return json(res, 200, { ok: true });
+      }
+
+      // ---- 管理员：禁用游戏 / 编辑说明 / 触发 Steam 同步 ----
+      const blockMatch = path.match(/^\/api\/games\/(\d+)\/blocked$/);
+      if (blockMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const row = await db.setGameBlocked(q, { steamAppid: Number(blockMatch[1]), blocked: Boolean(body.blocked) });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.game_blocked', { appid: Number(blockMatch[1]), blocked: row.blocked, by: user.username });
+        return json(res, 200, { game: row });
+      }
+
+      const descMatch = path.match(/^\/api\/games\/(\d+)\/description$/);
+      if (descMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const row = await db.setGameDescription(q, {
+          steamAppid: Number(descMatch[1]),
+          description: String(body.description ?? ''),
+          overwrite: Boolean(body.overwrite),
+        });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.game_description', { appid: Number(descMatch[1]), by: user.username });
+        return json(res, 200, { game: row });
+      }
+
+      // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟
+      if (path === '/api/admin/sync' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const { spawn } = await import('node:child_process');
+        const child = spawn(process.execPath, ['src/cli.js', 'sync', 'steamall'], {
+          stdio: 'ignore',
+          detached: true,
+        });
+        child.unref();
+        logger?.info('api.sync_steam_started', { by: user.username, pid: child.pid });
+        return json(res, 202, { started: true, pid: child.pid, hint: '后台同步已开始，看 logs/ 或稍后刷新列表' });
       }
 
       if (path === '/api/admin/users' && req.method === 'GET') {

@@ -153,6 +153,10 @@ create table if not exists page_views (
 const ALTERS = [
   'alter table games add column if not exists interested boolean not null default true',
   'alter table games add column if not exists owned boolean not null default false',
+  'alter table games add column if not exists blocked boolean not null default false',
+  'alter table games add column if not exists description text',
+  'alter table users add column if not exists disabled boolean not null default false',
+  'alter table users add column if not exists display_name text',
   'alter table games add column if not exists developers text[]',
   'alter table games add column if not exists publishers text[]',
   'alter table games add column if not exists genres text[]',
@@ -421,6 +425,8 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
             g.name_en,
             g.interested,
             g.owned,
+            g.blocked,
+            g.description,
             g.developers,
             g.publishers,
             g.genres,
@@ -615,17 +621,72 @@ export async function createUser(q, { username, password, role = 'user' }) {
 }
 
 export async function findUserByName(q, username) {
-  const r = await q('select id, username, password_hash, role from users where username = $1', [username]);
+  const r = await q('select id, username, password_hash, role, disabled from users where username = $1', [username]);
   return r.rows[0] ?? null;
 }
 
 export async function listUsers(q) {
-  const r = await q('select id, username, role, created_at, last_login_at from users order by id');
+  const r = await q('select id, username, display_name, role, disabled, created_at, last_login_at from users order by id');
   return r.rows;
 }
 
 export async function setUserRole(q, { username, role }) {
   const r = await q('update users set role = $1 where username = $2 returning id, username, role', [role, username]);
+  return r.rows[0] ?? null;
+}
+
+/** 编辑用户：显示名、角色、启用状态。 */
+export async function updateUser(q, { username, displayName = undefined, role = undefined, disabled = undefined }) {
+  const sets = [];
+  const params = [];
+  if (displayName !== undefined) {
+    params.push(displayName);
+    sets.push(`display_name = $${params.length}`);
+  }
+  if (role !== undefined) {
+    params.push(role);
+    sets.push(`role = $${params.length}`);
+  }
+  if (disabled !== undefined) {
+    params.push(Boolean(disabled));
+    sets.push(`disabled = $${params.length}`);
+  }
+  if (!sets.length) return null;
+  params.push(username);
+  const r = await q(
+    `update users set ${sets.join(', ')} where username = $${params.length} returning id, username, display_name, role, disabled`,
+    params,
+  );
+  return r.rows[0] ?? null;
+}
+
+/** 改密码：同时踢掉该用户所有会话，旧 cookie 立即失效。 */
+export async function setUserPassword(q, { username, password }) {
+  const r = await q('update users set password_hash = $1, disabled = false where username = $2 returning id', [
+    hashPassword(password),
+    username,
+  ]);
+  if (!r.rows.length) return null;
+  await q('delete from sessions where user_id = $1', [r.rows[0].id]);
+  return r.rows[0];
+}
+
+/** 禁用游戏：不出现在列表，但继续采集与统计。 */
+export async function setGameBlocked(q, { steamAppid, gameId = null, blocked }) {
+  const r = await q(
+    'update games set blocked = $1, updated_at = now() where ' + (steamAppid != null ? 'steam_appid = $2' : 'id = $2') + ' returning id, name, blocked',
+    [Boolean(blocked), steamAppid ?? gameId],
+  );
+  return r.rows[0] ?? null;
+}
+
+/** 编辑游戏说明（人工维护优先，Steam 同步只在为空时填）。 */
+export async function setGameDescription(q, { steamAppid, description, overwrite = false }) {
+  const r = await q(
+    `update games set description = case when $3 then $1 else coalesce(nullif(description, ''), $1) end, updated_at = now()
+      where steam_appid = $2 returning id, name, description`,
+    [description, steamAppid, Boolean(overwrite)],
+  );
   return r.rows[0] ?? null;
 }
 

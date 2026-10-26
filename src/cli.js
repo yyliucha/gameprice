@@ -245,6 +245,69 @@ async function cmdSyncSteam() {
   }
 }
 
+/**
+ * 同步库里所有 Steam 游戏：元数据（名字/开发商/分类/说明）+ Steam 自身价格。
+ * 这是「以 Steam 为准」的批量入口，后台按钮与定时任务都走它。
+ */
+async function cmdSyncSteamAll() {
+  const rows = await withStore(async (store) => {
+    const r = await store.query('select steam_appid from games where steam_appid is not null order by steam_appid');
+    return r.rows;
+  });
+  const appids = rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!appids.length) throw new Error('库里没有带 appid 的游戏：先 node src/cli.js import steam --appids ...');
+
+  console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格）`);
+  const { backend, items } = await fetchMetadata(appids, { backend: String(flag('backend', 'official')), logger });
+  console.log(`元数据来源 ${backend}，取到 ${items.length} 条`);
+
+  let named = 0;
+  let described = 0;
+  let priced = 0;
+  const offers = [];
+
+  for (const item of items) {
+    await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      await db.upsertGameMeta(q, item);
+      if (item.description) {
+        const row = await db.setGameDescription(q, { steamAppid: item.steamAppid, description: item.description });
+        if (row?.description) described += 1;
+      }
+      if (item.nameZh) named += 1;
+
+      if (item.priceOverview && item.priceOverview.final != null) {
+        offers.push({
+          platformCode: 'steam',
+          platformProductId: String(item.steamAppid),
+          steamAppid: item.steamAppid,
+          title: item.nameZh ?? String(item.steamAppid),
+          productType: 'official_direct',
+          region: 'cn',
+          currency: item.priceOverview.currency ?? 'CNY',
+          priceCents: Math.round(item.priceOverview.final),
+          originalCents: Math.round(item.priceOverview.initial ?? item.priceOverview.final),
+          discountPct: Number(item.priceOverview.discountPercent ?? 0),
+          inStock: true,
+          buyUrl: `https://store.steampowered.com/app/${item.steamAppid}/`,
+          meta: {},
+        });
+        priced += 1;
+      }
+    });
+  }
+
+  if (offers.length) {
+    const stats = await withStore((store) =>
+      ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger }),
+    );
+    logger.info('sync.steamall.done', { appids: appids.length, items: items.length, described, priced, ...stats });
+    console.log(`完成：${items.length} 条元数据（说明 ${described} 条）、${priced} 条 Steam 价格（新增 ${stats.inserted}）`);
+  } else {
+    console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
+  }
+}
+
 async function cmdSyncSonkwo() {
   const skus = readJson('data/skus.json', []);
   if (!skus.length) throw new Error('data/skus.json 为空，先用 add-sku 加几个 SKU');

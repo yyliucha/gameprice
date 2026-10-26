@@ -60,6 +60,11 @@ export function normalizeOfficial(appid, data) {
     developers: data.developers ?? null,
     publishers: data.publishers ?? null,
     genres: Array.isArray(data.genres) ? data.genres.map((g) => g.description).filter(Boolean) : null,
+    // 商店简介：去标签后存纯文本（后台可编辑，Steam 同步只在为空时填）
+    description: (function(raw){
+      if(!raw) return null;
+      return String(raw).replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "\x27").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4000);
+    })(data.short_description || data.detailed_description || ""),
     tags: null,
     source: 'official',
     // 完整 appdetails 会带 price_overview：Steam 自身价格（国内可达时就能用）
