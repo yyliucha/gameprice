@@ -1,4 +1,4 @@
-# gameprice
+# SteamDeals · 以 Steam 为准的跨平台游戏比价
 
 **中文游戏的价格履历。**
 

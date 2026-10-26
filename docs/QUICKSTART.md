@@ -43,7 +43,7 @@ sudo systemctl restart docker
 
 ```bash
 cd ~
-git clone https://github.com/yyliucha/gameprice.git
+git clone https://github.com/yyliucha/steamdeals.git
 cd gameprice
 ```
 
