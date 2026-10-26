@@ -15,6 +15,66 @@ function normalizeResult(result) {
   };
 }
 
+/** 解析 postgres URL：取出库名，并给出用于建库的维护库连接串（/postgres）。 */
+export function parseDatabaseTarget(target) {
+  const url = new URL(target);
+  const dbname = decodeURIComponent(url.pathname.replace(/^\//, '')) || 'postgres';
+  const admin = new URL(target);
+  admin.pathname = '/postgres';
+  return { dbname, adminUrl: admin.toString() };
+}
+
+/** 建库时要拼标识符，必须转义双引号。 */
+export function quoteIdent(name) {
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+/**
+ * 目标库不存在就建出来。
+ *
+ * 为什么要这层：DATABASE_URL 指向的库往往还没建（新机器、新 compose 项目），
+ * 让用户"先去 createdb"违背开箱即用。这里连维护库 /postgres 检查并创建，
+ * 没有建库权限时只记 warn 并继续——后面真正的连接错误会带上更明确的信息。
+ */
+export async function ensureDatabase(target, { logger = null, clientFactory = null } = {}) {
+  if (!/^postgres(ql)?:\/\//i.test(target)) return { skipped: true, reason: 'not_postgres' };
+
+  const { dbname, adminUrl } = parseDatabaseTarget(target);
+  if (dbname === 'postgres') return { exists: true, created: false };
+
+  const makeClient =
+    clientFactory ??
+    (async (opts) => {
+      const pg = (await import('pg')).default;
+      return new pg.Client(opts);
+    });
+
+  let client = null;
+  try {
+    client = await makeClient({ connectionString: adminUrl, connectionTimeoutMillis: 5000 });
+    await client.connect();
+    const found = await client.query('select 1 from pg_database where datname = $1', [dbname]);
+    if ((found.rowCount ?? found.rows?.length ?? 0) > 0) return { exists: true, created: false };
+
+    await client.query(`create database ${quoteIdent(dbname)}`);
+    logger?.info('db.autocreate', { database: dbname });
+    return { created: true };
+  } catch (err) {
+    logger?.warn('db.autocreate_failed', {
+      database: dbname,
+      message: String(err.message).slice(0, 200),
+      hint: '需要建库权限；可手动 createdb，或用已有库地址',
+    });
+    return { created: false, error: String(err.message) };
+  } finally {
+    try {
+      await client?.end();
+    } catch {
+      /* 已关闭 */
+    }
+  }
+}
+
 /**
  * target:
  *   postgres://user:pass@host:5432/db   → 真实 PG（生产）
@@ -44,6 +104,8 @@ export async function openStore(target, { logger } = {}) {
     logger?.info('db.connect', { kind, target: path ?? ':memory:' });
   } else if (/^postgres(ql)?:\/\//i.test(target)) {
     kind = 'postgres';
+    // 先保证库存在（连不上或无权限只记 warn，不影响后面的真实报错）
+    await ensureDatabase(target, { logger });
     const pg = (await import('pg')).default;
     // DATE 列默认被解析成 JS Date，会带本地时区偏移（跨时区时甚至差一天）。
     // 统一退回字符串 'YYYY-MM-DD'，让日聚合/史低比较始终按日历日进行。

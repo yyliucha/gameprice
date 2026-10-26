@@ -1,28 +1,38 @@
 # 部署
 
-两种方式，先说结论：**有现成 PG 就用方式二，没有就用方式一（一条命令起全套）。**
+两种方式，先说结论：**有现成 PG 就用方式二，没有就用方式一（三条命令，零配置）。**
 
-前置：Docker ≥ 24 与 Docker Compose ≥ **2.20**（用到了 `depends_on.required` 字段）。
+前置：Docker ≥ 24 与 Docker Compose ≥ 2.20（用到了 `depends_on.required` 字段）。
 
 ---
 
-## 方式一：一体化（自带 PostgreSQL 15）
+## 方式一：一体化（自带 PostgreSQL 15，零配置）
 
 ```bash
 git clone <你的仓库> gameprice && cd gameprice
-cp .env.example .env
-# 必须改 POSTGRES_PASSWORD，其余可留默认
-vi .env
 docker compose up -d --build
 ```
 
-`.env` 里的 `COMPOSE_PROFILES=bundled` 会让 compose 同时启动 `db`（postgres:15-alpine）和 `app`。
+**不需要 `.env`、不需要改密码、不需要先建库建表。** 启动时会自动完成：
+
+| 步骤 | 谁做的 | 说明 |
+|---|---|---|
+| 建库 | postgres 容器 | `POSTGRES_DB=gameprice` 由官方镜像初始化 |
+| 建库兜底 | 应用 `ensureDatabase` | 库不存在就 `CREATE DATABASE`（外部库场景同样生效） |
+| 建表 | `bootstrap` → `migrate` | 8 张表 + 1 视图，`create table if not exists`，可重复执行 |
+| 平台字典 | `migrate` | steam / sonkwo / itad / gog / humble / steampy |
+| 首次导入 | `bootstrap` | 读 `data/games.json`，已导入则跳过（幂等） |
+| 定时采集 | `scheduler` | steam 60m、sonkwo 60m、gog/humble 720m、itad 1440m、alerts 360m |
+
+数据库端口**不发布到宿主机**，只在 compose 内网可达；默认 `trust` 认证，所以不需要密码。
+想启用密码：设 `POSTGRES_PASSWORD` + `POSTGRES_HOST_AUTH_METHOD=scram-sha-256`，并显式给出
+`DATABASE_URL=postgres://user:密码@db:5432/gameprice`，然后 `docker compose up -d`。
 
 起来之后：
 
 ```bash
 docker compose ps                    # app 应为 healthy
-docker compose logs -f app           # 看启动日志
+docker compose logs -f app           # 看 bootstrap.done / scheduler.start
 docker compose exec app node src/cli.js stats
 docker compose exec app node src/cli.js list
 ```
@@ -101,7 +111,7 @@ docker compose run --rm app diagnose
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | 指向内置 db | `postgres://user:pass@host:5432/db` |
-| `POSTGRES_PASSWORD` | 无（必填） | 仅方式一使用 |
+| `POSTGRES_PASSWORD` | 空（不需要） | 仅方式一；启用密码时配合 `POSTGRES_HOST_AUTH_METHOD` |
 | `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
 | `STEAM_ENABLED` / `SONKWO_ENABLED` / `ITAD_ENABLED` | `1` | 置 `0` 关闭该源 |
 | `STEAM_INTERVAL_MIN` / `SONKWO_INTERVAL_MIN` / `ITAD_INTERVAL_MIN` | 60/60/1440 | 采集间隔（分钟） |

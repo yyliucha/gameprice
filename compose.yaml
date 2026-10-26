@@ -11,7 +11,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gameprice}
       POSTGRES_USER: ${POSTGRES_USER:-gameprice}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里设置 POSTGRES_PASSWORD（别用默认值）}
+      # 默认 trust：不设密码也能起来，一步到位。数据库端口不对外暴露，
+      # 只在 compose 内网可达；需要密码就设 POSTGRES_PASSWORD 并同时给 DATABASE_URL。
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -34,7 +36,7 @@ services:
         condition: service_healthy
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-gameprice}:${POSTGRES_PASSWORD:-gameprice}@db:5432/${POSTGRES_DB:-gameprice}}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-gameprice}@db:5432/${POSTGRES_DB:-gameprice}}
       TZ: ${TZ:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SEED_ON_START: ${SEED_ON_START:-1}

@@ -53,6 +53,7 @@
 | Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
 | ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
 | Docker 部署 | ⚠️ 文件齐备，**镜像未真实构建过** | 开发机无 Docker；已用 `npm ci --omit=dev` + 容器启动路径等价验证 |
+| **一键部署（自动建库/建表/导入）** | ✅ 已验证 | `ensureDatabase` 在真 PG 协议下建库成功；`bootstrap` 幂等建表与导入 |
 | Fanatical | ⏸ 不接入 | 商品页是 SPA 且 Algolia key 被 Cloudflare 403，无可靠取数路径 |
 | 多区服对比 | 🚧 未实现 | `region` 维度已在数据模型里 |
 | 小黑盒商城 | ⏸ 评估后暂缓 | 无公开接口，需逆向 `hkey` 签名 |
@@ -173,16 +174,24 @@ cli.js 生成 runId
 
 ## 快速开始
 
-### 方式一：Docker
+### 方式一：Docker（零配置）
 
 ```bash
-cp .env.example .env          # 至少改 POSTGRES_PASSWORD
 docker compose up -d --build
 docker compose ps             # app 应为 healthy
 docker compose logs -f app    # 看到 bootstrap.done 即启动成功
 ```
 
-自带 `postgres:15-alpine`。`app` 启动后先建表、首次导入游戏，然后进入常驻调度器。
+**不需要先建库、建表、改密码、填 .env。** 起来之后这条链是全自动的：
+
+```
+postgres 容器创建库 gameprice
+  → app 启动：ensureDatabase（库不在就 CREATE DATABASE）
+  → bootstrap：建表 + 平台字典 + 首次导入 data/games.json（幂等）
+  → 调度器：按间隔采集
+```
+
+内置 `postgres:15-alpine` 用 trust 认证且端口不发布到宿主机，只在 compose 内网可达；需要密码见 [DEPLOY.md](docs/DEPLOY.md)。
 
 用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
@@ -277,7 +286,8 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | 无（必填） | `postgres://user:pass@host:5432/db` |
+| `DATABASE_URL` | 无（自动降级） | 不配时用内置嵌入式 PG（`data/pgdata`）；配了 `postgres://` 会自动建库 |
+| `POSTGRES_HOST_AUTH_METHOD` | `trust` | 仅容器内置库使用；改密码时同时设它与 `DATABASE_URL` |
 | `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
 | `ALERT_WEBHOOK_URL` | 空 | 通用 webhook；空则不发这条通道 |
 | `WECOM_WEBHOOK_URL` | 空 | 企业微信群机器人地址（`errcode=0` 才算成功） |
@@ -378,6 +388,7 @@ node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
 node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
+node test/store.test.js      # 10 项：URL 解析、建库 SQL、真 TCP PG 协议下自动建库
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
 node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报、webhook 失败不抛
@@ -389,7 +400,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **106 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **117 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

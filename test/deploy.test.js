@@ -67,9 +67,19 @@ test('入口脚本必须是 LF 换行且无 BOM（CRLF 会让容器报 no such f
   assert.equal(crlf, false, '不能出现 CRLF');
 });
 
+test('compose 默认零配置可启动：不强制密码，库端口不对外', () => {
+  const doc = parse(read('compose.yaml'));
+  const dbEnv = doc.services.db.environment;
+  assert.equal(dbEnv.POSTGRES_HOST_AUTH_METHOD, '${POSTGRES_HOST_AUTH_METHOD:-trust}', '默认应免密启动');
+  assert.equal(dbEnv.POSTGRES_PASSWORD, undefined, '不应把密码设成必填');
+  assert.equal(doc.services.db.ports, undefined, '数据库端口不能发布到宿主机');
+  // 应用侧连接串不带密码，配合 trust 认证
+  assert.match(doc.services.app.environment.DATABASE_URL, /postgres:\/\/.*@db:5432/);
+});
+
 test('.env.example 覆盖 compose 用到的可配置项', () => {
   const example = read('.env.example');
-  for (const key of ['POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {
-    assert.match(example, new RegExp(`^${key}=`, 'm'), `.env.example 缺少 ${key}`);
+  for (const key of ['COMPOSE_PROFILES', 'POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {
+    assert.match(example, new RegExp(`^#?\\s*${key}=`, 'm'), `.env.example 缺少 ${key}`);
   }
 });

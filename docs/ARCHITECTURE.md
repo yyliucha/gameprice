@@ -43,6 +43,29 @@ scheduler   ── 只负责"什么时候跑"，不关心跑什么
 }
 ```
 
+## 2.1 从零到可用：启动链
+
+"开箱即用"不是一句口号，它对应一条明确的链，每一环都可重复执行（幂等），失败只影响自己：
+
+```
+openStore(target)                          src/store/index.js
+  └─ ensureDatabase(target)                库不存在就连 /postgres 执行 CREATE DATABASE
+       └─ 无权限/连不上 → 只记 warn，继续（后面真实连接会报更明确的错）
+cli bootstrap                              src/cli.js
+  ├─ migrate()                             8 张表 + 1 视图 + 平台字典，全部 if not exists
+  └─ games 为空？→ 读 data/games.json 导入   已导入则跳过（SEED_ON_START=0 可关）
+scheduler                                  src/scheduler.js
+  └─ 按间隔派生子进程跑采集 / 提醒
+```
+
+三个刻意的设计：
+
+1. **建库失败不致命**：托管数据库通常不给建库权限，此时应继续走正常的连接逻辑，
+   让 `pg` 抛出"database does not exist"，比在这里抛"权限不足"更好定位。
+2. **不配 `DATABASE_URL` 也能跑**：CLI 会降级到嵌入式 PGlite（`data/pgdata`），
+   本地试验不需要先装数据库。
+3. **每一步都幂等**：容器重启、`docker compose up` 重跑、升级后重跑，都不会产生重复数据。
+
 ## 3. 一次采集的完整时序
 
 ```
@@ -96,7 +119,6 @@ cli.js
 两层修：存储层注册 identity parser（`pg.types.setTypeParser(1082, v => v)`），SQL 里统一 `::text`。**这条踩过，不是理论风险。**
 
 ## 5. 失败模型
-
 | 场景 | 行为 | 为什么 |
 |---|---|---|
 | 单条 offer 入库失败 | 捕获、记 `ingest.offer_failed`、继续下一条 | 一条脏数据不该让整轮作废 |

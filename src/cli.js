@@ -34,7 +34,13 @@ const logger = createLogger({
   bindings: { runId },
 });
 
-const dbTarget = String(flag('db', process.env.DATABASE_URL ?? ''));
+const explicitTarget = String(flag('db', process.env.DATABASE_URL ?? ''));
+// 开箱即用：什么都没配就落到本地嵌入式 PG（数据在 data/pgdata 下），
+// 不需要先装数据库、也不需要先建库。
+const dbTarget = explicitTarget || 'pglite:./data/pgdata';
+if (!explicitTarget) {
+  logger.info('db.default_target', { target: dbTarget, hint: '未配置 DATABASE_URL，使用嵌入式 PG' });
+}
 // 容器启动时数据库可能还没就绪（compose 里 db 先起、app 随后），所以支持"等库"：
 // DB_WAIT_SEC=60 表示最多等 60 秒，每 2 秒重连一次。
 const dbWaitSec = Number(flag('wait-db', process.env.DB_WAIT_SEC ?? 0));
