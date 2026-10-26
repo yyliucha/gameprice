@@ -817,6 +817,40 @@ async function cmdOwned() {
   logger.info('owned.set', { appid, owned: row.owned });
   console.log(`${row.name ?? appid} → ${row.owned ? '已拥有' : '未拥有'}（默认在列表里收起）`);
 }
+/** 用户管理：add / list。密码只在创建时显示一次。 */
+async function cmdUser() {
+  const sub = args[1];
+  if (sub === 'add') {
+    const username = String(args[2] ?? '').trim();
+    const role = args.includes('--admin') ? 'admin' : 'user';
+    const pwIdx = args.indexOf('--password');
+    // 用 Web Crypto（Node 19+ 全局可用），不额外引入模块
+    const password =
+      pwIdx > -1 ? String(args[pwIdx + 1]) : Buffer.from(crypto.getRandomValues(new Uint8Array(9))).toString('base64url');
+    if (!username) throw new Error('用法: node src/cli.js user add <用户名> [--admin] [--password xxx]');
+    const created = await withStore((store) =>
+      db.createUser((sql, p) => store.query(sql, p), { username, password, role }),
+    );
+    logger.info('user.created', { username: created.username, role: created.role });
+    console.log(`已创建 ${created.username}（${created.role}）`);
+    if (pwIdx === -1) console.log(`初始密码：${password}（只显示这一次，请立即保存）`);
+    return;
+  }
+  if (sub === 'list') {
+    const users = await withStore((store) => db.listUsers((sql, p) => store.query(sql, p)));
+    if (!users.length) {
+      console.log('还没有用户。用 node src/cli.js user add <用户名> --admin 创建管理员。');
+      return;
+    }
+    for (const u of users) {
+      const created = u.created_at ? new Date(u.created_at).toISOString().slice(0, 10) : '';
+      console.log(`${String(u.username).padEnd(18)} ${String(u.role).padEnd(6)} ${created}`);
+    }
+    return;
+  }
+  throw new Error('用法: node src/cli.js user add <用户名> [--admin] [--password xxx] | user list');
+}
+
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响列表展示，采集与统计照常。 */
 async function cmdInterest() {
   const appid = Number(args[1]);
@@ -1021,6 +1055,7 @@ const commands = {
   import: cmdImport,
   serve: cmdServe,
   interest: cmdInterest,
+  user: cmdUser,
   owned: cmdOwned,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
