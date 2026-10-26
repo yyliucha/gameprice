@@ -183,7 +183,16 @@ function render() {
     const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
       '<td><div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
-      '<td class="num">' + yuan(g.current_low) + (gap != null ? '<div class="small muted">比次低便宜 ' + yuan(gap) + '</div>' : '') + '</td>' +
+      (function(){
+        var steam = null;
+        for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];
+        var base = steam ? steam.price : g.current_low;
+        var low = offers.length ? offers[0] : null;
+        var note = steam && low && low.platform !== 'steam'
+          ? '<div class="small muted">其他平台最低 ' + yuan(low.price) + '（' + esc(low.platform_name || low.platform) + '）</div>'
+          : (g.steam_price == null && low ? '<div class="small muted">Steam 无价，取最低 ' + esc(low.platform_name || low.platform) + '</div>' : '');
+        return '<td class="num">' + yuan(base) + note + '</td>';
+      })() +
       '<td class="num">' + yuan(g.current_original) + '</td>' +
       '<td class="num">' + pct(g.discount) + '</td>' +
       '<td>' + (pills || '<span class="muted">—</span>') + '</td>' +

@@ -435,6 +435,9 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
                 and p.kind in ${OFFICIAL_KINDS}) as current_low,
+            -- Steam 自身价格：以 Steam 为准，其它平台只作参考
+            (select min(o.price_cents) from offers o
+              where o.game_id = g.id and o.region = $1 and o.in_stock and o.platform_code = 'steam') as steam_price,
             (select min(o.original_cents) from offers o
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
