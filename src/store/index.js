@@ -15,11 +15,39 @@ function normalizeResult(result) {
   };
 }
 
-/** 解析 postgres URL：取出库名，并给出用于建库的维护库连接串（/postgres）。 */
+/** 日志/报错里展示连接串时遮掉密码。 */
+export function maskDatabaseUrl(target) {
+  return String(target ?? '').replace(/([a-z]+:\/\/[^:@/]*:)[^@/]*@/i, '$1***@');
+}
+
+/**
+ * 解析 postgres URL：取出库名，并给出用于建库的维护库连接串（/postgres）。
+ *
+ * 这里单独判空并给出可操作的报错：`new URL()` 只会抛 "Invalid URL"，
+ * 在容器里根本看不出是密码带 # 还是写了全角标点。
+ */
 export function parseDatabaseTarget(target) {
-  const url = new URL(target);
+  const raw = String(target ?? '').trim();
+  if (!raw) {
+    throw new Error('DATABASE_URL 为空：请在 .env 里写 DATABASE_URL=postgres://用户:密码@主机:5432/库名');
+  }
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `DATABASE_URL 不是合法的连接串：${maskDatabaseUrl(raw)}\n` +
+        '常见原因：\n' +
+        '  · 密码里有 # ? / 等特殊字符（URL 里有含义，需编码：# → %23，? → %3F，/ → %2F，@ → %40）\n' +
+        '  · 用了中文标点（全角冒号"："、全角斜杠"／"）\n' +
+        '  · 值被引号包住，或等号两边多了空格\n' +
+        '最简单：把数据库密码改成纯字母数字，或手动编码特殊字符',
+    );
+  }
+
   const dbname = decodeURIComponent(url.pathname.replace(/^\//, '')) || 'postgres';
-  const admin = new URL(target);
+  const admin = new URL(raw);
   admin.pathname = '/postgres';
   return { dbname, adminUrl: admin.toString() };
 }

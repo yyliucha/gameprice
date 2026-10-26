@@ -4,7 +4,7 @@
 //      （用 PGlite + PGLiteSocketServer 起一个本地 TCP Postgres）
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDatabaseTarget, quoteIdent, ensureDatabase } from '../src/store/index.js';
+import { parseDatabaseTarget, quoteIdent, ensureDatabase, maskDatabaseUrl } from '../src/store/index.js';
 
 test('URL 解析出库名与维护库连接串', () => {
   const { dbname, adminUrl } = parseDatabaseTarget('postgres://u:p@host:5432/mygame');
@@ -25,6 +25,28 @@ test('库名支持 URL 编码（中文/空格）', () => {
 test('标识符转义：双引号要翻倍', () => {
   assert.equal(quoteIdent('gameprice'), '"gameprice"');
   assert.equal(quoteIdent('we"ird'), '"we""ird"');
+});
+
+test('非法连接串报错要说人话，且不泄露密码', () => {
+  // 密码里的 # 会被 URL 当成片段分隔符 → 解析失败（线上真实踩到）
+  assert.throws(
+    () => parseDatabaseTarget('postgres://u:pa#ss@host:5432/db'),
+    (err) => {
+      assert.match(err.message, /不是合法的连接串/);
+      assert.match(err.message, /%23/, '要提示怎么编码');
+      assert.ok(!err.message.includes('pa#ss'), '不能把密码原样打出来');
+      return true;
+    },
+  );
+  assert.throws(() => parseDatabaseTarget(''), /DATABASE_URL 为空/);
+  assert.throws(() => parseDatabaseTarget('   '), /DATABASE_URL 为空/);
+  // 全角冒号也是常见手误
+  assert.throws(() => parseDatabaseTarget('postgres：//u:p@host:5432/db'), /不是合法的连接串/);
+});
+
+test('maskDatabaseUrl 遮住密码但保留结构', () => {
+  assert.equal(maskDatabaseUrl('postgres://user:secret@host:5432/db'), 'postgres://user:***@host:5432/db');
+  assert.equal(maskDatabaseUrl('postgres://host:5432/db'), 'postgres://host:5432/db');
 });
 
 function fakeClient({ exists = false, failOn = null } = {}) {
