@@ -2,7 +2,9 @@ node_modules/
 logs/
 out/
 data/pgdata/
+data/*-pgdata/
 data/demo-pgdata/
+data/pages/
 data/*.jsonl
 .env
 .env.local

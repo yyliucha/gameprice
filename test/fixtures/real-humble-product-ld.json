@@ -1,0 +1,36 @@
+{
+  "sku": "cyberpunk2077_storefront",
+  "publisher": "CD PROJEKT RED",
+  "name": "Cyberpunk 2077",
+  "aggregateRating": {
+    "worstRating": 0,
+    "bestRating": 100,
+    "ratingValue": 77,
+    "@type": "AggregateRating",
+    "ratingCount": 7862
+  },
+  "url": "https://www.humblebundle.com/store/cyberpunk-2077",
+  "image": "https://hb.imgix.net/fdc63b241b3a693b57187e6c8d713a8a14ce20aa.jpeg?auto=compress,format&fit=crop&h=353&w=616&s=efac20dbb464f3d88ea0a991db050ff6",
+  "brand": {
+    "@type": "Brand",
+    "name": "CD PROJEKT RED"
+  },
+  "applicationCategory": "VideoGame",
+  "offers": {
+    "priceValidUntil": null,
+    "priceCurrency": "CNY",
+    "url": "https://www.humblebundle.com/store/cyberpunk-2077",
+    "price": 400.14,
+    "availability": "http://schema.org/InStock",
+    "@type": "Offer"
+  },
+  "genre": [
+    "RPG"
+  ],
+  "@context": "https://schema.org/",
+  "@type": [
+    "Product",
+    "VideoGame"
+  ],
+  "description": "Cyberpunk 2077 is an open-world, action-adventure story set in Night City, a megalopolis obsessed with power, glamour and body modification. You play as V, a mercenary outlaw going after a one-of-a-kind implant that is the key to immortality. You can customize your character’s cyberware, skillset..."
+}

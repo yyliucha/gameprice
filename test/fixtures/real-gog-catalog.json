@@ -1,0 +1,597 @@
+{
+  "productCount": 464,
+  "products": [
+    {
+      "id": "1256837418",
+      "slug": "cyberpunk_2077_phantom_liberty",
+      "features": [
+        {
+          "name": "Achievements",
+          "slug": "achievements"
+        },
+        {
+          "name": "Cloud saves",
+          "slug": "cloud_saves"
+        },
+        {
+          "name": "Controller support",
+          "slug": "controller_support"
+        },
+        {
+          "name": "Overlay",
+          "slug": "overlay"
+        },
+        {
+          "name": "Single-player",
+          "slug": "single"
+        }
+      ],
+      "screenshots": [
+        "https://images.gog-statics.com/d0184a34d110f6165aba3cc82e5c85557544921b6f217393a37ec0682419325d_{formatter}.jpg",
+        "https://images.gog-statics.com/1c913b320e5bde05736dcb8cca780030805e902e5f6c04c1c5465183686581f5_{formatter}.jpg",
+        "https://images.gog-statics.com/f38a46176ca3cca38fefcd8de8628a5b1bc1b3a9978400401cdf2fc8d1159605_{formatter}.jpg",
+        "https://images.gog-statics.com/836feef1a6e2a63a840648b9e64bd17e99ddb58160ac316365ad258fa200ff39_{formatter}.jpg",
+        "https://images.gog-statics.com/83e7fba76846120d81b564977290f82b4f16583c0b980e3565a03350d5720f98_{formatter}.jpg",
+        "https://images.gog-statics.com/66d266a34a5fc350ef14296f08222ea961dd850b4b8bca226987bbbdac236339_{formatter}.jpg",
+        "https://images.gog-statics.com/01ecab22e096f00192ebda046e8d8082f3001a5fdaa111ea73cd7c8738d03d9e_{formatter}.jpg",
+        "https://images.gog-statics.com/34de48b25e3ae04bad23b96d17dc1669778cf2447ce2f83ed7ce3af801939730_{formatter}.jpg",
+        "https://images.gog-statics.com/8b7bf5c2c3a20d9e0f38283b7fb5ca6c6df981285754aad2149b4e7e6c3f95c2_{formatter}.jpg",
+        "https://images.gog-statics.com/1c4a52b32ef9f806f87a8f1237989024ffd95c3423bd34f3a16ed836457695c1_{formatter}.jpg",
+        "https://images.gog-statics.com/28b285d6a66bdf1274ed68052cb6b9223a68456740d439d382e338d1d23f5594_{formatter}.jpg",
+        "https://images.gog-statics.com/c37fcfae507ab3bf2ab4db3c3a42f872796ff9128d57dbeb19e8ed7b097b48b2_{formatter}.jpg",
+        "https://images.gog-statics.com/c4da0d61dfe35de0dab03cb94c744b342b24e4ae43f15dc7c62d8c0817c4799c_{formatter}.jpg",
+        "https://images.gog-statics.com/4c6927dc357cfd4b1508ad8b73dcfaef8345383e1468c3c2231d81f595657224_{formatter}.jpg",
+        "https://images.gog-statics.com/96364652f9377b5c90cb69d89023d92ca1db4e9e4ef0fa0861dfca7784fe9a4c_{formatter}.jpg"
+      ],
+      "userPreferredLanguage": {
+        "code": "en",
+        "inAudio": true,
+        "inText": true
+      },
+      "releaseDate": "2023.09.26",
+      "storeReleaseDate": "2023.09.26",
+      "productType": "dlc",
+      "title": "Cyberpunk 2077: Phantom Liberty",
+      "coverHorizontal": "https://images.gog-statics.com/45a284386e693f1576b96d98a0023a7905d3956c6f9aa913d3fe5d09a5994bee.png",
+      "coverVertical": "https://images.gog-statics.com/002898a4cc9610c8f8ab2af45787aa4834bbd3e789593105343c219ec027668f.jpg",
+      "logo": "https://images.gog-statics.com/7550dba3c65c44375b3e265301d75f80d4ecab4ff5f53c57e831fe59a9824a01.png",
+      "galaxyBackgroundImage": "https://images.gog-statics.com/90b287f4b41f72d83b72fc6bb282f423e7672fc9709351c8be4702ea502b7d63.jpg",
+      "developers": [
+        "CD PROJEKT RED"
+      ],
+      "publishers": [
+        "CD PROJEKT RED"
+      ],
+      "operatingSystems": [
+        "windows",
+        "osx"
+      ],
+      "price": {
+        "final": "¥89",
+        "base": "¥149",
+        "discount": "-40%",
+        "finalMoney": {
+          "amount": "89",
+          "currency": "CNY",
+          "discount": "60"
+        },
+        "baseMoney": {
+          "amount": "149",
+          "currency": "CNY"
+        }
+      },
+      "productState": "default",
+      "genres": [
+        {
+          "name": "Role-playing",
+          "slug": "rpg"
+        },
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "scifi"
+        }
+      ],
+      "tags": [
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Story Rich",
+          "slug": "story-rich"
+        },
+        {
+          "name": "Atmospheric",
+          "slug": "atmospheric"
+        },
+        {
+          "name": "Role-playing",
+          "slug": "role-playing"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "sci-fi"
+        },
+        {
+          "name": "First-Person",
+          "slug": "first-person"
+        },
+        {
+          "name": "Science",
+          "slug": "science"
+        },
+        {
+          "name": "Great Soundtrack",
+          "slug": "great-soundtrack"
+        },
+        {
+          "name": "Choices Matter",
+          "slug": "choices-matter"
+        },
+        {
+          "name": "Open World",
+          "slug": "open-world"
+        },
+        {
+          "name": "Mature",
+          "slug": "mature"
+        },
+        {
+          "name": "Nudity",
+          "slug": "nudity"
+        },
+        {
+          "name": "Violent",
+          "slug": "violent"
+        },
+        {
+          "name": "Multiple Endings",
+          "slug": "multiple-endings"
+        },
+        {
+          "name": "FPS",
+          "slug": "fps"
+        },
+        {
+          "name": "Cyberpunk",
+          "slug": "cyberpunk"
+        }
+      ],
+      "reviewsRating": 41,
+      "reviewsCount": 1844,
+      "editions": [],
+      "ratings": [
+        {
+          "name": "pegiRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "esrbRating",
+          "ageRating": "17"
+        },
+        {
+          "name": "uskRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "brRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "gogRating",
+          "ageRating": "18"
+        }
+      ],
+      "storeLink": "https://www.gog.com/en/game/cyberpunk_2077_phantom_liberty"
+    },
+    {
+      "id": "1274966284",
+      "slug": "cyberpunk_2077_ultimate_edition",
+      "features": [
+        {
+          "name": "Achievements",
+          "slug": "achievements"
+        },
+        {
+          "name": "Cloud saves",
+          "slug": "cloud_saves"
+        },
+        {
+          "name": "Controller support",
+          "slug": "controller_support"
+        },
+        {
+          "name": "Overlay",
+          "slug": "overlay"
+        },
+        {
+          "name": "Single-player",
+          "slug": "single"
+        }
+      ],
+      "screenshots": [
+        "https://images.gog-statics.com/459b8cac440be3b3f8cb5a19af7f11d03cca6de40cc2cafb017e9d186f85ca6c_{formatter}.jpg",
+        "https://images.gog-statics.com/5dbab7de0eedc99eb56bf6b8955d1210e02f9cb8185536ca8c4c89027ed89a1c_{formatter}.jpg",
+        "https://images.gog-statics.com/b96734393278bf263dfd147b9e50e1754625a215148f124cecc2c590d2733063_{formatter}.jpg",
+        "https://images.gog-statics.com/77b31924112af1ede0e5190309b2175111f66131a3007b1b72fb72d19178c428_{formatter}.jpg",
+        "https://images.gog-statics.com/8d6f8992f5edab39ca561d64383fd58e8d90e73f14620ef6fae4f3715d332893_{formatter}.jpg",
+        "https://images.gog-statics.com/fd4e6a6b719325815041aeb5c42e6221a8e27d44a257648afbdf23883ee0f13d_{formatter}.jpg",
+        "https://images.gog-statics.com/7150e272aa0bd44df91e4650114943b59f815bbbc2db307b5816d7d2910faaf4_{formatter}.jpg",
+        "https://images.gog-statics.com/7a9f1285ce5046b9c9d2894b743539b78c727761ed043b1387b1e8bcdfcc40cd_{formatter}.jpg",
+        "https://images.gog-statics.com/a2a74855404675ac3dde643e9bbaa1b6f8575f2c4962524d76ad7d9012ee3b70_{formatter}.jpg",
+        "https://images.gog-statics.com/a6291d4afa1d02dc2cb71316715aa1d80a83135764246192173bbcd302640a32_{formatter}.jpg",
+        "https://images.gog-statics.com/b7a5e64bfdfc4b416db833ce1d2ab020aded2a258a4482bd3b87703366b9ae3c_{formatter}.jpg",
+        "https://images.gog-statics.com/47273062ebf3ec500d319ccb988125ac5ee546126a93ae97e7c9dca4ef575df7_{formatter}.jpg",
+        "https://images.gog-statics.com/9e0b6f7504fdc66deecaa96855181c6e662c5520e02df49656fd95b6c035e659_{formatter}.jpg"
+      ],
+      "userPreferredLanguage": {
+        "code": "en",
+        "inAudio": true,
+        "inText": true
+      },
+      "releaseDate": "2023.09.26",
+      "storeReleaseDate": "2023.09.26",
+      "productType": "pack",
+      "title": "Cyberpunk 2077: Ultimate Edition",
+      "coverHorizontal": "https://images.gog-statics.com/257b1513b1de9146a3e003b3766f14b0073f0152c4eddc01223dc3585ba50320.png",
+      "coverVertical": "https://images.gog-statics.com/499f5ff7f05b67c5d0cdcf94ac60915b4ac7c4bd8b5ad3b94585c5f4945cbf38.jpg",
+      "logo": "https://images.gog-statics.com/3e9fd0728cf8903162b52842f55f9ed01aef9ea0de6f7dadf48d92e61bd5d67a.png",
+      "galaxyBackgroundImage": "https://images.gog-statics.com/262d408c0d0a5edc2bf69ca026e00261c574ac250d5c3cb19d4c21beee420e54.jpg",
+      "developers": [
+        "CD PROJEKT RED"
+      ],
+      "publishers": [
+        "CD PROJEKT RED"
+      ],
+      "operatingSystems": [
+        "windows",
+        "osx"
+      ],
+      "price": {
+        "final": "¥159",
+        "base": "¥399",
+        "discount": "-60%",
+        "finalMoney": {
+          "amount": "159",
+          "currency": "CNY",
+          "discount": "240"
+        },
+        "baseMoney": {
+          "amount": "399",
+          "currency": "CNY"
+        }
+      },
+      "productState": "default",
+      "genres": [
+        {
+          "name": "Role-playing",
+          "slug": "rpg"
+        },
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "scifi"
+        }
+      ],
+      "tags": [
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Story Rich",
+          "slug": "story-rich"
+        },
+        {
+          "name": "Atmospheric",
+          "slug": "atmospheric"
+        },
+        {
+          "name": "Role-playing",
+          "slug": "role-playing"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "sci-fi"
+        },
+        {
+          "name": "First-Person",
+          "slug": "first-person"
+        },
+        {
+          "name": "Science",
+          "slug": "science"
+        },
+        {
+          "name": "Great Soundtrack",
+          "slug": "great-soundtrack"
+        },
+        {
+          "name": "Choices Matter",
+          "slug": "choices-matter"
+        },
+        {
+          "name": "Open World",
+          "slug": "open-world"
+        },
+        {
+          "name": "Mature",
+          "slug": "mature"
+        },
+        {
+          "name": "Nudity",
+          "slug": "nudity"
+        },
+        {
+          "name": "Violent",
+          "slug": "violent"
+        },
+        {
+          "name": "Multiple Endings",
+          "slug": "multiple-endings"
+        },
+        {
+          "name": "FPS",
+          "slug": "fps"
+        },
+        {
+          "name": "Cyberpunk",
+          "slug": "cyberpunk"
+        }
+      ],
+      "reviewsRating": 43,
+      "reviewsCount": 778,
+      "editions": [
+        {
+          "id": 2093619782,
+          "name": "Base Edition",
+          "isRootEdition": true
+        },
+        {
+          "id": 1274966284,
+          "name": "Ultimate Edition",
+          "isRootEdition": false
+        }
+      ],
+      "ratings": [
+        {
+          "name": "pegiRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "esrbRating",
+          "ageRating": "17"
+        },
+        {
+          "name": "uskRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "brRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "gogRating",
+          "ageRating": "18"
+        }
+      ],
+      "storeLink": "https://www.gog.com/en/game/cyberpunk_2077_ultimate_edition"
+    },
+    {
+      "id": "2093619782",
+      "slug": "cyberpunk_2077",
+      "features": [
+        {
+          "name": "Achievements",
+          "slug": "achievements"
+        },
+        {
+          "name": "Cloud saves",
+          "slug": "cloud_saves"
+        },
+        {
+          "name": "Controller support",
+          "slug": "controller_support"
+        },
+        {
+          "name": "Overlay",
+          "slug": "overlay"
+        },
+        {
+          "name": "Single-player",
+          "slug": "single"
+        }
+      ],
+      "screenshots": [
+        "https://images.gog-statics.com/06ec2f91e7f4a4b372c947307da3a6814b1c190be3fc1f4535ed9c2049c13dae_{formatter}.jpg",
+        "https://images.gog-statics.com/1b6963d25e96ca334bd3a2f85cb2899c252403b63d84e65835427d4df4ddb86a_{formatter}.jpg",
+        "https://images.gog-statics.com/8e558ade20ae8710c765d65f30fa549000eccb7491504425c568ceea844755bf_{formatter}.jpg",
+        "https://images.gog-statics.com/40f995ffffa8f902b740990e01b51d8252aa232ba171c7ddc008c076d779ee7e_{formatter}.jpg",
+        "https://images.gog-statics.com/9d3d36f44e3496d5072e5eda1a99828f5636af11ead0558b634fb7075ba17863_{formatter}.jpg",
+        "https://images.gog-statics.com/0f12b91b0c4613ecffd6815d3dff17eac2fbe21310600ed0f2f10d640f478eae_{formatter}.jpg",
+        "https://images.gog-statics.com/bb0d4e9ebbfa88201e73842fb87af7703d880862f8a01498cbd4a66bdf355c60_{formatter}.jpg",
+        "https://images.gog-statics.com/73aaf4c34c2736f8e35cca5b9697d499a6c842f58a8c3dd0c5e01d4a7fb4b860_{formatter}.jpg",
+        "https://images.gog-statics.com/424a223577daebdb102dd5f1c2ef096f93df58e5e51051d42c183e711c2d97ea_{formatter}.jpg",
+        "https://images.gog-statics.com/bf8e70f4f45cce1da992ad01697ea61cf0fbe3c30f34e7be4fb588aa77139c4e_{formatter}.jpg",
+        "https://images.gog-statics.com/51edac89816483f066d4040c2d0e8c4c80b84c3f56df0167939ffb87c769556c_{formatter}.jpg",
+        "https://images.gog-statics.com/63bb90a5dc06df0530fd85c1ac057527de6ef2653249e3b2f958316602cb4370_{formatter}.jpg",
+        "https://images.gog-statics.com/c54dc68aaa570133b3500f79ddafabe50ee61b9cba42be1efba14269d360c1b8_{formatter}.jpg",
+        "https://images.gog-statics.com/ade6234e24668efeb1b1f2277b9116631654cf36a1fd29aa577d23e9d286911b_{formatter}.jpg",
+        "https://images.gog-statics.com/35dc87094b8b67bf3cf7b094166700e584612d2b14b786475b3b1ef1b7292e32_{formatter}.jpg",
+        "https://images.gog-statics.com/e8b6046cdd1a87621799867737a293e31ef209ca66eed4421a2cd6ea0c681076_{formatter}.jpg",
+        "https://images.gog-statics.com/67a2f65e8135b8def0c5ad73ea623f5c34ded20d8dcadc514ac51e47bed9525a_{formatter}.jpg",
+        "https://images.gog-statics.com/b362735b88df5f3c4cb8518fc93fde52dfaaf50b7ca26c052923a90e31c71303_{formatter}.jpg",
+        "https://images.gog-statics.com/4b295d49002ea6b2e3d63b523cc29bfcf3b27cb1ce8ba409ebb980db9f77692a_{formatter}.jpg",
+        "https://images.gog-statics.com/e1baeeb32e4968fcfa62baea9b20b6051dc9860b33128bc091b59b7fbd05b1b6_{formatter}.jpg",
+        "https://images.gog-statics.com/ea1d80d5d59efd630d1c8531315d72549812d592bc8decc7d1e86940ec3d48c7_{formatter}.jpg",
+        "https://images.gog-statics.com/1c660db41f82ea22de02cf718057121050103306dca9b1bb48aaf0fe0c355eee_{formatter}.jpg",
+        "https://images.gog-statics.com/925eb55901e623105393e9bf82bee34fe18180602d5d6f84d46318effe54f547_{formatter}.jpg",
+        "https://images.gog-statics.com/f2242ede2b481c83967714266cb0b7281ed1a0062289a2b314e26e184e030f4d_{formatter}.jpg",
+        "https://images.gog-statics.com/fa3d7fe89318e93b3910a318cdbee54ed1245cfe406fad0eed21861a945ed25e_{formatter}.jpg",
+        "https://images.gog-statics.com/6b1c6c5773609a05a97c1e9b9285d761ca0bc4b4f84730ad1e4cfc712649cdce_{formatter}.jpg"
+      ],
+      "userPreferredLanguage": {
+        "code": "en",
+        "inAudio": true,
+        "inText": true
+      },
+      "releaseDate": "2020.12.10",
+      "storeReleaseDate": "2020.12.10",
+      "productType": "pack",
+      "title": "Cyberpunk 2077",
+      "coverHorizontal": "https://images.gog-statics.com/c75e674590b8947542c809924df30bbef2190341163dd08668e243c266be70c5.png",
+      "coverVertical": "https://images.gog-statics.com/95092abc6bf9e143242b9c5400aa09cb681962c73439c8ebc436aaebcd73b5ea.jpg",
+      "logo": "https://images.gog-statics.com/d7178b692f8a605a6f3f67f27eadecc8e11282f5005c145e402d47f343dc2925.png",
+      "galaxyBackgroundImage": "https://images.gog-statics.com/b17f4cd9fb517ee48cebbf8fb6ab71482529194105c6b849c20bdaec2a06d349.jpg",
+      "developers": [
+        "CD PROJEKT RED"
+      ],
+      "publishers": [
+        "CD PROJEKT RED"
+      ],
+      "operatingSystems": [
+        "windows",
+        "osx"
+      ],
+      "price": {
+        "final": "¥89",
+        "base": "¥298",
+        "discount": "-70%",
+        "finalMoney": {
+          "amount": "89",
+          "currency": "CNY",
+          "discount": "209"
+        },
+        "baseMoney": {
+          "amount": "298",
+          "currency": "CNY"
+        }
+      },
+      "productState": "default",
+      "genres": [
+        {
+          "name": "Role-playing",
+          "slug": "rpg"
+        },
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "scifi"
+        }
+      ],
+      "tags": [
+        {
+          "name": "Action",
+          "slug": "action"
+        },
+        {
+          "name": "Story Rich",
+          "slug": "story-rich"
+        },
+        {
+          "name": "Atmospheric",
+          "slug": "atmospheric"
+        },
+        {
+          "name": "Role-playing",
+          "slug": "role-playing"
+        },
+        {
+          "name": "Sci-fi",
+          "slug": "sci-fi"
+        },
+        {
+          "name": "First-Person",
+          "slug": "first-person"
+        },
+        {
+          "name": "Science",
+          "slug": "science"
+        },
+        {
+          "name": "Great Soundtrack",
+          "slug": "great-soundtrack"
+        },
+        {
+          "name": "Choices Matter",
+          "slug": "choices-matter"
+        },
+        {
+          "name": "Open World",
+          "slug": "open-world"
+        },
+        {
+          "name": "Mature",
+          "slug": "mature"
+        },
+        {
+          "name": "Nudity",
+          "slug": "nudity"
+        },
+        {
+          "name": "Violent",
+          "slug": "violent"
+        },
+        {
+          "name": "Multiple Endings",
+          "slug": "multiple-endings"
+        },
+        {
+          "name": "FPS",
+          "slug": "fps"
+        },
+        {
+          "name": "Cyberpunk",
+          "slug": "cyberpunk"
+        }
+      ],
+      "reviewsRating": 38,
+      "reviewsCount": 20075,
+      "editions": [
+        {
+          "id": 2093619782,
+          "name": "Base Edition",
+          "isRootEdition": true
+        },
+        {
+          "id": 1274966284,
+          "name": "Ultimate Edition",
+          "isRootEdition": false
+        }
+      ],
+      "ratings": [
+        {
+          "name": "pegiRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "esrbRating",
+          "ageRating": "17"
+        },
+        {
+          "name": "uskRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "brRating",
+          "ageRating": "18"
+        },
+        {
+          "name": "gogRating",
+          "ageRating": "18"
+        }
+      ],
+      "storeLink": "https://www.gog.com/en/game/cyberpunk_2077"
+    }
+  ]
+}

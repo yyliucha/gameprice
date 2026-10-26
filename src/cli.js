@@ -9,6 +9,12 @@ import { evaluateAlerts, renderDigest, toPayload, postWebhook } from './alerts.j
 import { descriptor as steam, syncPrices, syncMeta } from './adapters/steam.js';
 import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
+import { descriptor as gogDescriptor, searchOffer as gogSearch } from './adapters/gog.js';
+import { descriptor as humbleDescriptor, searchOffer as humbleSearch } from './adapters/humble.js';
+
+// 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
+const gog = { ...gogDescriptor, searchOffer: gogSearch };
+const humble = { ...humbleDescriptor, searchOffer: humbleSearch };
 import { fetchText, sleep } from './http.js';
 
 const args = process.argv.slice(2);
@@ -124,7 +130,11 @@ async function cmdBootstrap() {
     const seeds = readJson('data/games.json', []);
     let created = 0;
     for (const g of seeds) {
-      const r = await db.ensureGame((sql, p) => store.query(sql, p), { steamAppid: g.appid ?? null, name: g.name ?? null });
+      const r = await db.ensureGame((sql, p) => store.query(sql, p), {
+        steamAppid: g.appid ?? null,
+        name: g.name ?? null,
+        nameEn: g.nameEn ?? null,
+      });
       if (r.created) created += 1;
     }
     logger.info('bootstrap.done', { games: games + created, seeded: created, reason: 'first_run' });
@@ -141,17 +151,20 @@ async function cmdPing() {
   process.exitCode = 0;
 }
 
-async function cmdSeed() {  const games = readJson('data/games.json', []);
+async function cmdSeed() {
+  const games = readJson('data/games.json', []);
   if (!games.length) throw new Error('data/games.json 为空');
   await withStore(async (store) => {
     const q = (sql, p) => store.query(sql, p);
     let created = 0;
+    let withEn = 0;
     for (const g of games) {
-      const r = await db.ensureGame(q, { steamAppid: g.appid ?? null, name: g.name ?? null });
+      const r = await db.ensureGame(q, { steamAppid: g.appid ?? null, name: g.name ?? null, nameEn: g.nameEn ?? null });
       if (r.created) created += 1;
+      if (g.nameEn) withEn += 1;
     }
-    logger.info('seed.done', { total: games.length, created });
-    console.log(`导入 ${games.length} 个游戏，新建 ${created} 个`);
+    logger.info('seed.done', { total: games.length, created, withEn });
+    console.log(`导入 ${games.length} 个游戏，新建 ${created} 个（带英文名 ${withEn} 个）`);
   });
 }
 
@@ -379,6 +392,49 @@ async function cmdAlerts() {
   }
 }
 
+/**
+ * 按英文名检索型适配器的通用同步流程（GOG / Humble）。
+ * 关键点：把 steamAppid 注入 offer，才能并进已有游戏行而不是新建一条英文名记录。
+ */
+async function syncByTitle(adapter, { label = adapter.code, limit = 50, rate = 1200 } = {}) {
+  const games = await withStore(async (store) => {
+    const r = await store.query(
+      `select steam_appid, name, name_en from games
+        where steam_appid is not null and name_en is not null
+        order by id limit $1`,
+      [limit],
+    );
+    return r.rows;
+  });
+  if (!games.length) throw new Error('库里没有带英文名的游戏，先跑 seed（data/games.json 需要 nameEn）');
+
+  logger.info('sync.start', { platform: adapter.code, games: games.length });
+  const offers = [];
+  let noMatch = 0;
+  for (const g of games) {
+    try {
+      const { offer } = await adapter.searchOffer(g.name_en, { logger, steamAppid: g.steam_appid });
+      if (offer) offers.push(offer);
+      else noMatch += 1;
+    } catch (err) {
+      logger.error('sync.item_failed', { platform: adapter.code, game: g.name_en, err: serializeError(err) });
+    }
+    await sleep(rate);
+  }
+
+  const stats = await withStore((store) => ingestOffers(store, { platform: adapter, offers, logger }));
+  logger.info('sync.done', { platform: adapter.code, queried: games.length, matched: offers.length, noMatch, ...stats });
+  console.log(`${label}：查询 ${games.length} 款，匹配 ${offers.length} 款，未找到 ${noMatch} 款`);
+}
+
+async function cmdSyncGog() {
+  await syncByTitle(gog, { label: 'GOG', limit: Number(flag('limit', 50)), rate: Number(flag('rate', 1200)) });
+}
+
+async function cmdSyncHumble() {
+  await syncByTitle(humble, { label: 'Humble', limit: Number(flag('limit', 50)), rate: Number(flag('rate', 1500)) });
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', 'out'));
   const days = Number(flag('days', 90));
@@ -538,7 +594,9 @@ async function main() {
     if (target === 'steam') return cmdSyncSteam();
     if (target === 'sonkwo') return cmdSyncSonkwo();
     if (target === 'itad') return cmdSyncItad();
-    throw new Error('用法: node src/cli.js sync steam|sonkwo|itad');
+    if (target === 'gog') return cmdSyncGog();
+    if (target === 'humble') return cmdSyncHumble();
+    throw new Error('用法: node src/cli.js sync steam|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];
   if (!fn) {
@@ -552,6 +610,8 @@ async function main() {
   sync steam           拉 Steam 国区价格（需能访问 store.steampowered.com）
   sync sonkwo          按 SKU 抓杉果价格
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）
+  sync gog             按英文名查 GOG 商店（catalog 接口，只接受精确标题）
+  sync humble          按英文名探测 Humble 商品页（JSON-LD，命中率取决于 slug）
   list                 主榜：各游戏官方渠道最低价
   chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
   watch add|rm|list    关注列表：watch add 1091500 --target 99

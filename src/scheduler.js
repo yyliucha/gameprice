@@ -43,6 +43,20 @@ export function jobsFromEnv(env = process.env) {
       enabled: env.ITAD_ENABLED !== '0',
     },
     {
+      name: 'gog',
+      args: ['sync', 'gog'],
+      intervalMin: num(env.GOG_INTERVAL_MIN, 720),
+      initialDelaySec: num(env.GOG_INITIAL_DELAY_SEC, 600),
+      enabled: env.GOG_ENABLED !== '0',
+    },
+    {
+      name: 'humble',
+      args: ['sync', 'humble'],
+      intervalMin: num(env.HUMBLE_INTERVAL_MIN, 720),
+      initialDelaySec: num(env.HUMBLE_INITIAL_DELAY_SEC, 720),
+      enabled: env.HUMBLE_ENABLED !== '0',
+    },
+    {
       name: 'alerts',
       // 有 webhook 才在检查后标记"已通知"，否则只做只读检查，避免静默吞掉提醒
       args: env.ALERT_WEBHOOK_URL ? ['alerts', '--mark'] : ['alerts'],

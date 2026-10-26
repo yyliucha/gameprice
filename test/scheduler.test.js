@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT } from '../src/scheduler.js';
 
-test('默认四个任务（含 alerts），间隔 60/60/1440/360 分钟', () => {
+test('默认六个任务（含 gog / humble / alerts），各自间隔', () => {
   const jobs = jobsFromEnv({});
-  assert.equal(jobs.length, 4);
-  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'alerts']);
+  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'gog', 'humble', 'alerts']);
   assert.equal(jobs[0].intervalMin, 60);
   assert.equal(jobs[2].intervalMin, 1440);
-  assert.equal(jobs[3].intervalMin, 360);
+  assert.equal(jobs[3].intervalMin, 720);
+  assert.equal(jobs[4].intervalMin, 720);
+  assert.equal(jobs[5].intervalMin, 360);
 });
 
 test('没配 webhook 时 alerts 只做只读检查，不标记已通知', () => {
@@ -26,7 +27,7 @@ test('环境变量能改间隔与首轮延迟', () => {
 });
 
 test('显式禁用或间隔为 0 的任务会被剔除', () => {
-  const jobs = jobsFromEnv({ ITAD_ENABLED: '0', STEAM_INTERVAL_MIN: '0' });
+  const jobs = jobsFromEnv({ ITAD_ENABLED: '0', STEAM_INTERVAL_MIN: '0', GOG_ENABLED: '0', HUMBLE_ENABLED: '0' });
   assert.deepEqual(jobs.map((j) => j.name), ['sonkwo', 'alerts']);
 });
 

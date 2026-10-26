@@ -144,13 +144,18 @@ export async function upsertPlatform(q, { code, name, kind }) {
   );
 }
 
-export async function ensureGame(q, { steamAppid = null, name = null, meta = null }) {
+export async function ensureGame(q, { steamAppid = null, name = null, nameEn = null, meta = null }) {
   if (steamAppid != null) {
-    const found = await q('select id, name from games where steam_appid = $1', [steamAppid]);
+    const found = await q('select id, name, name_en from games where steam_appid = $1', [steamAppid]);
     if (found.rows.length) {
       const row = found.rows[0];
-      if (name && !row.name) {
-        await q('update games set name = $1, updated_at = now() where id = $2', [name, row.id]);
+      const patchName = name && !row.name;
+      const patchNameEn = nameEn && !row.name_en;
+      if (patchName || patchNameEn) {
+        await q(
+          `update games set name = coalesce($1, name), name_en = coalesce($2, name_en), updated_at = now() where id = $3`,
+          [patchName ? name : null, patchNameEn ? nameEn : null, row.id],
+        );
       } else {
         await q('update games set updated_at = now() where id = $1', [row.id]);
       }
@@ -162,11 +167,12 @@ export async function ensureGame(q, { steamAppid = null, name = null, meta = nul
   }
 
   const inserted = await q(
-    `insert into games (steam_appid, name, app_type, is_free, header_image, release_date)
-     values ($1, $2, $3, $4, $5, $6) returning id`,
+    `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date)
+     values ($1, $2, $3, $4, $5, $6, $7) returning id`,
     [
       steamAppid,
       name,
+      nameEn,
       meta?.appType ?? null,
       Boolean(meta?.isFree),
       meta?.headerImage ?? null,

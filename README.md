@@ -35,12 +35,14 @@
 
 ## 现在的真实状态
 
-一句话：**开箱即用的只有杉果。**
+一句话：**开箱即用的有杉果和 GOG；Steam 需要出口、ITAD 需要 key、Humble 命中率有限。**
 
 | 能力 | 状态 | 依据 |
 |---|---|---|
 | 杉果价格采集 | ✅ 已跑通 | 真实页面端到端验证：解析 ¥198 → 入库 → 写快照 |
-| 价格历史 / 史低判断 | ✅ 已跑通 | 53 项测试，含真 PG 语义（PGlite）验证 |
+| **GOG 价格采集** | ✅ 已跑通 | catalog 接口真实运行：24 款匹配 8 款，中文名合并正确 |
+| **Humble 价格采集** | ⚠️ 可用但命中率受限 | 按 slug 探测 + JSON-LD 校验；没探测到的游戏会静默跳过 |
+| 价格历史 / 史低判断 | ✅ 已跑通 | 96 项测试，含真 PG 语义（PGlite）验证 |
 | **价格曲线网页** | ✅ 已跑通 | `node src/cli.js chart` 生成静态页，内联 SVG，浏览器直接打开 |
 | 只收官方渠道的结构约束 | ✅ 已生效 | 视图 + 查询层双重过滤 + 回归断言 |
 | 定时采集调度 | ✅ 已跑通 | 子进程隔离实测：真实任务完成、单任务失败不影响调度器 |
@@ -50,6 +52,7 @@
 | Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
 | ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
 | Docker 部署 | ⚠️ 文件齐备，**镜像未真实构建过** | 开发机无 Docker；已用 `npm ci --omit=dev` + 容器启动路径等价验证 |
+| Fanatical | ⏸ 不接入 | 商品页是 SPA 且 Algolia key 被 Cloudflare 403，无可靠取数路径 |
 | 多区服对比 | 🚧 未实现 | `region` 维度已在数据模型里 |
 | 小黑盒商城 | ⏸ 评估后暂缓 | 无公开接口，需逆向 `hkey` 签名 |
 | SteamPy | ⏸ 不接入 | 商品接口全部要求登录态（401），且是 C2C |
@@ -96,7 +99,9 @@
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
 | 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重；webhook 可选 |
 | 采集熔断 | ✅ | 连续失败自动暂停，避免持续撞墙 |
-| Fanatical / Humble / GOG | 🚧 | 站点可直连，适配器未写；`platforms` 字典已预留 code |
+| GOG 采集 | ✅ | 官方 catalog 接口，CNY 价格，只接受精确标题匹配 |
+| Humble 采集 | ⚠️ | slug 探测 + JSON-LD，名称必须完全一致；探测不到就跳过 |
+| Fanatical | ⏸ | SPA + Algolia key 被 Cloudflare 拦，没有可靠路径 |
 | 多区服对比 | 🚧 | 模型已支持，未做展示 |
 
 ## 设计原则
@@ -238,6 +243,8 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `sync steam` | Steam 国区价格（`--limit 500`）⚠️ 需能访问 Steam |
 | `sync sonkwo` | 按 `data/skus.json` 抓杉果（`--limit`、`--rate 1200`）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
+| `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
+| `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
 | `add-sku <id...>` | 往 `data/skus.json` 加 SKU，`--appid 123` 关联 Steam 游戏 |
 
 **运维与排障**
@@ -272,6 +279,8 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `ALERT_WEBHOOK_URL` | 空 | 空则只输出简报；填了才投递并记录已通知 |
 | `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | `1` / `360` | 提醒检查开关与间隔 |
 | `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | `3` / `360` | 连续失败 N 次后暂停多久 |
+| `GOG_ENABLED` / `GOG_INTERVAL_MIN` | `1` / `720` | GOG 采集开关与间隔 |
+| `HUMBLE_ENABLED` / `HUMBLE_INTERVAL_MIN` | `1` / `720` | Humble 采集开关与间隔 |
 | `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
 | `LOG_DIR` | `logs` | 日志目录 |
 | `DB_WAIT_SEC` | `0`（容器内 60） | 启动时最多等数据库多少秒 |
@@ -309,9 +318,11 @@ v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 | 来源 | 方式 | 状态 |
 |---|---|---|
 | 杉果 | 商品页内嵌 `__remixContext` JSON | ✅ 可用（无搜索接口，SKU 人工维护） |
+| GOG | 官方 catalog JSON（`catalog.gog.com`） | ✅ 可用，按英文名精确匹配 |
+| Humble | 商品页 JSON-LD `offers.price` | ⚠️ 可用但命中率取决于 slug 命名 |
 | Steam | 官方 `appdetails` | ⚠️ 代码完成，国内网络直连不可达 |
 | IsThereAnyDeal | 官方 REST API | ⚠️ 需免费 key，结构未真实验证 |
-| Fanatical / Humble / GOG | 站点可直连 | 🚧 适配器未写 |
+| Fanatical | SPA + Algolia 代理 | ⏸ 商品页无价格、key 接口 403，不接入 |
 | 小黑盒 | SPA + `hkey` 签名 | ⏸ 暂缓 |
 | SteamPy | 需登录态（401） | ⏸ 不接入 |
 
@@ -358,6 +369,8 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
 node test/log.test.js        # 7 项：JSONL 格式、脱敏、轮转读取、过滤
 node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
+node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
+node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
 node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报、webhook 失败不抛
@@ -368,7 +381,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **78 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **96 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -379,12 +392,13 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有可用搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），SKU 只能按 id 抓，来源靠 `data/skus.json` 人工维护。
 5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
-6. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。提醒只有 webhook / 终端两种出口，没有邮件通道。
+5. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品（搜 `elden ring` 会返回 Whispers in the Moss）。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
+6. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，实测 8 个里命中 4 个；没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
+7. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。提醒只有 webhook / 终端两种出口，没有邮件通道。
 
 ## 路线图
 
 - [ ] 提醒通道：邮件 / 企业微信（现在只有 webhook）
-- [ ] Fanatical / Humble / GOG 适配器
 - [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
@@ -395,7 +409,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 ```
 gameprice/
 ├── src/
-│   ├── adapters/        平台适配器，统一吐 RawOffer（steam / sonkwo / itad）
+│   ├── adapters/        平台适配器（steam / sonkwo / itad / gog / humble）
 │   ├── store/           PG 存储层（SQL 与连接池）
 │   ├── cli.js           命令行入口
 │   ├── scheduler.js     常驻调度（子进程隔离）

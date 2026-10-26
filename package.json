@@ -1,6 +1,6 @@
 {
   "name": "gameprice",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "中文游戏的价格履历：官方渠道比价 + 价格历史。PostgreSQL 15 存储，CLI 与 Docker 部署；当前可用采集源为杉果，Steam 与 ITAD 待网络/凭据就绪。",
@@ -29,7 +29,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/report.test.js && node test/alerts.test.js && node test/watchlist.test.js && node test/scheduler.test.js && node test/deploy.test.js && node test/docs.test.js && node test/secrets.test.js",
+    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/gog.test.js && node test/humble.test.js && node test/pg.test.js && node test/report.test.js && node test/alerts.test.js && node test/watchlist.test.js && node test/scheduler.test.js && node test/deploy.test.js && node test/docs.test.js && node test/secrets.test.js",
     "scan": "node scripts/scan-secrets.js",
     "init": "node src/cli.js init",
     "bootstrap": "node src/cli.js bootstrap",
@@ -39,6 +39,8 @@
     "sync:steam": "node src/cli.js sync steam",
     "sync:sonkwo": "node src/cli.js sync sonkwo",
     "sync:itad": "node src/cli.js sync itad",
+    "sync:gog": "node src/cli.js sync gog",
+    "sync:humble": "node src/cli.js sync humble",
     "list": "node src/cli.js list",
     "chart": "node src/cli.js chart",
     "watch": "node src/cli.js watch",
