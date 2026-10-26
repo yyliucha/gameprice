@@ -4,6 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
+import { startApiServer } from './server.js';
 import * as db from './store/pg.js';
 import { ingestOffers } from './ingest.js';
 import { buildSite } from './report.js';

@@ -63,6 +63,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   <span class="spacer"></span>
   <span id="who" class="muted small"></span>
   <button id="loginBtn" class="btn">登录</button>
+  <button id="adminBtn" class="btn" hidden>后台</button>
   <button id="logoutBtn" class="btn" hidden>退出</button>
 </div></header>
 
@@ -109,8 +110,40 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   <div id="detail"></div>
 </dialog>
 
+<dialog id="adminDlg">
+  <div id="adminBox"></div>
+</dialog>
+
 <script>
-const state = { games: [], tab: 'all', sort: 'discount', user: null };
+const state = { games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
+
+// 访客偏好存在浏览器本地：不涉及账号、不上传服务端。
+// 登录后以服务端偏好为准，但界面位置（tab/排序）仍然本地记忆。
+const LOCAL_KEY = 'steamdeals.prefs.v1';
+function readLocal() {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function saveLocal() {
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify({ tab: state.tab, sort: state.sort }));
+  } catch {
+    /* 隐私模式下可能不可写，忽略 */
+  }
+}
+function applyLocal() {
+  const saved = readLocal();
+  if (!saved) return false;
+  if (saved.tab) state.tab = saved.tab;
+  if (saved.sort) state.sort = saved.sort;
+  document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.tab));
+  document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
+  return true;
+}
 
 const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
 const pct = (d) => (d ? '-' + d + '%' : '—');
@@ -172,19 +205,59 @@ async function load() {
 async function me() {
   const data = await (await fetch('/api/me')).json();
   state.user = data.user;
+  state.prefs = data.prefs;
   const who = document.getElementById('who');
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
+  const adminBtn = document.getElementById('adminBtn');
   if (data.user) {
     who.textContent = data.user.username + (data.user.role === 'admin' ? '（管理员）' : '');
     loginBtn.hidden = true;
     logoutBtn.hidden = false;
+    adminBtn.hidden = data.user.role !== 'admin';
+    // 登录用户的偏好直接影响默认视图
+    if (data.prefs?.hide_uninterested) {
+      state.tab = 'on';
+      document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'on'));
+    }
+    if (data.prefs?.only_discount) state.sort = 'discount';
   } else {
     who.textContent = '未登录（浏览不受影响）';
     loginBtn.hidden = false;
     logoutBtn.hidden = true;
+    adminBtn.hidden = true;
   }
 }
+
+/** 后台：用户列表 + 浏览统计。仅管理员可见。 */
+async function openAdmin() {
+  const dlg = document.getElementById('adminDlg');
+  const box = document.getElementById('adminBox');
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  dlg.showModal();
+  const [u, v] = await Promise.all([
+    (await fetch('/api/admin/users')).json(),
+    (await fetch('/api/admin/views')).json(),
+  ]);
+  const users = (u.users ?? []).map((x) =>
+    '<tr><td>' + esc(x.username) + '</td><td>' + esc(x.role) + '</td><td class="muted small">' +
+    (x.last_login_at ? new Date(x.last_login_at).toISOString().slice(0, 16).replace('T', ' ') : '—') + '</td></tr>').join('')
+    || '<tr><td colspan="3" class="muted">还没有用户</td></tr>';
+  const views = (v.views ?? []).map((x) =>
+    '<tr><td>' + esc(x.path) + '</td><td class="num">' + x.views + '</td></tr>').join('')
+    || '<tr><td colspan="2" class="muted">还没有浏览记录（登录后访问游戏详情会记录）</td></tr>';
+  box.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+    '<strong>后台管理</strong><button class="btn" id="closeAdmin">关闭</button></div>' +
+    '<h3 style="font-size:14px;margin:16px 0 6px">用户</h3>' +
+    '<div class="card"><table><thead><tr><th>用户名</th><th>角色</th><th>最近登录</th></tr></thead><tbody>' + users + '</tbody></table></div>' +
+    '<h3 style="font-size:14px;margin:16px 0 6px">浏览排行</h3>' +
+    '<div class="card"><table><thead><tr><th>页面</th><th class="num">次数</th></tr></thead><tbody>' + views + '</tbody></table></div>' +
+    '<p class="muted small" style="margin-top:10px">用户由 CLI 创建：node src/cli.js user add &lt;用户名&gt; [--admin]</p>';
+  document.getElementById('closeAdmin').onclick = () => dlg.close();
+}
+
+document.getElementById('adminBtn').addEventListener('click', openAdmin);
 
 document.getElementById('tabs').addEventListener('click', (e) => {
   const tab = e.target.dataset.tab;
@@ -192,11 +265,13 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   if (tab) {
     state.tab = tab;
     [...document.querySelectorAll('[data-tab]')].forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    saveLocal();
     render();
   }
   if (sort) {
     state.sort = sort;
     [...document.querySelectorAll('[data-sort]')].forEach((b) => b.classList.toggle('on', b.dataset.sort === sort));
+    saveLocal();
     render();
   }
 });
@@ -314,6 +389,8 @@ document.getElementById('rows').addEventListener('click', (e) => {
 });
 
 me().then(load);
+// 访客先恢复本地偏好；登录用户以服务端偏好为准（me() 里已覆盖）
+applyLocal();
 </script>
 </body>
 </html>
