@@ -63,7 +63,6 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   <span class="spacer"></span>
   <span id="who" class="muted small"></span>
   <button id="loginBtn" class="btn">登录</button>
-  <button id="adminBtn" class="btn" hidden>后台</button>
   <button id="logoutBtn" class="btn" hidden>退出</button>
 </div></header>
 
@@ -216,12 +215,10 @@ async function me() {
   const who = document.getElementById('who');
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
-  const adminBtn = document.getElementById('adminBtn');
   if (data.user) {
     who.textContent = data.user.username + (data.user.role === 'admin' ? '（管理员）' : '');
     loginBtn.hidden = true;
     logoutBtn.hidden = false;
-    adminBtn.hidden = data.user.role !== 'admin';
     // 登录用户的偏好直接影响默认视图
     if (data.prefs?.hide_uninterested) {
       state.tab = 'on';
@@ -232,7 +229,6 @@ async function me() {
     who.textContent = '未登录（浏览不受影响）';
     loginBtn.hidden = false;
     logoutBtn.hidden = true;
-    adminBtn.hidden = true;
   }
 }
 
@@ -264,7 +260,6 @@ async function openAdmin() {
   document.getElementById('closeAdmin').onclick = () => dlg.close();
 }
 
-document.getElementById('adminBtn').addEventListener('click', openAdmin);
 
 document.getElementById('tabs').addEventListener('click', (e) => {
   const tab = e.target.dataset.tab;
