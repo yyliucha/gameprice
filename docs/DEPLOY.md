@@ -10,6 +10,8 @@
 
 ```bash
 git clone <你的仓库> gameprice && cd gameprice
+# 容器以 uid 1000 运行，宿主机挂载目录必须归它所有（否则写日志直接失败）
+sudo chown -R 1000:1000 ./data ./logs
 docker compose up -d --build
 ```
 

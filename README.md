@@ -187,7 +187,10 @@ cli.js 生成 runId
 
 ### 方式一：Docker（零配置）
 
+**部署到云服务器的完整教程见 [docs/QUICKSTART.md](docs/QUICKSTART.md)**（含装 Docker、权限、验收、排障）。
+
 ```bash
+sudo chown -R 1000:1000 ./data ./logs   # 必做：容器以 uid 1000 运行
 docker compose up -d --build
 docker compose ps             # app 应为 healthy
 docker compose logs -f app    # 看到 bootstrap.done 即启动成功
@@ -203,6 +206,7 @@ postgres 容器创建库 gameprice
 ```
 
 内置 `postgres:15-alpine` 用 trust 认证且端口不发布到宿主机，只在 compose 内网可达；需要密码见 [DEPLOY.md](docs/DEPLOY.md)。
+用外部数据库时填好 `DATABASE_URL` 后执行 `docker compose up -d app`（只起 app）。
 
 用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
@@ -430,7 +434,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **184 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **185 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

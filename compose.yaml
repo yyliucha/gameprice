@@ -1,12 +1,12 @@
 name: gameprice
 
 # 默认带一个 PostgreSQL 15（和你线上 15.17 同大版本）。
-# 若要用你自己的外部数据库：把 .env 里的 COMPOSE_PROFILES 清空、填好 DATABASE_URL，
-# 然后 `docker compose up -d --build` 就只会起 app。
+# 直接用外部数据库：在 .env 里填好 DATABASE_URL，然后 `docker compose up -d app`（只起 app）。
+# 注意：db 故意不设 profile —— 否则没有 .env 时 `docker compose up` 不会启动它，
+# app 会连不上 db:5432。
 services:
   db:
     image: postgres:15-alpine
-    profiles: ["bundled"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gameprice}

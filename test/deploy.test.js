@@ -11,13 +11,22 @@ test('compose.yaml 合法且服务齐全', () => {
   const doc = parse(read('compose.yaml'));
   assert.ok(doc.services?.app, '缺少 app 服务');
   assert.ok(doc.services?.db, '缺少 db 服务');
-  assert.ok(doc.services.db.profiles.includes('bundled'), 'db 应属于 bundled profile');
+  // db 不能挂在 profile 下：否则没有 .env 时 `docker compose up` 不会启动它，
+  // app 连不上 db:5432 无限重启（这是真实踩过的坑）
+  assert.equal(doc.services.db.profiles, undefined, 'db 不能依赖 profile 才会启动');
   assert.ok(doc.services.app.build, 'app 应从本地 Dockerfile 构建');
   assert.equal(doc.services.app.depends_on.db.required, false, 'db 必须是可选的（支持外部库）');
   assert.ok(doc.services.app.healthcheck, 'app 需要 healthcheck');
   assert.deepEqual(doc.services.app.healthcheck.test, ['CMD', 'node', 'src/cli.js', 'ping']);
   assert.ok(doc.services.db.healthcheck.test.join(' ').includes('pg_isready'));
   assert.ok('pgdata' in (doc.volumes ?? {}), '缺少数据卷 pgdata');
+});
+
+test('入口脚本会提前检查挂载目录可写，并给出修复命令', () => {
+  const sh = read('scripts/docker-entrypoint.sh');
+  assert.match(sh, /check_writable \/app\/logs/, '必须检查日志目录');
+  assert.match(sh, /check_writable \/app\/data/, '必须检查数据目录');
+  assert.match(sh, /chown -R 1000:1000/, '错误信息要给可直接执行的命令');
 });
 
 test('compose 里 app 的数据卷与日志卷指向宿主机', () => {

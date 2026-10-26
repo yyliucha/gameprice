@@ -2,6 +2,32 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.13.0] - 2026-10-26
+
+修掉两个会让首次部署直接失败的坑（是我之前的"零配置"说法不够准确）。
+
+### 修复
+
+- **`docker compose up` 不会启动数据库**：`db` 服务原来挂在 `profiles: ["bundled"]` 下，
+  而没有 `.env` 时 `COMPOSE_PROFILES` 为空 → db 不启动 → app 连 `db:5432` 被拒、无限重启。
+  现在 db 默认随 `up` 启动；用外部数据库时执行 `docker compose up -d app` 只起 app。
+- **宿主机挂载目录权限**：容器以 `node`(uid 1000) 运行，`./data`、`./logs` 属主是 root 时
+  写日志 `EACCES`，报错藏在启动日志深处。现在入口脚本启动前检查可写性，
+  直接打印修复命令（`sudo chown -R 1000:1000 ./data ./logs`）并以 2 退出。
+
+### 新增
+
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)**：云服务器从零部署教程——装 Docker、权限、
+  验收四命令、提醒通道配置、静态页托管（`OUT_DIR=data/out` + nginx）、网络方案、日常运维、
+  故障速查表
+- 部署测试新增断言：db 不得依赖 profile 才启动；入口脚本必须检查挂载目录可写
+
+### 验证
+
+- `test/deploy.test.js` 10 项、`test/docs.test.js` 5 项（含新文档的链接检查）全绿
+- `bash -n scripts/docker-entrypoint.sh` 通过；`compose.yaml` YAML 解析通过
+- **本机没有 Docker，镜像仍未经真实构建**：以上是结构与语法验证
+
 ## [0.12.0] - 2026-10-26
 
 国内服务器访问 Steam 的问题，有了可配的出口。
