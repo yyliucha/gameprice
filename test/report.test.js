@@ -68,6 +68,53 @@ test('sparkline：数据不足与正常走势', () => {
   assert.match(up, /class="spark up"/);
 });
 
+test('列表页：英文名 + 复制按钮 + 各平台价可对比', () => {
+  const html = renderIndex({
+    generatedAt: '2026-10-26 11:00:00',
+    games: [
+      {
+        id: 1,
+        steam_appid: 1091500,
+        name: '赛博朋克 2077',
+        name_en: 'Cyberpunk 2077',
+        current_low: 3600,
+        current_original: 3900,
+        discount: 8,
+        hist_low: 3600,
+        series: seriesOf([3900, 3600]),
+        all_offers: [
+          { platform: 'sonkwo', platform_name: '杉果', price: 3600, currency: 'CNY' },
+          { platform: 'gog', platform_name: 'GOG', price: 3900, currency: 'CNY' },
+        ],
+      },
+    ],
+  });
+  assert.match(html, /Cyberpunk 2077/, '英文名要显示');
+  assert.match(html, /data-copy="赛博朋克 2077"/, '中文名可复制');
+  assert.match(html, /data-copy="Cyberpunk 2077"/, '英文名可复制');
+  assert.match(html, /chip-low[^>]*>杉果/, '最低价平台要高亮');
+  assert.match(html, /比次低便宜/, '要给出价差');
+  assert.match(html, /杉果.*¥36\.00/, '平台价带金额');
+  assert.match(html, /id="toast"/, '需要复制反馈');
+});
+
+test('详情页：英文名与复制按钮都在', () => {
+  const html = renderGame({
+    game: { id: 1, steam_appid: 1091500, name: '赛博朋克 2077', name_en: 'Cyberpunk 2077' },
+    series: seriesOf([29800, 9900]),
+    histLow: 9900,
+    generatedAt: '2026-10-26 11:00:00',
+    offers: [
+      { platform_code: 'sonkwo', platform_name: '杉果', price_cents: 3600, original_cents: 3900, discount_pct: 8, buy_url: 'https://x' },
+      { platform_code: 'gog', platform_name: 'GOG', price_cents: 3900, original_cents: 3900, discount_pct: 0, buy_url: 'https://y' },
+    ],
+  });
+  assert.match(html, /Cyberpunk 2077/);
+  assert.match(html, /data-copy="Cyberpunk 2077"/);
+  assert.match(html, /class="best"/, '最低价那一行要标记');
+  assert.match(html, /最低</, '最低价平台要打标签');
+});
+
 test('列表页：名称转义、史低标记、链接到详情页', () => {
   const html = renderIndex({
     generatedAt: '2026-10-26 11:00:00',

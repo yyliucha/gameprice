@@ -47,6 +47,9 @@ export async function ingestOffers(store, { platform, offers, logger = null }) {
       const game = await db.ensureGame(q, {
         steamAppid: offer.steamAppid ?? null,
         name: offer.title ?? null,
+        // 适配器能从页面标题/内嵌 JSON 里捞出英文名时顺带补上
+        // （杉果的 sku_ename 就在 offer.meta.nameEn 里）
+        nameEn: offer.titleEn ?? offer.meta?.nameEn ?? null,
         meta: offer.meta ?? null,
       });
       if (!offer.steamAppid) stats.noAppId += 1;

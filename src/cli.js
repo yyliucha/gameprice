@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
 import * as db from './store/pg.js';
@@ -996,15 +997,63 @@ const commands = {
   diagnose: cmdDiagnose,
 };
 
+/** 一键同步：把能采集的源按顺序跑一遍，最后重建页面。 */
+async function cmdSyncAll() {
+  const sources = ['sonkwo', 'gog', 'humble', 'steam', 'itad'];
+  const enabled = {
+    sonkwo: process.env.SONKWO_ENABLED !== '0',
+    gog: process.env.GOG_ENABLED !== '0',
+    humble: process.env.HUMBLE_ENABLED !== '0',
+    steam: process.env.STEAM_ENABLED !== '0',
+    itad: process.env.ITAD_ENABLED !== '0' && Boolean(process.env.ITAD_API_KEY),
+  };
+  const queue = sources.filter((s) => enabled[s]);
+
+  if (!queue.length) throw new Error('没有启用任何采集源（检查 *_ENABLED / ITAD_API_KEY）');
+  console.log(`一键同步：${queue.join(' → ')}（共 ${queue.length} 个源，串行执行）`);
+
+  const results = [];
+  for (const source of queue) {
+    const startedAt = Date.now();
+    console.log(`\n── ${source} ${'─'.repeat(Math.max(0, 40 - source.length))}`);
+    // 子进程隔离：单个源崩溃不影响其它源，和调度器保持同一套行为
+    const code = await new Promise((resolve) => {
+      const child = spawn(process.execPath, ['src/cli.js', 'sync', source], { stdio: 'inherit' });
+      child.on('close', (c) => resolve(c ?? 1));
+      child.on('error', () => resolve(1));
+    });
+    results.push({ source, code, elapsedMs: Date.now() - startedAt });
+    if (code !== 0) console.log(`${source} 失败（exit ${code}），继续下一个`);
+  }
+
+  // 采集完立刻重建页面，省掉再跑一次 chart
+  console.log('\n── 重建页面 ──────────────────────────────');
+  const chartCode = await new Promise((resolve) => {
+    const child = spawn(process.execPath, ['src/cli.js', 'chart'], { stdio: 'inherit' });
+    child.on('close', (c) => resolve(c ?? 1));
+    child.on('error', () => resolve(1));
+  });
+
+  const ok = results.filter((r) => r.code === 0).length;
+  logger.info('sync.all_done', { sources: results, ok, failed: results.length - ok, chartCode });
+  console.log(
+    `\n完成：${ok}/${results.length} 个源成功` +
+      (results.length - ok ? `，失败：${results.filter((r) => r.code !== 0).map((r) => r.source).join(', ')}` : '') +
+      `；页面重建${chartCode === 0 ? '成功' : '失败'}`,
+  );
+  if (!ok) throw new Error('所有采集源都失败了，检查日志');
+}
+
 async function main() {
   if (command === 'sync') {
     const target = args[1];
+    if (target === 'all') return cmdSyncAll();
     if (target === 'steam') return cmdSyncSteam();
     if (target === 'sonkwo') return cmdSyncSonkwo();
     if (target === 'itad') return cmdSyncItad();
     if (target === 'gog') return cmdSyncGog();
     if (target === 'humble') return cmdSyncHumble();
-    throw new Error('用法: node src/cli.js sync steam|sonkwo|itad|gog|humble');
+    throw new Error('用法: node src/cli.js sync all|steam|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];
   if (!fn) {

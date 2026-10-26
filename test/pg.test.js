@@ -182,3 +182,38 @@ test('serverVersion 能读到 PG 版本（诊断用）', async () => {
     await store.close();
   }
 });
+
+test('没有 appid 的游戏：再次采集时能补上英文名（杉果 sku_ename）', async () => {
+  const store = await freshStore();
+  try {
+    const q = (sql, p) => store.query(sql, p);
+    const sonkwo = { code: 'sonkwo', name: '杉果', kind: 'authorized_reseller' };
+    const base = {
+      platformCode: 'sonkwo',
+      platformProductId: '111454',
+      steamAppid: null,
+      title: '愚者不灭',
+      productType: 'authorized_key',
+      region: 'cn',
+      currency: 'CNY',
+      priceCents: 19800,
+      originalCents: 19800,
+      discountPct: 0,
+      inStock: true,
+      buyUrl: 'https://www.sonkwo.hk/sku/111454',
+    };
+
+    // 第一次：页面还没带英文名
+    await ingestOffers(store, { platform: sonkwo, offers: [{ ...base, meta: {} }] });
+    let row = (await q("select id, name_en from games where name = '愚者不灭'")).rows[0];
+    assert.equal(row.name_en, null);
+
+    // 第二次：适配器从 sku_ename 拿到英文名，应补进同一行
+    await ingestOffers(store, { platform: sonkwo, offers: [{ ...base, meta: { nameEn: 'Stupid Never Dies' } }] });
+    row = (await q("select name_en from games where name = '愚者不灭'")).rows[0];
+    assert.equal(row.name_en, 'Stupid Never Dies');
+    assert.equal((await q("select count(*)::int c from games")).rows[0].c, 1, '不能因此多建一行');
+  } finally {
+    await store.close();
+  }
+});

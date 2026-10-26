@@ -162,8 +162,17 @@ export async function ensureGame(q, { steamAppid = null, name = null, nameEn = n
       return { id: Number(row.id), created: false };
     }
   } else if (name) {
-    const found = await q('select id from games where name = $1 and steam_appid is null', [name]);
-    if (found.rows.length) return { id: Number(found.rows[0].id), created: false };
+    const found = await q('select id, name, name_en from games where name = $1 and steam_appid is null', [name]);
+    if (found.rows.length) {
+      const row = found.rows[0];
+      // 没有 appid 的行也要能补英文名（杉果页面带 sku_ename，首次采集时可能还没有）
+      if (nameEn && !row.name_en) {
+        await q('update games set name_en = $1, updated_at = now() where id = $2', [nameEn, row.id]);
+      } else {
+        await q('update games set updated_at = now() where id = $1', [row.id]);
+      }
+      return { id: Number(row.id), created: false };
+    }
   }
 
   const inserted = await q(
@@ -273,12 +282,24 @@ const OFFICIAL_KINDS = "('official', 'authorized_reseller')";
 export async function lowestOffers(q, { region = 'cn', limit = 50 } = {}) {
   const r = await q(
     `select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
-            o.platform_code, o.price_cents, o.original_cents, o.discount_pct, o.buy_url, o.last_seen_at,
+            g.name_en,
+            o.platform_code, p.name as platform_name,
+            o.price_cents, o.original_cents, o.discount_pct, o.buy_url, o.last_seen_at,
             (select min(d.min_price_cents) from daily_prices d
                join platforms ph on ph.code = d.platform_code
-              where d.game_id = g.id and d.region = o.region and ph.kind in ${OFFICIAL_KINDS}) as hist_low
+              where d.game_id = g.id and d.region = o.region and ph.kind in ${OFFICIAL_KINDS}) as hist_low,
+            -- 各平台当前价（升序），让列表页能直接看出"哪家便宜"
+            (select json_agg(x order by x.price)
+               from (
+                 select pp.code as platform, pp.name as platform_name, oo.price_cents as price, oo.currency
+                   from offers oo
+                   join platforms pp on pp.code = oo.platform_code
+                  where oo.game_id = g.id and oo.region = o.region and oo.in_stock
+                    and pp.kind in ${OFFICIAL_KINDS}
+               ) x) as all_offers
        from offers o
        join games g on g.id = o.game_id
+       join platforms p on p.code = o.platform_code
        join v_lowest_official v on v.game_id = o.game_id and v.region = o.region
       where o.in_stock and o.region = $1 and o.price_cents = v.lowest_cents
       order by o.discount_pct desc, o.price_cents asc, name asc
@@ -352,6 +373,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
     `select g.id,
             g.steam_appid,
             coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            g.name_en,
             (select min(o.price_cents) from offers o
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
@@ -367,7 +389,24 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
             (select count(*)::int from daily_prices d
               where d.game_id = g.id and d.region = $1) as day_count,
             (select max(o.last_seen_at) from offers o
-              where o.game_id = g.id and o.region = $1) as last_seen_at
+              where o.game_id = g.id and o.region = $1) as last_seen_at,
+            -- 当前最低价来自哪个平台（列表页要能直接看出"哪家便宜"）
+            (select p.name from offers o
+               join platforms p on p.code = o.platform_code
+              where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS}
+              order by o.price_cents asc limit 1) as low_platform_name,
+            (select o.platform_code from offers o
+               join platforms p on p.code = o.platform_code
+              where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS}
+              order by o.price_cents asc limit 1) as low_platform,
+            -- 各平台当前价（升序）
+            (select json_agg(x order by x.price)
+               from (
+                 select p.code as platform, p.name as platform_name, o.price_cents as price, o.currency
+                   from offers o
+                   join platforms p on p.code = o.platform_code
+                  where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS}
+               ) x) as all_offers
        from games g
       where exists (select 1 from daily_prices d
                      where d.game_id = g.id and d.region = $1)
@@ -480,6 +519,7 @@ export async function watchCandidates(q, { region = 'cn' } = {}) {
   const r = await q(
     `select w.id as watch_id, w.target_cents, w.note, w.last_notified_cents, w.last_notified_at,
             g.id as game_id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            g.name_en,
             (select min(o.price_cents) from offers o
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
