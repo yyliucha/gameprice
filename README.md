@@ -41,6 +41,7 @@
 |---|---|---|
 | 杉果价格采集 | ✅ 已跑通 | 真实页面端到端验证：解析 ¥198 → 入库 → 写快照 |
 | **杉果 SKU 自动发现** | ✅ 已跑通 | 实测扫 120 个 id 命中 46 个商品、新增 45 条，连续空壳自动停 |
+| **跨平台名称匹配** | ✅ 已跑通 | bigram Dice + 阈值分级 + 人工确认；重复行自动合并（11+5 项测试） |
 | **GOG 价格采集** | ✅ 已跑通 | catalog 接口真实运行：24 款匹配 8 款，中文名合并正确 |
 | **Humble 价格采集** | ⚠️ 可用但命中率受限 | 按 slug 探测 + JSON-LD 校验；没探测到的游戏会静默跳过 |
 | 价格历史 / 史低判断 | ✅ 已跑通 | 96 项测试，含真 PG 语义（PGlite）验证 |
@@ -92,6 +93,7 @@
 | Steam 国区采集 | ⚠️ | 官方 `appdetails`，批量 + 限速；单测覆盖解析，真实网络被阻断 |
 | 杉果采集 | ✅ | 商品页内嵌 JSON 解析，不依赖 DOM 选择器；真实页面验证 |
 | 杉果 SKU 自动发现 | ✅ | 按 id 从前沿向后探测，连续空壳即停；发现的 SKU 自动并入 `data/skus.json` |
+| 跨平台名称匹配 | ✅ | bigram Dice 打分 + 阈值分级（自动/待确认/无候选）+ 人工 `--confirm`；确认后自动合并重复游戏行 |
 | ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
 | 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
 | 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
@@ -257,6 +259,7 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `sync steam` | Steam 国区价格（`--limit 500`）⚠️ 需能访问 Steam |
 | `sync sonkwo` | 按 `data/skus.json` 抓杉果（`--limit`、`--rate 1200`）✅ |
 | `discover sonkwo` | 自动发现新 SKU（`--ahead`、`--max-misses`、`--from/--to`）✅ |
+| `match` | 把杉果 SKU 对齐到 Steam 游戏（`--apply` 自动、`--confirm <skuId> <appid>` 手工）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
 | `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
@@ -392,6 +395,8 @@ node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别�
 node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
+node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
+node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
 node test/store.test.js      # 10 项：URL 解析、建库 SQL、真 TCP PG 协议下自动建库
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
@@ -404,7 +409,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **128 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **144 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -414,7 +419,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
-5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
+5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配：`match` 用 bigram Dice 打分，≥0.94 才自动应用、0.86–0.94 留给人工 `--confirm`。**匹配率取决于游戏库覆盖**——当前 46 个杉果 SKU 与 24 款 Steam 游戏零交集，所以是 0 提案，不是算法失灵。未关联的报价会计入 `ingest.summary.noAppId`。
 5. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品（搜 `elden ring` 会返回 Whispers in the Moss）。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
 6. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，实测 8 个里命中 4 个；没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
 7. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。
@@ -422,7 +427,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 
 ## 路线图
 
-- [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
+- [ ] 扩大游戏库（当前只有 24 款，匹配率受限于覆盖）
 - [ ] 多区服对比（国区 / 全球 / 低价区）
 - [ ] 曲线页接入 `chart` 的定时重建（采集完成后自动刷新）
 - [ ] 杉果历史 SKU 回填（`discover --from/--to` 的批量模式）
@@ -438,6 +443,7 @@ gameprice/
 │   ├── cli.js           命令行入口
 │   ├── scheduler.js     常驻调度（子进程隔离）
 │   ├── ingest.js        入库：判重 / 快照 / 日聚合
+│   ├── match.js         跨平台名称匹配（bigram Dice 打分）
 │   ├── report.js        静态价格页：内联 SVG 图表 + 纯函数渲染
 │   ├── alerts.js        降价提醒：判定 / 简报 / webhook 投递
 │   ├── log.js           结构化日志

@@ -482,3 +482,71 @@ export async function markNotified(q, { watchId, priceCents }) {
     watchId,
   ]);
 }
+
+// ---------------------------------------------------------------- 合并重复游戏
+
+/**
+ * 把 fromGame 合并进 toGame（典型场景：先按名称建了无 appid 的行，后来确认了
+ * Steam appid，需要并到已有游戏行上）。
+ *
+ * 顺序很重要：先搬报价（快照跟着 offer_id 走），再搬日聚合（同键取更低价），
+ * 再搬别名与关注，最后删源行。同平台同渠道类型的重复报价保留目标行的那条。
+ */
+export async function mergeGames(q, { fromGameId, toGameId, logger = null }) {
+  if (!fromGameId || !toGameId || Number(fromGameId) === Number(toGameId)) {
+    return { merged: false, reason: 'same_or_invalid' };
+  }
+
+  const source = await q('select id, steam_appid from games where id = $1', [fromGameId]);
+  if (!source.rows.length) return { merged: false, reason: 'source_missing' };
+  const target = await q('select id from games where id = $1', [toGameId]);
+  if (!target.rows.length) return { merged: false, reason: 'target_missing' };
+
+  const offers = await q(
+    'select id, platform_code, product_type, region from offers where game_id = $1',
+    [fromGameId],
+  );
+  let moved = 0;
+  let dropped = 0;
+  for (const offer of offers.rows) {
+    const dup = await q(
+      'select id from offers where game_id = $1 and platform_code = $2 and product_type = $3 and region = $4',
+      [toGameId, offer.platform_code, offer.product_type, offer.region],
+    );
+    if (dup.rows.length) {
+      await q('delete from price_snapshots where offer_id = $1', [offer.id]);
+      await q('delete from offers where id = $1', [offer.id]);
+      dropped += 1;
+    } else {
+      await q('update offers set game_id = $1 where id = $2', [toGameId, offer.id]);
+      moved += 1;
+    }
+  }
+
+  await q(
+    `insert into daily_prices (game_id, platform_code, region, day, min_price_cents, currency)
+     select $1, platform_code, region, day, min_price_cents, currency
+       from daily_prices where game_id = $2
+     on conflict (game_id, platform_code, region, day)
+     do update set min_price_cents = least(daily_prices.min_price_cents, excluded.min_price_cents)`,
+    [toGameId, fromGameId],
+  );
+  await q('delete from daily_prices where game_id = $1', [fromGameId]);
+
+  await q('update game_aliases set game_id = $1 where game_id = $2', [toGameId, fromGameId]);
+
+  // 关注列表：目标已有同区服关注时丢掉源行，避免唯一键冲突
+  await q(
+    `delete from watchlist w
+      where w.game_id = $1
+        and exists (select 1 from watchlist t where t.game_id = $2 and t.region = w.region)`,
+    [fromGameId, toGameId],
+  );
+  await q('update watchlist set game_id = $1 where game_id = $2', [toGameId, fromGameId]);
+
+  await q('delete from games where id = $1', [fromGameId]);
+
+  const result = { merged: true, moved, dropped, fromGameId: Number(fromGameId), toGameId: Number(toGameId) };
+  logger?.info('db.merge_games', result);
+  return result;
+}

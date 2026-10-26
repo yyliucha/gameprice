@@ -18,6 +18,7 @@ import {
   discoverSkus,
   mergeSkuEntries,
 } from './adapters/sonkwo-discover.js';
+import { bestMatch, confidenceLabel } from './match.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -553,6 +554,121 @@ async function cmdDiscover() {
   if (merged.added) console.log(`已写入 ${skuFile}；接着跑 node src/cli.js sync sonkwo 拉价格。`);
 }
 
+/** 把某个杉果 SKU 指向 Steam 游戏，并合并此前按名称建出的孤立游戏行。 */
+async function applySkuMapping(store, { skuId, appid }) {
+  const q = (sql, p) => store.query(sql, p);
+  const game = await q('select id, name from games where steam_appid = $1', [appid]);
+  if (!game.rows.length) throw new Error(`库里没有 appid ${appid}，先 add 或 seed`);
+  const targetId = Number(game.rows[0].id);
+
+  const alias = await q(
+    'select game_id from game_aliases where platform_code = $1 and platform_product_id = $2',
+    ['sonkwo', String(skuId)],
+  );
+  let merge = null;
+  if (alias.rows.length) {
+    const fromId = Number(alias.rows[0].game_id);
+    if (fromId !== targetId) {
+      const source = await q('select steam_appid from games where id = $1', [fromId]);
+      // 只合并「没有 appid 的孤立行」；有 appid 的行说明映射冲突，交给人工处理
+      if (source.rows.length && source.rows[0].steam_appid == null) {
+        merge = await db.mergeGames(q, { fromGameId: fromId, toGameId: targetId, logger });
+      } else {
+        logger.warn('match.skip_merge', { skuId, fromGameId: fromId, reason: 'source_has_appid' });
+      }
+    }
+  }
+  return { targetId, gameName: game.rows[0].name, merge };
+}
+
+/** 名称匹配 + 人工确认：把杉果 SKU 对齐到已有 Steam 游戏。 */
+async function cmdMatch() {
+  const skuFile = 'data/skus.json';
+  const entries = readJson(skuFile, []);
+  const games = await withStore(async (store) =>
+    (await store.query('select id, steam_appid, name, name_en from games where steam_appid is not null order by id')).rows,
+  );
+
+  // 人工确认模式：match --confirm <skuId> <appid>
+  const confirmIdx = args.indexOf('--confirm');
+  if (confirmIdx > -1) {
+    const skuId = Number(args[confirmIdx + 1]);
+    const appid = Number(args[confirmIdx + 2]);
+    if (!Number.isFinite(skuId) || !Number.isFinite(appid)) {
+      throw new Error('用法: node src/cli.js match --confirm <skuId> <steamAppid>');
+    }
+    const entry = entries.find((e) => Number(e.skuId) === skuId);
+    if (!entry) throw new Error(`skus.json 里没有 ${skuId}`);
+    const result = await withStore((store) => applySkuMapping(store, { skuId, appid }));
+    entry.appid = appid;
+    writeFileSync(skuFile, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+    console.log(`已确认：${entry.name ?? skuId} → ${games.find((g) => g.steam_appid === appid)?.name ?? appid}`);
+    if (result.merge?.merged) {
+      console.log(`合并了孤立游戏行：搬 ${result.merge.moved} 条报价、丢弃 ${result.merge.dropped} 条重复`);
+    }
+    return;
+  }
+
+  const minScore = Number(flag('min-score', 0.86));
+  const autoScore = Number(flag('auto-score', 0.94));
+  const apply = flag('apply', false) === true;
+  const limit = Number(flag('limit', 200));
+  const unresolved = entries.filter((e) => !e.appid && e.name).slice(0, limit);
+
+  if (!unresolved.length) {
+    console.log('没有待匹配的 SKU（都已有 appid，或 skus.json 为空）。');
+    return;
+  }
+
+  console.log(`${pad('skuId', 8)} ${pad('杉果名', 26)} ${pad('候选游戏', 22)} ${pad('appid', 8)} ${pad('分数', 6)} 建议`);
+  console.log('-'.repeat(80));
+
+  const proposals = [];
+  for (const entry of unresolved) {
+    const best = bestMatch(entry.name, games, { minScore });
+    if (!best) {
+      console.log(`${pad(entry.skuId, 8)} ${pad(entry.name, 26)} ${pad('—', 22)} ${pad('—', 8)} ${pad('—', 6)} 无候选`);
+      continue;
+    }
+    const label = confidenceLabel(best.score);
+    proposals.push({ entry, best, label });
+    console.log(
+      `${pad(entry.skuId, 8)} ${pad(entry.name, 26)} ${pad(best.candidate.name ?? best.matchedField, 22)} ` +
+        `${pad(best.candidate.steam_appid, 8)} ${pad(best.score.toFixed(2), 6)} ${label}`,
+    );
+  }
+
+  logger.info('match.proposals', {
+    unresolved: unresolved.length,
+    proposed: proposals.length,
+    auto: proposals.filter((p) => p.label === '自动').length,
+  });
+
+  if (!proposals.length) {
+    console.log('\n没有达到阈值的候选。可降低 --min-score，或用 match --confirm <skuId> <appid> 手工指定。');
+    return;
+  }
+
+  if (!apply) {
+    console.log(`\n以上为提案（未写入）。加 --apply 自动应用「自动」级别的 ${proposals.filter((p) => p.label === '自动').length} 条。`);
+    return;
+  }
+
+  const auto = proposals.filter((p) => p.label === '自动');
+  let mapped = 0;
+  let merged = 0;
+  for (const p of auto) {
+    const appid = p.best.candidate.steam_appid;
+    await withStore((store) => applySkuMapping(store, { skuId: Number(p.entry.skuId), appid }));
+    p.entry.appid = appid;
+    mapped += 1;
+    if (p.best.candidate) merged += 1;
+  }
+  writeFileSync(skuFile, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+  logger.info('match.applied', { mapped });
+  console.log(`\n已写入 ${mapped} 条映射到 ${skuFile}（阈值 ${autoScore}）。其余请用 --confirm 逐个确认。`);
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', 'out'));
   const days = Number(flag('days', 90));
@@ -701,6 +817,7 @@ const commands = {
   watch: cmdWatch,
   alerts: cmdAlerts,
   discover: cmdDiscover,
+  match: cmdMatch,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -736,6 +853,7 @@ async function main() {
   chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
   watch add|rm|list    关注列表：watch add 1091500 --target 99
   discover sonkwo      自动发现杉果 SKU（从前沿向后探测，连续空壳即停）
+  match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）
