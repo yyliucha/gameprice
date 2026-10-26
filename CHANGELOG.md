@@ -2,6 +2,50 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.16.0] - 2026-10-26
+
+前后端分离落地：有了真正的 Web 前端与用户系统。
+
+### 新增
+
+- **`web/` 前端工程**（零构建单页）：列表 + 筛选（全部/感兴趣/不感兴趣/已拥有）+ 排序（折扣/价格/名称）
+- **游戏详情弹窗**：客户端 SVG 价格曲线、各平台报价、开发商/发行商/分类
+- **后台管理页**（仅管理员）：用户列表、浏览排行；可直接标记感兴趣/已拥有
+- **访客本地偏好**：未登录也能筛选排序，选择存 `localStorage`，不上传服务端
+- **`user` 命令**：`user add <名> [--admin]`，密码只显示一次；`user list`
+- **`backup` 命令**：8 张核心表导出 gzip JSON 到 `data/backup`，保留最近 7 份
+- **浏览记录 90 天清理**（随备份任务执行）
+- **[docs/WEB.md](docs/WEB.md)**：API 契约、权限矩阵、部署要点
+
+### 修复
+
+- `serve` 启动报 `startApiServer is not defined`（导入缺失），全栈服务无法启动
+- Steam `appdetails` 批量请求返回 400：改为逐个 appid 请求，并顺带取分类与价格字段
+- 元数据曾覆盖人工维护的游戏名：改为只补空缺
+
+### 变更
+
+- 仓库更名 `gameprice` → **`steamdeals`**（旧地址 301 重定向）
+- `discover`（杉果目录发现）默认关闭：以 Steam 为准，只在需要补 SKU 映射时手动开启
+- 调度器新增每日 `backup` 任务（`BACKUP_ENABLED=0` 可关）
+
+### 测试
+
+- `test/api.test.js` 5 项（匿名可读、权限隔离、登录登出、密码哈希、已拥有）
+- 调度器测试更新为 8 个任务
+
+
+## [0.15.0] - 2026-10-26
+
+用户系统与只读 API。
+
+### 新增
+
+- `users` / `sessions` / `user_prefs` / `page_views` 四张表，migrate 幂等创建
+- scrypt 加盐哈希 + httpOnly cookie 会话（7 天）
+- API：`/api/games`、`/api/games/:appid`、`/api/login`、`/api/logout`、`/api/me`、`/api/prefs`、`/api/admin/*`
+- 权限隔离：匿名只读，写操作需登录/管理员；**Web 层没有任何改价接口**
+
 ## [0.14.0] - 2026-10-26
 
 不用 nginx，直接 `IP:端口` 看页面。

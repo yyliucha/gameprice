@@ -109,6 +109,7 @@
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
+| **Web 前端 + 用户系统** | ✅ | `web/` 单页应用 + JSON API；匿名可读、登录个性化、管理员后台 |
 | 内置静态页服务 | ✅ | `serve` 命令 / compose 的 `web` 服务，直接 `IP:端口` 访问，不依赖 nginx |
 | 曲线页自动重建 | ✅ | 采集成功后由调度器自动刷新 `out/`（`CHART_ON_SYNC=0` 可关） |
 | 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重 |
@@ -210,7 +211,7 @@ postgres 容器创建库 gameprice
 内置 `postgres:15-alpine` 用 trust 认证且端口不发布到宿主机，只在 compose 内网可达；需要密码见 [DEPLOY.md](docs/DEPLOY.md)。
 用外部数据库时填好 `DATABASE_URL` 后执行 `docker compose up -d app`（只起 app）。
 
-用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)、[docs/WEB.md](docs/WEB.md)（Web/API 契约）**。
 
 > 镜像本身尚未在真实 Docker 环境验证过（开发机无 Docker）。首次部署请按 [DEPLOY.md 的故障排查表](docs/DEPLOY.md#故障排查) 对照日志。
 
@@ -275,7 +276,10 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `match` | 把杉果 SKU 对齐到 Steam 游戏（`--apply` 自动、`--confirm <skuId> <appid>` 手工）✅ |
 | `compare <appid>` | 多区服对比（`--region cn` 只看单区、`--json` 机器可读）✅ |
 | `import steam` | 导入游戏信息（`--appids 730,570` / `--urls <链接>` / `--file 清单`；`--backend auto\|official\|steamcmd`）✅ |
-| `serve` | 内置静态页服务（`--port 8090`、`--dir out`、`--host 0.0.0.0`）✅ |
+| `serve` | 全栈服务：前端 + JSON API（`--port 8090`、`--dir web`）✅ |
+| `user add <名> [--admin]` / `user list` | 用户管理，密码只显示一次 ✅ |
+| `backup` | 8 张核心表导出 gzip JSON，保留 7 份，顺带清理 90 天前浏览记录 ✅ |
+| `owned <appid> on\|off` | 标记已拥有（列表默认收起）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
 | `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
@@ -439,7 +443,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **195 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **210 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
