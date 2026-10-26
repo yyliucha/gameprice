@@ -29,7 +29,8 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/scheduler.test.js && node test/deploy.test.js && node test/docs.test.js",
+    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/pg.test.js && node test/scheduler.test.js && node test/deploy.test.js && node test/docs.test.js && node test/secrets.test.js",
+    "scan": "node scripts/scan-secrets.js",
     "init": "node src/cli.js init",
     "bootstrap": "node src/cli.js bootstrap",
     "ping": "node src/cli.js ping",

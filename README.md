@@ -302,9 +302,12 @@ node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库
 node test/scheduler.test.js  # 8 项：调度时刻表、首轮错开、参数透传
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
+node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **48 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **53 项**断言。
+
+发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 ## 已知限制
 
