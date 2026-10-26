@@ -21,6 +21,8 @@ RUN npm ci --omit=dev --no-audit --no-fund \
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node data ./data
+# 前端工程（单页应用）——漏了这行，容器里 /app/web 不存在，GET / 会 404
+COPY --chown=node:node web ./web
 COPY --chown=node:node scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /app/logs \

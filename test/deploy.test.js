@@ -118,3 +118,11 @@ test('.env.example 覆盖 compose 用到的可配置项', () => {
     assert.match(example, new RegExp(`^#?\\s*${key}=`, 'm'), `.env.example 缺少 ${key}`);
   }
 });
+
+test('镜像必须包含前端工程（否则容器里 GET / 404）', () => {
+  const df = read('Dockerfile');
+  assert.ok(existsSync(new URL('../web/index.html', import.meta.url)), 'web/index.html 必须存在');
+  assert.match(df, /COPY --chown=node:node web \.\/web/, 'Dockerfile 必须把 web 目录拷进镜像');
+  const ignore = read('.dockerignore');
+  assert.ok(!/^web$/m.test(ignore), '.dockerignore 不能排除 web 目录');
+});
