@@ -497,6 +497,42 @@ export async function watchCandidates(q, { region = 'cn' } = {}) {
   return r.rows;
 }
 
+// ---------------------------------------------------------------- 元数据写入
+
+/**
+ * 写入/更新游戏元数据。
+ *
+ * 名字策略：**只补空缺，不覆盖已有值**。元数据里的本地化名可能是过期的
+ * （实测 730 的 sc_schinese 还是"反恐精英：全球攻势"），覆盖会把人肉维护的
+ * 正确名字改坏。其余字段（类型/封面/发行日期/is_free）以元数据为准。
+ */
+export async function upsertGameMeta(q, item) {
+  const r = await q(
+    `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date)
+     values ($1, $2, $3, $4, coalesce($5, false), $6, $7)
+     on conflict (steam_appid) do update set
+       name = coalesce(games.name, excluded.name),
+       name_en = coalesce(games.name_en, excluded.name_en),
+       app_type = coalesce(excluded.app_type, games.app_type),
+       is_free = case when $5::boolean is null then games.is_free else $5::boolean end,
+       header_image = coalesce(excluded.header_image, games.header_image),
+       release_date = coalesce(excluded.release_date, games.release_date),
+       updated_at = now()
+     returning id, (xmax = 0) as inserted`,
+    [
+      item.steamAppid,
+      item.nameZh ?? null,
+      item.nameEn ?? null,
+      item.appType ?? null,
+      item.isFree ?? null,
+      item.headerImage ?? null,
+      item.releaseDate ?? null,
+    ],
+  );
+  const row = r.rows[0];
+  return { id: Number(row.id), created: row.inserted === true };
+}
+
 export async function markNotified(q, { watchId, priceCents }) {
   await q('update watchlist set last_notified_at = now(), last_notified_cents = $1 where id = $2', [
     priceCents,

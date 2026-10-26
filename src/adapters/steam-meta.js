@@ -1,0 +1,154 @@
+// Steam 游戏元数据：名字 / 类型 / 封面 / 发行日期 / 开发商。
+//
+// 两个后端，同一套归一化输出：
+//   1. official  —— Steam 官方接口（`store.steampowered.com/api/appdetails`，filters=basic）
+//      优点：能拿到按语言本地化的名字与 is_free；缺点：很多网络环境访问不到
+//   2. steamcmd  —— api.steamcmd.net（Steam PICS 数据的第三方镜像）
+//      优点：可达性好，`name_localized.schinese` 能给出中文名、header_image 带简体封面；
+//            缺点：拿不到 is_free，也不能按名字搜索
+//
+// `backend: 'auto'` 会先探官方（短超时），失败再回落镜像，并把实际用的后端记进日志。
+import { fetchJson } from '../http.js';
+
+export const descriptor = { code: 'steam', name: 'Steam 元数据' };
+
+const OFFICIAL_DETAILS = 'https://store.steampowered.com/api/appdetails';
+const STEAMCMD_BASE = 'https://api.steamcmd.net/v1/info/';
+const CDN = 'https://cdn.akamai.steamstatic.com/steam/apps/';
+
+/** 从 Steam 商店链接或纯数字里提取 appid。 */
+export function extractAppId(input) {
+  const text = String(input ?? '').trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  const m = text.match(/store\.steampowered\.com\/app\/(\d+)/i) || text.match(/\bapp\/(\d+)\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+const toDate = (unixSeconds) => {
+  const n = Number(unixSeconds);
+  return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString().slice(0, 10) : null;
+};
+
+/** 官方 appdetails(basic) 条目 → 归一化元数据。 */
+export function normalizeOfficial(appid, data) {
+  if (!data) return null;
+  return {
+    steamAppid: Number(appid),
+    nameEn: null, // 官方接口按 l 参数返回一种语言，中文请求下拿不到英文名
+    nameZh: data.name ?? null,
+    appType: data.type ?? null,
+    isFree: data.is_free ?? null,
+    headerImage: data.header_image ?? null,
+    releaseDate: data.release_date?.date && !/coming soon/i.test(data.release_date.date) ? data.release_date.date : null,
+    developers: data.developers ?? null,
+    publishers: data.publishers ?? null,
+    source: 'official',
+  };
+}
+
+/** steamcmd PICS 条目 → 归一化元数据。 */
+export function normalizeSteamcmd(appid, app) {
+  const common = app?.common;
+  if (!common) return null;
+  const localized = common.name_localized ?? {};
+  const zh = localized.schinese ?? localized.sc_schinese ?? localized.tchinese ?? null;
+  const header = common.header_image ?? {};
+  const headerFile = header.schinese ?? header.english ?? null;
+  const devs = Object.values(common.associations ?? {})
+    .filter((a) => a?.type === 'developer')
+    .map((a) => a.name)
+    .filter(Boolean);
+  const pubs = Object.values(common.associations ?? {})
+    .filter((a) => a?.type === 'publisher')
+    .map((a) => a.name)
+    .filter(Boolean);
+
+  return {
+    steamAppid: Number(appid),
+    nameEn: common.name ?? null,
+    nameZh: zh,
+    appType: common.type ?? null,
+    isFree: null, // PICS 数据里没有可靠的免费标记
+    headerImage: headerFile ? `${CDN}${appid}/${headerFile}` : null,
+    releaseDate: toDate(common.steam_release_date),
+    developers: devs.length ? [...new Set(devs)] : null,
+    publishers: pubs.length ? [...new Set(pubs)] : null,
+    source: 'steamcmd',
+  };
+}
+
+/** 探一下官方接口通不通（短超时，不重试）。 */
+export async function probeOfficial({ fetchImpl = globalThis.fetch, logger = null, timeoutMs = 5000 } = {}) {
+  try {
+    const res = await fetchImpl(`${OFFICIAL_DETAILS}?appids=730&filters=basic`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'user-agent': 'gameprice/0.1' },
+    });
+    const ok = res.ok;
+    logger?.info('steam.probe', { official: ok, status: res.status });
+    return ok;
+  } catch (err) {
+    logger?.info('steam.probe', { official: false, error: String(err.message).slice(0, 120) });
+    return false;
+  }
+}
+
+async function fetchOfficial(appids, { logger, fetchImpl }) {
+  const items = [];
+  // appdetails 支持逗号分隔批量；一次 10 个足够稳
+  for (let i = 0; i < appids.length; i += 10) {
+    const batch = appids.slice(i, i + 10);
+    const url = `${OFFICIAL_DETAILS}?appids=${batch.join(',')}&cc=cn&l=schinese&filters=basic`;
+    const { json } = await fetchJson(url, { logger, label: 'steam.meta.official', fetchImpl, timeoutMs: 20000 });
+    for (const appid of batch) {
+      const entry = json?.[String(appid)];
+      if (entry?.success && entry.data) {
+        const item = normalizeOfficial(appid, entry.data);
+        if (item) items.push(item);
+      } else {
+        logger?.warn('steam.meta.missing', { appid, backend: 'official' });
+      }
+    }
+  }
+  return items;
+}
+
+async function fetchSteamcmd(appids, { logger, fetchImpl }) {
+  const items = [];
+  for (const appid of appids) {
+    const url = `${STEAMCMD_BASE}${appid}`;
+    try {
+      const { json } = await fetchJson(url, { logger, label: 'steam.meta.steamcmd', fetchImpl, retries: 1, timeoutMs: 20000 });
+      const app = json?.data?.[String(appid)];
+      const item = normalizeSteamcmd(appid, app);
+      if (item) items.push(item);
+      else logger?.warn('steam.meta.missing', { appid, backend: 'steamcmd', status: json?.status });
+    } catch (err) {
+      logger?.warn('steam.meta.failed', { appid, backend: 'steamcmd', message: String(err.message).slice(0, 120) });
+    }
+  }
+  return items;
+}
+
+/**
+ * 取元数据。backend: 'auto' | 'official' | 'steamcmd'
+ * auto 会先探官方，不通则回落镜像（并记录实际后端，便于排障）。
+ */
+export async function fetchMetadata(appids, { backend = 'auto', logger = null, fetchImpl = null } = {}) {
+  const unique = [...new Set((appids ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!unique.length) return { backend: null, items: [] };
+
+  let chosen = backend;
+  if (chosen === 'auto') {
+    const ok = await probeOfficial({ fetchImpl: fetchImpl ?? globalThis.fetch, logger });
+    chosen = ok ? 'official' : 'steamcmd';
+  }
+
+  const items =
+    chosen === 'official'
+      ? await fetchOfficial(unique, { logger, fetchImpl: fetchImpl ?? undefined })
+      : await fetchSteamcmd(unique, { logger, fetchImpl: fetchImpl ?? undefined });
+
+  logger?.info('steam.meta.done', { backend: chosen, requested: unique.length, got: items.length });
+  return { backend: chosen, items };
+}

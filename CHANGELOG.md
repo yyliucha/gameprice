@@ -2,6 +2,36 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.0] - 2026-10-26
+
+游戏信息不用手填了。
+
+### 新增
+
+- **Steam 游戏信息导入** `import steam`
+  - 支持 `--appids 730,570`、`--urls <商店链接>`、`--file <清单>`（每行一个 appid 或链接）
+  - 写入中文名、英文名、类型、封面、发行日期、开发商/发行商
+  - **双后端自动回落**：先探官方 `appdetails`（5s 超时），不通则用 `api.steamcmd.net`
+    （Steam PICS 数据镜像，实测本机可达），实际用的后端记进 `steam.meta.done`
+  - `--backend auto|official|steamcmd` 可强制指定
+- 实测：6 个 appid 全部导入成功，中文名与封面齐全
+
+### 修复
+
+- **元数据把人工维护的名字改坏了**：730 的 `sc_schinese` 还是旧的「反恐精英：全球攻势」，
+  第一版"元数据覆盖"策略把它盖掉了「反恐精英 2」。现在名字**只补空缺不覆盖**
+  （`coalesce(games.name, excluded.name)`）；`is_free` 用 null 判断，镜像给不了时不会误改成 false。
+
+### 已知
+
+- 镜像**不提供 `is_free`**，也**不能按名字搜索**（只能给 appid 或商店链接）。
+  官方接口可达时这两个限制都不存在。
+
+### 测试
+
+- 新增 `test/steam-meta.test.js` 11 项、`test/gamemeta.test.js` 5 项
+- 合计 174 项
+
 ## [0.10.0] - 2026-10-26
 
 采集完自动刷新页面，不用再手动跑 `chart`。

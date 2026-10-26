@@ -20,6 +20,7 @@ import {
 } from './adapters/sonkwo-discover.js';
 import { bestMatch, confidenceLabel } from './match.js';
 import { renderCompare, groupOffersByRegion } from './compare.js';
+import { extractAppId, fetchMetadata } from './adapters/steam-meta.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -751,6 +752,56 @@ async function cmdCompare() {
   );
 }
 
+/** 导入 Steam 游戏元数据（名字/封面/发行日期/开发商），支持 appid、商店链接或文件。 */
+async function cmdImport() {
+  const kind = args[1];
+  if (kind !== 'steam') {
+    throw new Error('用法: node src/cli.js import steam [--appids 730,570] [--urls ...] [--file data/wishlist.txt] [--backend auto|official|steamcmd]');
+  }
+
+  const raw = [];
+  const appidsFlag = flag('appids', null);
+  if (typeof appidsFlag === 'string') raw.push(...appidsFlag.split(/[\s,]+/));
+  const urlsFlag = flag('urls', null);
+  if (typeof urlsFlag === 'string') raw.push(...urlsFlag.split(/[\s,]+/));
+  const fileFlag = flag('file', null);
+  if (typeof fileFlag === 'string') {
+    if (!existsSync(fileFlag)) throw new Error(`文件不存在：${fileFlag}`);
+    raw.push(...readFileSync(fileFlag, 'utf8').split(/\r?\n/));
+  }
+
+  const appids = [...new Set(raw.map(extractAppId).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!appids.length) {
+    throw new Error('没有解析到 appid：用 --appids 730,570 / --urls <商店链接> / --file <清单> 指定');
+  }
+
+  console.log(`准备导入 ${appids.length} 个 appid：${appids.slice(0, 8).join(', ')}${appids.length > 8 ? ' …' : ''}`);
+  const { backend, items } = await fetchMetadata(appids, { backend: String(flag('backend', 'auto')), logger });
+  console.log(`元数据来源：${backend ?? '无'}，取到 ${items.length} 条`);
+
+  const stats = await withStore(async (store) => {
+    const q = (sql, p) => store.query(sql, p);
+    let created = 0;
+    let updated = 0;
+    let named = 0;
+    for (const item of items) {
+      const result = await db.upsertGameMeta(q, item);
+      if (result.created) created += 1;
+      else updated += 1;
+      if (item.nameZh) named += 1;
+    }
+    return { created, updated, named };
+  });
+
+  logger.info('import.done', { kind, backend, requested: appids.length, got: items.length, ...stats });
+  console.log(
+    `导入完成：新增 ${stats.created} 款、更新 ${stats.updated} 款（其中带中文名 ${stats.named} 款）`,
+  );
+  const missing = appids.length - items.length;
+  if (missing > 0) console.log(`有 ${missing} 个 appid 没有取到元数据（可能已下架或不是游戏），详见日志 steam.meta.missing`);
+  console.log('下一步：node src/cli.js list，或直接 node src/cli.js chart 看页面');
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', process.env.OUT_DIR ?? 'out'));
   const days = Number(flag('days', 90));
@@ -901,6 +952,7 @@ const commands = {
   discover: cmdDiscover,
   match: cmdMatch,
   compare: cmdCompare,
+  import: cmdImport,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -938,6 +990,7 @@ async function main() {
   discover sonkwo      自动发现杉果 SKU（从前沿向后探测，连续空壳即停）
   match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
   compare <appid>      多区服对比（--region 只看某区、--json 机器可读）
+  import steam         导入 Steam 游戏信息（--appids / --urls / --file，双后端自动回落）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）

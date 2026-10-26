@@ -1,0 +1,38 @@
+{
+  "status": "success",
+  "data": {
+    "1091500": {
+      "appid": "1091500",
+      "common": {
+        "name": "Cyberpunk 2077",
+        "type": "Game",
+        "name_localized": {
+          "japanese": "サイバーパンク2077",
+          "schinese": "赛博朋克 2077"
+        },
+        "header_image": {
+          "english": "e9047d8ec47ae3d94bb8b464fb0fc9e9972b4ac7/header.jpg",
+          "koreana": "26b96fa9c8af43189cbecbbc329ade29d9c9cf3e/header_koreana.jpg",
+          "schinese": "4e88035f3a75e69e0ef2005fc611a7fafcb227e1/header_schinese.jpg",
+          "tchinese": "3bd292808ba9d8a337c5278acb8345d94ed769a3/header_tchinese.jpg"
+        },
+        "associations": {
+          "0": {
+            "name": "CD PROJEKT RED",
+            "type": "developer"
+          },
+          "1": {
+            "name": "CD PROJEKT RED",
+            "type": "publisher"
+          }
+        },
+        "steam_release_date": "1607558400",
+        "genres": {
+          "0": "3"
+        },
+        "review_score": "8",
+        "metacritic_score": "86"
+      }
+    }
+  }
+}

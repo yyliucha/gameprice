@@ -314,7 +314,30 @@ GOG 的 catalog 接口接受 `countryCode` + `currencyCode`，是目前唯一能
 
 `regionOffers` 也 join `platforms.kind`，C2C 报价不会出现在对比里（`test/regions.test.js` 有回归断言）。
 
-## 12. 容量与性能
+## 12. 游戏元数据的双后端
+
+游戏信息（名字/封面/发行日期/开发商）来自 Steam，但 Steam 官方接口在很多网络环境不可达。
+所以做了两个后端，同一套归一化输出：
+
+| 后端 | 接口 | 能给什么 | 缺什么 |
+|---|---|---|---|
+| `official` | `store.steampowered.com/api/appdetails`（`filters=basic`） | 本地化名、`is_free`、封面、发行日期、开发商 | 很多网络环境访问不到 |
+| `steamcmd` | `api.steamcmd.net/v1/info/{appid}`（PICS 数据镜像） | 英文名、`name_localized.schinese`、`header_image.schinese`、发行日期、开发商 | 没有可靠的 `is_free`；不能按名字搜索 |
+
+`--backend auto`（默认）先探官方（5 秒超时、不重试），不通就回落镜像，并把实际用的后端记进
+`steam.meta.done`。这样同一份代码在"能访问 Steam 的服务器"和"不能访问的开发机"上都能用。
+
+### 名字为什么"只补空缺"
+
+第一版是"元数据权威，覆盖旧值"，实测立刻踩坑：730 的 `sc_schinese` 还是旧的
+「反恐精英：全球攻势」，一导入就把人工维护的「反恐精英 2」改掉了。
+
+现在 `upsertGameMeta` 对 `name` / `name_en` 用 `coalesce(games.name, excluded.name)`
+——**只填空缺，不覆盖**；类型/封面/发行日期/is_free 仍以元数据为准（这些没人手工维护）。
+`is_free` 用 `case when $5 is null then games.is_free else $5 end`，因为镜像给不了这个字段，
+传 null 不能把它改成 false。
+
+## 13. 容量与性能
 
 | 项 | 估算 |
 |---|---|
@@ -324,7 +347,7 @@ GOG 的 catalog 接口接受 `countryCode` + `currencyCode`，是目前唯一能
 | 单轮采集 | Steam 3000 款 ≈ 50 分钟（1 请求/秒，批量 30），正好卡在"每小时"的物理上限 |
 | PGlite 上的 DDL | 10–30 秒（wasm 编译成本，真实 PG 上是毫秒级） |
 
-## 13. 已知技术债
+## 14. 已知技术债
 
 1. **名称匹配是妥协**：杉果页面没有 Steam appid，只能靠 bigram 相似度 + 人工确认；
    匹配率受游戏库覆盖限制（当前 46 个 SKU 与 24 款 Steam 游戏零交集）。

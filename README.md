@@ -43,6 +43,7 @@
 | **杉果 SKU 自动发现** | ✅ 已跑通 | 实测扫 120 个 id 命中 46 个商品、新增 45 条，连续空壳自动停 |
 | **跨平台名称匹配** | ✅ 已跑通 | bigram Dice + 阈值分级 + 人工确认；重复行自动合并（11+5 项测试） |
 | **多区服对比** | ✅ 已跑通 | GOG 真实双区采集（cn ¥36 / us $9.99）；不同币种不折算，明确告知 |
+| **Steam 游戏信息导入** | ✅ 已跑通 | 双后端（官方 / steamcmd 镜像）自动回落；实测 6 个 appid 全部拿到中文名与封面 |
 | **曲线页自动重建** | ✅ 已跑通 | 调度器采集成功后自动跑 `chart`；实测 46 SKU 同步 → 48 款游戏 49 个文件 337ms |
 | **GOG 价格采集** | ✅ 已跑通 | catalog 接口真实运行：24 款匹配 8 款，中文名合并正确 |
 | **Humble 价格采集** | ⚠️ 可用但命中率受限 | 按 slug 探测 + JSON-LD 校验；没探测到的游戏会静默跳过 |
@@ -97,6 +98,7 @@
 | 杉果 SKU 自动发现 | ✅ | 按 id 从前沿向后探测，连续空壳即停；发现的 SKU 自动并入 `data/skus.json` |
 | 跨平台名称匹配 | ✅ | bigram Dice 打分 + 阈值分级（自动/待确认/无候选）+ 人工 `--confirm`；确认后自动合并重复游戏行 |
 | 多区服对比 | ✅ | 同一游戏按区服并排（GOG 支持 cn/us/tr/ru/ar 等）；**不同币种不折算** |
+| Steam 游戏信息导入 | ✅ | `import steam`：appid / 商店链接 / 清单文件 → 中文名、封面、发行日期、开发商 |
 | ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
 | 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
 | 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
@@ -265,6 +267,7 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `discover sonkwo` | 自动发现新 SKU（`--ahead`、`--max-misses`、`--from/--to`）✅ |
 | `match` | 把杉果 SKU 对齐到 Steam 游戏（`--apply` 自动、`--confirm <skuId> <appid>` 手工）✅ |
 | `compare <appid>` | 多区服对比（`--region cn` 只看单区、`--json` 机器可读）✅ |
+| `import steam` | 导入游戏信息（`--appids 730,570` / `--urls <链接>` / `--file 清单`；`--backend auto\|official\|steamcmd`）✅ |
 | `sync itad` | ITAD 官方 API（`ITAD_API_KEY` 未配置则跳过）⚠️ 未验证 |
 | `sync gog` | 按英文名查 GOG（catalog 接口，只接受精确标题）✅ 已跑通 |
 | `sync humble` | 按英文名探测 Humble 商品页（JSON-LD）⚠️ 命中率取决于 slug |
@@ -352,6 +355,7 @@ v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 | GOG | 官方 catalog JSON（`catalog.gog.com`） | ✅ 可用，按英文名精确匹配 |
 | Humble | 商品页 JSON-LD `offers.price` | ⚠️ 可用但命中率取决于 slug 命名 |
 | Steam | 官方 `appdetails` | ⚠️ 代码完成，国内网络直连不可达 |
+| Steam 元数据 | 官方 `appdetails(basic)` / `api.steamcmd.net` 镜像 | ✅ 双后端自动回落；镜像给中文名与封面，但不提供 `is_free` |
 | IsThereAnyDeal | 官方 REST API | ⚠️ 需免费 key，结构未真实验证 |
 | Fanatical | SPA + Algolia 代理 | ⏸ 商品页无价格、key 接口 403，不接入 |
 | 小黑盒 | SPA + `hkey` 签名 | ⏸ 暂缓 |
@@ -402,6 +406,8 @@ node test/adapters.test.js   # 5 项：Steam 接口构造与解析
 node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
 node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
+node test/steam-meta.test.js # 11 项：appid 解析、双后端归一化、官方不可用时自动回落
+node test/gamemeta.test.js   # 5 项：元数据只补空缺、不覆盖人工维护的名字
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
 node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
@@ -419,13 +425,14 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **157 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **174 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
 ## 已知限制
 
 1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`，12 秒超时）。代码完整、单测覆盖，但没有在真实网络跑通过。需要给采集机配出口，或改用 ITAD 的 Steam 价。
+   - 元数据导入做了**双后端**：先探官方（5s 超时），不通则自动回落到 `api.steamcmd.net`（Steam PICS 数据镜像）。镜像能给出中文名、封面、发行日期、开发商，但**不提供 `is_free`**，也**不能按名字搜索**（只能给 appid 或商店链接）。
 2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
@@ -437,7 +444,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 
 ## 路线图
 
-- [ ] 扩大游戏库（当前只有 24 款，匹配率受限于覆盖）
+- [ ] 扩大游戏库（`import steam` 已就绪，还差一份常买的游戏清单）
 - [ ] 杉果历史 SKU 回填（`discover --from/--to` 的批量模式）
 - [ ] 汇率折算（当前多区服只并排展示，不折算）
 - [ ] 提醒通道：邮件模板美化与多收件人分组
