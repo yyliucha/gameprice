@@ -94,6 +94,21 @@ export function isCircuited(state, nowMs) {
   return Boolean(state?.openUntil && nowMs < state.openUntil);
 }
 
+// 采集类任务成功后需要刷新静态页的，列在这里
+const SYNC_LIKE = new Set(['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover']);
+
+/**
+ * 任务成功后的后续动作。
+ * 采集完不重建曲线页，用户就得手动跑 chart——这条链本来就是"自动刷新"的价值所在。
+ * CHART_ON_SYNC=0 可关（例如只想采集、页面由 CI 构建）。
+ */
+export function followUpArgs(jobName, code, env = process.env) {
+  if (code !== 0) return null;
+  if (env.CHART_ON_SYNC === '0') return null;
+  if (!SYNC_LIKE.has(jobName)) return null;
+  return ['chart'];
+}
+
 /**
  * 哪些任务到点了。
  * 从未跑过：startedMs + initialDelaySec 触发（首轮错开，避免同时打满）。
@@ -216,6 +231,13 @@ export async function main() {
       const { code } = await runJob(job);
       running.delete(job.name);
       lastRunMs.set(job.name, Date.now());
+
+      // 采集成功后顺手重建静态页（失败不影响主任务状态）
+      const followUp = followUpArgs(job.name, code, process.env);
+      if (followUp) {
+        logger.info('scheduler.followup', { job: job.name, args: followUp.join(' ') });
+        await runJob({ name: `${job.name}:chart`, args: followUp });
+      }
 
       const next = recordJobResult(state, {
         code,

@@ -752,7 +752,7 @@ async function cmdCompare() {
 }
 
 async function cmdChart() {
-  const outDir = String(flag('out', 'out'));
+  const outDir = String(flag('out', process.env.OUT_DIR ?? 'out'));
   const days = Number(flag('days', 90));
   const limit = Number(flag('limit', 200));
   const result = await withStore((store) =>

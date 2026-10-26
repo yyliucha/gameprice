@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT } from '../src/scheduler.js';
+import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs } from '../src/scheduler.js';
 
 test('默认七个任务（含 gog / humble / discover / alerts），各自间隔', () => {
   const jobs = jobsFromEnv({});
@@ -124,4 +124,14 @@ test('熔断窗口到期后自动恢复', () => {
   const state = { failures: CIRCUIT.threshold, openUntil: t0 + CIRCUIT.cooldownMs };
   assert.equal(isCircuited(state, t0 + CIRCUIT.cooldownMs - 1), true);
   assert.equal(isCircuited(state, t0 + CIRCUIT.cooldownMs), false);
+});
+
+test('采集成功后自动重建曲线页：失败不触发、非采集任务不触发、可关闭', () => {
+  assert.deepEqual(followUpArgs('sonkwo', 0, {}), ['chart']);
+  assert.deepEqual(followUpArgs('gog', 0, {}), ['chart']);
+  assert.deepEqual(followUpArgs('discover', 0, {}), ['chart']);
+
+  assert.equal(followUpArgs('sonkwo', 1, {}), null, '任务失败不该重建');
+  assert.equal(followUpArgs('alerts', 0, {}), null, '提醒任务不重建');
+  assert.equal(followUpArgs('sonkwo', 0, { CHART_ON_SYNC: '0' }), null, 'CHART_ON_SYNC=0 关闭');
 });

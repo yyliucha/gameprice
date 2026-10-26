@@ -2,6 +2,24 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.0] - 2026-10-26
+
+采集完自动刷新页面，不用再手动跑 `chart`。
+
+### 新增
+
+- **曲线页自动重建**：调度器在采集类任务成功后自动执行 `chart`
+  - 触发条件：任务是 steam/sonkwo/itad/gog/humble/discover 且退出码为 0
+  - `CHART_ON_SYNC=0` 可关闭（例如页面由 CI 构建）
+  - `OUT_DIR` 可配置输出目录
+  - 重建失败只记 `scheduler.job_failed`（job 名 `sonkwo:chart`），不影响主任务状态
+- 实测：46 个杉果 SKU 同步完成（65.5s，41 条新快照）→ 自动重建 48 款游戏、49 个文件、337ms
+
+### 测试
+
+- 调度测试新增 1 项：成功触发 / 失败不触发 / 非采集任务不触发 / 可关闭
+- 合计 158 项
+
 ## [0.9.0] - 2026-10-26
 
 `region` 终于不只是数据库里的一个字段。

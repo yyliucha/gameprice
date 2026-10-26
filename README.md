@@ -43,6 +43,7 @@
 | **杉果 SKU 自动发现** | ✅ 已跑通 | 实测扫 120 个 id 命中 46 个商品、新增 45 条，连续空壳自动停 |
 | **跨平台名称匹配** | ✅ 已跑通 | bigram Dice + 阈值分级 + 人工确认；重复行自动合并（11+5 项测试） |
 | **多区服对比** | ✅ 已跑通 | GOG 真实双区采集（cn ¥36 / us $9.99）；不同币种不折算，明确告知 |
+| **曲线页自动重建** | ✅ 已跑通 | 调度器采集成功后自动跑 `chart`；实测 46 SKU 同步 → 48 款游戏 49 个文件 337ms |
 | **GOG 价格采集** | ✅ 已跑通 | catalog 接口真实运行：24 款匹配 8 款，中文名合并正确 |
 | **Humble 价格采集** | ⚠️ 可用但命中率受限 | 按 slug 探测 + JSON-LD 校验；没探测到的游戏会静默跳过 |
 | 价格历史 / 史低判断 | ✅ 已跑通 | 96 项测试，含真 PG 语义（PGlite）验证 |
@@ -105,6 +106,7 @@
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
+| 曲线页自动重建 | ✅ | 采集成功后由调度器自动刷新 `out/`（`CHART_ON_SYNC=0` 可关） |
 | 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重 |
 | 提醒通道 | ✅ | webhook / 企业微信机器人 / 邮件（SMTP，支持 STARTTLS 与 AUTH PLAIN/LOGIN） |
 | 采集熔断 | ✅ | 连续失败自动暂停，避免持续撞墙 |
@@ -307,6 +309,8 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | `3` / `360` | 连续失败 N 次后暂停多久 |
 | `GOG_ENABLED` / `GOG_INTERVAL_MIN` | `1` / `720` | GOG 采集开关与间隔 |
 | `GOG_REGIONS` | `cn` | 多区服采集，逗号分隔（`cn,us,tr` 等；仅 GOG 支持） |
+| `CHART_ON_SYNC` | `1` | 采集成功后自动重建静态页；置 `0` 关闭 |
+| `OUT_DIR` | `out` | 静态页输出目录（容器内为 `/app/out`） |
 | `HUMBLE_ENABLED` / `HUMBLE_INTERVAL_MIN` | `1` / `720` | Humble 采集开关与间隔 |
 | `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
 | `LOG_DIR` | `logs` | 日志目录 |
@@ -434,9 +438,9 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 ## 路线图
 
 - [ ] 扩大游戏库（当前只有 24 款，匹配率受限于覆盖）
-- [ ] 曲线页接入 `chart` 的定时重建（采集完成后自动刷新）
 - [ ] 杉果历史 SKU 回填（`discover --from/--to` 的批量模式）
 - [ ] 汇率折算（当前多区服只并排展示，不折算）
+- [ ] 提醒通道：邮件模板美化与多收件人分组
 
 ## 项目结构
 

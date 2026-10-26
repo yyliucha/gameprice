@@ -1,6 +1,6 @@
 {
   "name": "gameprice",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "description": "中文游戏的价格履历：官方渠道比价 + 价格历史。PostgreSQL 15 存储，Docker 一键部署（自动建库建表导入），当前可用采集源为杉果与 GOG。",
