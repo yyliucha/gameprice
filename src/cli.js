@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
@@ -851,6 +852,39 @@ async function cmdUser() {
   throw new Error('用法: node src/cli.js user add <用户名> [--admin] [--password xxx] | user list');
 }
 
+/** 逻辑备份：核心表导出成 gzip JSON，保留最近 7 份；顺带清理过期浏览记录。 */
+async function cmdBackup() {
+  const dir = String(flag('out', 'data/backup'));
+  mkdirSync(dir, { recursive: true });
+  const tables = ['platforms', 'games', 'game_aliases', 'offers', 'price_snapshots', 'daily_prices', 'watchlist', 'users'];
+
+  const dump = {};
+  let purged = 0;
+  await withStore(async (store) => {
+    const q = (sql, p) => store.query(sql, p);
+    for (const table of tables) {
+      dump[table] = (await q(`select * from ${table}`)).rows;
+    }
+    purged = await db.purgeOldViews(q, { days: Number(flag('days', 90)) });
+  });
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const file = `${dir}/backup-${stamp}.json.gz`;
+  writeFileSync(file, gzipSync(JSON.stringify({ generatedAt: new Date().toISOString(), dump })));
+
+  const files = readdirSync(dir).filter((n) => n.startsWith('backup-')).sort();
+  let removed = 0;
+  for (const old of files.slice(0, Math.max(0, files.length - 7))) {
+    rmSync(`${dir}/${old}`, { force: true });
+    removed += 1;
+  }
+
+  const rows = tables.reduce((sum, t) => sum + dump[t].length, 0);
+  logger.info('backup.done', { file, tables: tables.length, rows, removedOld: removed, purgedViews: purged });
+  console.log(`备份完成：${file}`);
+  console.log(`  表 ${tables.length} 张、${rows} 行；清理旧备份 ${removed} 份；清理过期浏览记录 ${purged} 条`);
+}
+
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响列表展示，采集与统计照常。 */
 async function cmdInterest() {
   const appid = Number(args[1]);
@@ -1056,6 +1090,7 @@ const commands = {
   serve: cmdServe,
   interest: cmdInterest,
   user: cmdUser,
+  backup: cmdBackup,
   owned: cmdOwned,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,

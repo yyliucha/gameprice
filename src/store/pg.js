@@ -678,6 +678,12 @@ export async function recordView(q, { userId = null, path, appid = null }) {
   await q('insert into page_views (user_id, path, appid) values ($1, $2, $3)', [userId, path, appid]);
 }
 
+/** 清理过期浏览记录（默认保留 90 天）。 */
+export async function purgeOldViews(q, { days = 90 } = {}) {
+  const r = await q("delete from page_views where created_at < now() - ($1 || ' days')::interval", [String(days)]);
+  return r.rowCount ?? 0;
+}
+
 export async function viewStats(q, { limit = 20 } = {}) {
   const r = await q(
     `select path, count(*)::int as views, max(created_at) as last_at

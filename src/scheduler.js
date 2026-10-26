@@ -66,6 +66,14 @@ export function jobsFromEnv(env = process.env) {
       enabled: env.DISCOVER_ENABLED !== '0',
     },
     {
+      name: 'backup',
+      // 每日逻辑备份（gzip JSON），保留最近 7 份；顺带清理过期浏览记录
+      args: ['backup'],
+      intervalMin: num(env.BACKUP_INTERVAL_MIN, 1440),
+      initialDelaySec: num(env.BACKUP_INITIAL_DELAY_SEC, 3600),
+      enabled: env.BACKUP_ENABLED !== '0',
+    },
+    {
       name: 'alerts',
       // 只有配了任意提醒通道才在检查后标记已通知，否则只做只读检查，避免静默吞掉提醒
       args: hasNotifier(env) ? ['alerts', '--mark'] : ['alerts'],
