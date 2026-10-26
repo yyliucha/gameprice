@@ -408,7 +408,28 @@ export async function dailyPlatformSeries(q, { gameId, region = 'cn' }) {
   return r.rows;
 }
 
-/** 单个游戏当前在售的官方报价。 */
+/** 单个游戏当前在售的官方报价（可跨区服）。 */
+export async function regionOffers(q, { steamAppid, region = null } = {}) {
+  const params = [steamAppid];
+  let filter = '';
+  if (region) {
+    params.push(region);
+    filter = ' and o.region = $2';
+  }
+  const r = await q(
+    `select o.region, o.currency, o.platform_code, p.name as platform_name,
+            o.price_cents, o.original_cents, o.discount_pct, o.buy_url, o.last_seen_at
+       from offers o
+       join platforms p on p.code = o.platform_code
+       join games g on g.id = o.game_id
+      where g.steam_appid = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS}${filter}
+      order by o.region asc, o.price_cents asc`,
+    params,
+  );
+  return r.rows;
+}
+
+/** 单个游戏在指定区服当前在售的官方报价。 */
 export async function offersOfGame(q, { gameId, region = 'cn' }) {
   const r = await q(
     `select o.platform_code, p.name as platform_name, o.price_cents, o.original_cents,

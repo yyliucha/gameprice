@@ -10,7 +10,7 @@ import { channelsFromEnv, deliver, hasNotifier } from './notify.js';
 import { descriptor as steam, syncPrices, syncMeta } from './adapters/steam.js';
 import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
-import { descriptor as gogDescriptor, searchOffer as gogSearch } from './adapters/gog.js';
+import { descriptor as gogDescriptor, searchOffer as gogSearch, resolveRegion as gogResolveRegion } from './adapters/gog.js';
 import { descriptor as humbleDescriptor, searchOffer as humbleSearch } from './adapters/humble.js';
 import {
   DEFAULT_STATE as DEFAULT_DISCOVERY_STATE,
@@ -19,6 +19,7 @@ import {
   mergeSkuEntries,
 } from './adapters/sonkwo-discover.js';
 import { bestMatch, confidenceLabel } from './match.js';
+import { renderCompare, groupOffersByRegion } from './compare.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -449,8 +450,9 @@ async function cmdNotifyTest() {
 /**
  * 按英文名检索型适配器的通用同步流程（GOG / Humble）。
  * 关键点：把 steamAppid 注入 offer，才能并进已有游戏行而不是新建一条英文名记录。
+ * regions 非空时按区服逐个查询（只有声明支持多区的适配器才传）。
  */
-async function syncByTitle(adapter, { label = adapter.code, limit = 50, rate = 1200 } = {}) {
+async function syncByTitle(adapter, { label = adapter.code, limit = 50, rate = 1200, regions = null } = {}) {
   const games = await withStore(async (store) => {
     const r = await store.query(
       `select steam_appid, name, name_en from games
@@ -462,27 +464,50 @@ async function syncByTitle(adapter, { label = adapter.code, limit = 50, rate = 1
   });
   if (!games.length) throw new Error('库里没有带英文名的游戏，先跑 seed（data/games.json 需要 nameEn）');
 
-  logger.info('sync.start', { platform: adapter.code, games: games.length });
+  const regionList = regions?.length ? regions : [null];
+  logger.info('sync.start', { platform: adapter.code, games: games.length, regions: regionList.filter(Boolean) });
+
   const offers = [];
   let noMatch = 0;
   for (const g of games) {
-    try {
-      const { offer } = await adapter.searchOffer(g.name_en, { logger, steamAppid: g.steam_appid });
-      if (offer) offers.push(offer);
-      else noMatch += 1;
-    } catch (err) {
-      logger.error('sync.item_failed', { platform: adapter.code, game: g.name_en, err: serializeError(err) });
+    for (const region of regionList) {
+      try {
+        const { offer } = await adapter.searchOffer(g.name_en, {
+          logger,
+          steamAppid: g.steam_appid,
+          ...(region ? { region } : {}),
+        });
+        if (offer) offers.push(offer);
+        else noMatch += 1;
+      } catch (err) {
+        logger.error('sync.item_failed', {
+          platform: adapter.code,
+          game: g.name_en,
+          region,
+          err: serializeError(err),
+        });
+      }
+      await sleep(rate);
     }
-    await sleep(rate);
   }
 
   const stats = await withStore((store) => ingestOffers(store, { platform: adapter, offers, logger }));
-  logger.info('sync.done', { platform: adapter.code, queried: games.length, matched: offers.length, noMatch, ...stats });
-  console.log(`${label}：查询 ${games.length} 款，匹配 ${offers.length} 款，未找到 ${noMatch} 款`);
+  logger.info('sync.done', { platform: adapter.code, queried: games.length, regions: regionList.filter(Boolean), matched: offers.length, noMatch, ...stats });
+  const regionNote = regionList.filter(Boolean).length > 1 ? ` × ${regionList.filter(Boolean).length} 区服` : '';
+  console.log(`${label}：查询 ${games.length} 款${regionNote}，匹配 ${offers.length} 条报价，未找到 ${noMatch} 次`);
 }
 
 async function cmdSyncGog() {
-  await syncByTitle(gog, { label: 'GOG', limit: Number(flag('limit', 50)), rate: Number(flag('rate', 1200)) });
+  const raw = String(flag('regions', process.env.GOG_REGIONS ?? 'cn'));
+  const regions = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  // 提前校验区服，避免跑一半才发现拼错、静默拿到错误币种
+  for (const region of regions) gogResolveRegion(region);
+  await syncByTitle(gog, {
+    label: 'GOG',
+    limit: Number(flag('limit', 50)),
+    rate: Number(flag('rate', 1200)),
+    regions,
+  });
 }
 
 async function cmdSyncHumble() {
@@ -669,6 +694,63 @@ async function cmdMatch() {
   console.log(`\n已写入 ${mapped} 条映射到 ${skuFile}（阈值 ${autoScore}）。其余请用 --confirm 逐个确认。`);
 }
 
+/** 多区服对比：同一款游戏在各区服的报价并排展示（不同币种不折算）。 */
+async function cmdCompare() {
+  const appid = Number(args[1]);
+  if (!Number.isFinite(appid)) throw new Error('用法: node src/cli.js compare <steamAppid> [--region cn] [--json]');
+  const regionFlag = flag('region', null);
+  const region = typeof regionFlag === 'string' ? regionFlag : null;
+
+  const data = await withStore(async (store) => {
+    const q = (sql, p) => store.query(sql, p);
+    const game = await q('select id, name, name_en, steam_appid from games where steam_appid = $1', [appid]);
+    if (!game.rows.length) return null;
+    const rows = await db.regionOffers(q, { steamAppid: appid, region });
+    return { game: game.rows[0], rows };
+  });
+
+  if (!data) throw new Error(`库里没有 appid ${appid}，先 add 或 seed`);
+
+  const groups = groupOffersByRegion(data.rows);
+  logger.info('compare.done', {
+    appid,
+    regions: groups.map((g) => g.region),
+    offers: data.rows.length,
+  });
+
+  if (flag('json', false) === true) {
+    console.log(
+      JSON.stringify(
+        {
+          game: data.game,
+          regions: groups.map((g) => ({
+            region: g.region,
+            currency: g.currency,
+            offers: g.offers.map((o) => ({
+              platform: o.platform_code,
+              price: o.price_cents,
+              currency: o.currency,
+              discount: o.discount_pct,
+              cheapest: o.isCheapest,
+            })),
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  console.log(
+    renderCompare({
+      game: data.game,
+      rows: data.rows,
+      generatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    }),
+  );
+}
+
 async function cmdChart() {
   const outDir = String(flag('out', 'out'));
   const days = Number(flag('days', 90));
@@ -818,6 +900,7 @@ const commands = {
   alerts: cmdAlerts,
   discover: cmdDiscover,
   match: cmdMatch,
+  compare: cmdCompare,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -854,6 +937,7 @@ async function main() {
   watch add|rm|list    关注列表：watch add 1091500 --target 99
   discover sonkwo      自动发现杉果 SKU（从前沿向后探测，连续空壳即停）
   match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
+  compare <appid>      多区服对比（--region 只看某区、--json 机器可读）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）

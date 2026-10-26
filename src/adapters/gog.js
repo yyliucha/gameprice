@@ -19,6 +19,30 @@ export const descriptor = {
 
 const BASE = 'https://catalog.gog.com/v1/catalog';
 
+/**
+ * 支持的区服 → 国家/币种。价格不能跨币种直接比较，所以区服和币种必须成对记录。
+ * 只列 GOG 确实分区的几个常见地区，避免猜错口径。
+ */
+export const REGIONS = {
+  cn: { country: 'CN', currency: 'CNY' },
+  hk: { country: 'HK', currency: 'HKD' },
+  tw: { country: 'TW', currency: 'TWD' },
+  us: { country: 'US', currency: 'USD' },
+  jp: { country: 'JP', currency: 'JPY' },
+  ru: { country: 'RU', currency: 'RUB' },
+  tr: { country: 'TR', currency: 'TRY' },
+  ar: { country: 'AR', currency: 'ARS' },
+};
+
+/** 把区服代码解析成国家与币种；不认识的区服直接报错，避免静默拿到错误口径。 */
+export function resolveRegion(region = descriptor.defaultRegion) {
+  const found = REGIONS[String(region).toLowerCase()];
+  if (!found) {
+    throw new Error(`GOG 不支持区服 ${region}（可选：${Object.keys(REGIONS).join(', ')}）`);
+  }
+  return { region: String(region).toLowerCase(), ...found };
+}
+
 /** 标题归一化：大小写、标点、罗马数字与空格都不参与比较。 */
 export function normalizeTitle(value) {
   return String(value ?? '')
@@ -55,7 +79,7 @@ const toCents = (value) => {
 };
 
 /** catalog 产品 → RawOffer；价格缺失时返回 null。 */
-export function toOffer(product, { title = null, steamAppid = null } = {}) {
+export function toOffer(product, { title = null, steamAppid = null, region = descriptor.defaultRegion } = {}) {
   const price = product?.price?.finalMoney;
   const base = product?.price?.baseMoney;
   const priceCents = toCents(price?.amount);
@@ -70,7 +94,7 @@ export function toOffer(product, { title = null, steamAppid = null } = {}) {
     steamAppid,
     title: product.title ?? title,
     productType: product.productType === 'game' ? 'authorized_key' : 'authorized_pack',
-    region: descriptor.defaultRegion,
+    region,
     currency: price?.currency ?? descriptor.currency,
     priceCents,
     originalCents,
@@ -92,8 +116,9 @@ export function toOffer(product, { title = null, steamAppid = null } = {}) {
  */
 export async function searchOffer(
   title,
-  { logger = null, fetchImpl, country = 'CN', currency = 'CNY', limit = 20, steamAppid = null } = {},
+  { logger = null, fetchImpl, region = descriptor.defaultRegion, limit = 20, steamAppid = null } = {},
 ) {
+  const { country, currency } = resolveRegion(region);
   const url = buildSearchUrl(title, { country, currency, limit });
   // GOG catalog 偶尔很慢（实测有过 18s），单独放宽超时
   const { json } = await fetchJson(url, { logger, label: 'gog.catalog', fetchImpl, timeoutMs: 30000 });
@@ -103,13 +128,14 @@ export async function searchOffer(
   if (!picked) {
     logger?.info('adapter.gog.no_exact_match', {
       query: title,
+      region,
       candidates: products.slice(0, 6).map((p) => p.title),
       total: products.length,
     });
     return { offer: null, candidates: products.length };
   }
 
-  const offer = toOffer(picked, { title, steamAppid });
+  const offer = toOffer(picked, { title, steamAppid, region });
   if (!offer) {
     logger?.warn('adapter.gog.no_price', { title: picked.title, id: picked.id });
     return { offer: null, candidates: products.length };

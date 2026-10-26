@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeTitle, pickExactMatch, toOffer, searchOffer, buildSearchUrl } from '../src/adapters/gog.js';
+import { normalizeTitle, pickExactMatch, toOffer, searchOffer, buildSearchUrl, resolveRegion, REGIONS } from '../src/adapters/gog.js';
 
 // 真实 catalog 响应（2026-10-26 抓取，含 Phantom Liberty / Ultimate Edition 两个干扰项）
 const catalog = JSON.parse(readFileSync(new URL('./fixtures/real-gog-catalog.json', import.meta.url), 'utf8'));
@@ -79,6 +79,20 @@ test('searchOffer 在只有模糊结果时返回 null', async () => {
   assert.equal(offer, null);
 });
 
+test('区服解析：国家与币种成对返回，未知区服直接报错', () => {
+  assert.deepEqual(resolveRegion('cn'), { region: 'cn', country: 'CN', currency: 'CNY' });
+  assert.equal(resolveRegion('US').currency, 'USD', '大小写不敏感');
+  assert.equal(resolveRegion('tr').country, 'TR');
+  assert.throws(() => resolveRegion('xx'), /不支持区服/);
+  assert.ok(Object.keys(REGIONS).length >= 5);
+});
+
+test('toOffer 写入请求的区服（币种仍以接口返回为准）', () => {
+  const base = catalog.products.find((p) => p.title === 'Cyberpunk 2077');
+  const offer = toOffer(base, { region: 'us' });
+  assert.equal(offer.region, 'us');
+  assert.equal(offer.currency, 'CNY', '币种来自接口响应，不靠本地推断');
+});
 test('查询 URL 带上区服与币种（决定拿到的价格口径）', () => {
   const url = new URL(buildSearchUrl('Cyberpunk 2077', { country: 'CN', currency: 'CNY', limit: 5 }));
   assert.equal(url.searchParams.get('countryCode'), 'CN');
