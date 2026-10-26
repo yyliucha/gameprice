@@ -56,6 +56,22 @@ docker compose up -d --build      # 只会启动 app
 
 ---
 
+### 邮箱通道速配
+
+国内常用邮箱都需要先在网页端开启 SMTP 并获取**授权码**（不是登录密码）：
+
+| 服务 | 配置 |
+|---|---|
+| QQ 邮箱 | `SMTP_HOST=smtp.qq.com` `SMTP_PORT=465` `SMTP_SECURE=1` `SMTP_PASS=`授权码 |
+| 163 邮箱 | `SMTP_HOST=smtp.163.com` `SMTP_PORT=465` `SMTP_SECURE=1` `SMTP_PASS=`授权码 |
+| 阿里企业邮 | `SMTP_HOST=smtp.qiye.aliyun.com` `SMTP_PORT=465` `SMTP_SECURE=1` |
+| Gmail | `SMTP_HOST=smtp.gmail.com` `SMTP_PORT=587` `SMTP_SECURE=0` `SMTP_PASS=`应用专用密码 |
+| Outlook | `SMTP_HOST=smtp-mail.outlook.com` `SMTP_PORT=587` `SMTP_SECURE=0` |
+
+配好后先跑 `node src/cli.js notify-test`，看到 `✔ email` 再依赖它。失败时看日志 `notify.email_failed`，里面带 SMTP 返回码（535 = 认证失败，554 = 被当成垃圾邮件拒绝）。
+
+---
+
 ## 容器里跑了什么
 
 ```
@@ -92,7 +108,11 @@ docker compose run --rm app diagnose
 | `DB_WAIT_SEC` | 60 | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | 1 | 首次启动是否导入 `data/games.json` |
 | `LOG_LEVEL` | info | trace/debug/info/warn/error |
-| `ALERT_WEBHOOK_URL` | 空 | 填了才投递提醒；空则只输出简报 |
+| `ALERT_WEBHOOK_URL` | 空 | 通用 webhook，POST JSON |
+| `WECOM_WEBHOOK_URL` | 空 | 企业微信群机器人地址 |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | 空 / 465 / 1 | 邮件通道；587 端口设 `SMTP_SECURE=0` |
+| `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 空 | SMTP 认证与发件人 |
+| `ALERT_EMAIL_TO` | 空 | 收件人，逗号分隔（不填则不启用邮件） |
 | `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | 1 / 360 | 提醒检查开关与间隔 |
 | `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | 3 / 360 | 连续失败 N 次后暂停多久 |
 | `TZ` | Asia/Shanghai | 影响日志与 `current_date` |
@@ -119,6 +139,9 @@ docker compose exec app node src/cli.js chart --out /app/out
 # 关注一款游戏，并立刻检查是否到价
 docker compose exec app node src/cli.js watch add 1091500 --target 100
 docker compose exec app node src/cli.js alerts
+
+# 提醒通道自检（配好 SMTP / 企业微信 / webhook 后先跑这个）
+docker compose exec app node src/cli.js notify-test
 
 # 加一个杉果 SKU 并关联 Steam 游戏
 vi data/skus.json        # 宿主机直接改，容器内可见（./data 已挂载）

@@ -2,6 +2,32 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-10-26
+
+提醒终于能推到手上了。
+
+### 新增
+
+- **三种提醒通道**（`src/notify.js`），可同时配置
+  - 通用 webhook（原有）
+  - 企业微信群机器人：`errcode=0` 才算成功，HTTP 200 但 errcode 非 0 会判失败
+  - 邮件：自实现 SMTP 客户端，支持隐式 TLS(465) 与 STARTTLS(587)、AUTH PLAIN / LOGIN
+- **`notify-test` 命令**：给所有已配置通道发一条测试消息，部署时先跑这个
+- `alerts` 输出每个通道的投递结果（✔/✘ + 状态码）；任一通道成功才标记已通知
+- `channelsFromEnv()` / `hasNotifier()`：通道完全由环境变量决定，调度器据此决定是否传 `--mark`
+
+### 实现说明
+
+- 邮件没有引入 nodemailer：运行时依赖仍只有 `pg`，且协议对话可在本地假 SMTP 服务器上逐行断言
+- 中文主题按 RFC 2047（`=?UTF-8?B?...?=`）编码，正文 base64 + 76 字符折行，避免客户端乱码
+- 通道失败只记日志不抛异常：一个通道挂了不能影响其它通道和整轮任务
+
+### 测试
+
+- 新增 `test/notify.test.js` 10 项，其中 SMTP 全流程用 `net.createServer` 起假服务器，
+  断言 `EHLO → AUTH PLAIN(base64 校验) → MAIL/RCPT → DATA → QUIT` 与收到的 MIME 内容
+- 合计 106 项
+
 ## [0.4.0] - 2026-10-26
 
 数据源从 1 个变成 3 个。

@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createLogger, serializeError } from './log.js';
+import { hasNotifier } from './notify.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, 'cli.js');
@@ -58,8 +59,8 @@ export function jobsFromEnv(env = process.env) {
     },
     {
       name: 'alerts',
-      // 有 webhook 才在检查后标记"已通知"，否则只做只读检查，避免静默吞掉提醒
-      args: env.ALERT_WEBHOOK_URL ? ['alerts', '--mark'] : ['alerts'],
+      // 只有配了任意提醒通道才在检查后标记已通知，否则只做只读检查，避免静默吞掉提醒
+      args: hasNotifier(env) ? ['alerts', '--mark'] : ['alerts'],
       intervalMin: num(env.ALERTS_INTERVAL_MIN, 360),
       initialDelaySec: num(env.ALERTS_INITIAL_DELAY_SEC, 420),
       enabled: env.ALERTS_ENABLED !== '0',

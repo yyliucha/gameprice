@@ -5,7 +5,8 @@ import { openStore, ping } from './store/index.js';
 import * as db from './store/pg.js';
 import { ingestOffers } from './ingest.js';
 import { buildSite } from './report.js';
-import { evaluateAlerts, renderDigest, toPayload, postWebhook } from './alerts.js';
+import { evaluateAlerts, renderDigest, toPayload } from './alerts.js';
+import { channelsFromEnv, deliver, hasNotifier } from './notify.js';
 import { descriptor as steam, syncPrices, syncMeta } from './adapters/steam.js';
 import { descriptor as sonkwo, fetchSku } from './adapters/sonkwo.js';
 import { descriptor as itad, searchGame, fetchPrices, normalizeDeals } from './adapters/itad.js';
@@ -352,12 +353,15 @@ async function cmdWatch() {
 async function cmdAlerts() {
   const rows = await withStore((store) => db.watchCandidates((sql, p) => store.query(sql, p)));
   const hits = evaluateAlerts(rows, { now: new Date() });
-  const webhook = String(flag('webhook', process.env.ALERT_WEBHOOK_URL ?? ''));
+  const extraWebhook = flag('webhook', null);
+  const channels = channelsFromEnv();
+  if (typeof extraWebhook === 'string') channels.push({ name: 'webhook(cli)', kind: 'webhook', url: extraWebhook });
   const mark = flag('mark', false) === true || flag('mark', false) === 'true';
 
   logger.info('alert.evaluated', {
     watched: rows.length,
     hits: hits.length,
+    channels: channels.map((c) => c.name),
     reasons: hits.reduce((acc, h) => ({ ...acc, [h.reason]: (acc[h.reason] ?? 0) + 1 }), {}),
   });
 
@@ -373,23 +377,60 @@ async function cmdAlerts() {
   }
 
   let delivered = false;
-  if (webhook) {
-    const result = await postWebhook(webhook, toPayload(hits, { now: new Date() }), { logger });
+  if (channels.length) {
+    const result = await deliver(channels, {
+      text: renderDigest(hits, { now: new Date() }),
+      payload: toPayload(hits, { now: new Date() }),
+      subject: `游戏价格提醒：${hits.length} 款到价`,
+      logger,
+    });
     delivered = result.ok;
-    console.log(delivered ? `\n已投递到 webhook（HTTP ${result.status}）` : `\nwebhook 投递失败（${result.status ?? result.error}）`);
+    for (const r of result.results) {
+      const detail = r.ok ? `HTTP ${r.status ?? ''}`.trim() : (r.error ?? `errcode=${r.errcode}`);
+      console.log(`  ${r.ok ? '✔' : '✘'} ${r.channel}  ${detail}`);
+    }
+  } else {
+    console.log('\n未配置任何提醒通道（ALERT_WEBHOOK_URL / WECOM_WEBHOOK_URL / SMTP_HOST+ALERT_EMAIL_TO），仅输出到终端。');
   }
 
-  if (mark && (delivered || !webhook)) {
+  if (mark && (delivered || !channels.length)) {
     await withStore(async (store) => {
       const q = (sql, p) => store.query(sql, p);
       for (const h of hits) await db.markNotified(q, { watchId: h.watchId, priceCents: h.currentCents });
     });
     logger.info('alert.marked', { count: hits.length });
     console.log(`已记录 ${hits.length} 条提醒，同价位不会重复通知。`);
-  } else if (mark && webhook && !delivered) {
-    logger.warn('alert.not_marked', { reason: 'webhook_failed' });
-    console.log('投递失败，未记录提醒状态（下轮会重试）。');
+  } else if (mark && !delivered) {
+    logger.warn('alert.not_marked', { reason: 'delivery_failed' });
+    console.log('投递全部失败，未记录提醒状态（下轮会重试）。');
   }
+}
+
+/** 部署自检：走一遍所有已配置的通道，确认能收到消息。 */
+async function cmdNotifyTest() {
+  const channels = channelsFromEnv();
+  if (!channels.length) {
+    console.log('没有配置任何提醒通道。可设置 ALERT_WEBHOOK_URL / WECOM_WEBHOOK_URL / SMTP_HOST+ALERT_EMAIL_TO。');
+    process.exitCode = 1;
+    return;
+  }
+  const text = [
+    'gameprice 测试消息',
+    `时间：${new Date().toISOString()}`,
+    `通道：${channels.map((c) => c.name).join(', ')}`,
+    '收到这条说明提醒链路已打通。',
+  ].join('\n');
+  const result = await deliver(channels, {
+    text,
+    payload: { type: 'gameprice.test', text },
+    subject: 'gameprice 测试邮件',
+    logger,
+  });
+  for (const r of result.results) {
+    console.log(`  ${r.ok ? '✔' : '✘'} ${r.channel}  ${r.ok ? `HTTP ${r.status ?? ''}` : (r.error ?? `errcode=${r.errcode}`)}`);
+  }
+  console.log(result.ok ? '至少一个通道投递成功。' : '全部通道投递失败，见日志 notify.* 事件。');
+  if (!result.ok) process.exitCode = 1;
 }
 
 /**
@@ -582,6 +623,7 @@ const commands = {
   chart: cmdChart,
   watch: cmdWatch,
   alerts: cmdAlerts,
+  'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
   logs: cmdLogs,
@@ -616,6 +658,7 @@ async function main() {
   chart                生成静态价格页（曲线图）到 out/，用浏览器直接打开
   watch add|rm|list    关注列表：watch add 1091500 --target 99
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）
+  notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）
   stats                数据量 + 采集健康度
   logs                 查日志（--level error --event http --since 60 --limit 50）

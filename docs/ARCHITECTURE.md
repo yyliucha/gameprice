@@ -221,6 +221,22 @@ http.fail      {label, url, code, hint}          ← 最终失败
 
 连续 `CIRCUIT_THRESHOLD`（默认 3）次失败后，该任务暂停 `CIRCUIT_COOLDOWN_MIN`（默认 360）分钟。期间每次到点只记 `scheduler.circuit_skip`，不再请求目标站——持续 403 时继续重试只会更快被封。
 
+### 投递通道
+
+三种通道（`src/notify.js`），可以同时配置，结果逐条记录：
+
+| 通道 | 触发条件 | 成功判定 |
+|---|---|---|
+| 通用 webhook | `ALERT_WEBHOOK_URL` | HTTP 2xx |
+| 企业微信机器人 | `WECOM_WEBHOOK_URL` | HTTP 200 **且** `errcode=0` |
+| 邮件 | `SMTP_HOST` + `ALERT_EMAIL_TO` | SMTP 走完 QUIT |
+
+**任一通道成功即视为"已送达"**，然后才写 `last_notified_*`。全部失败则不标记，下一轮重试——宁可重复提醒，也不能把提醒吞掉。
+
+邮件为什么自己实现 SMTP 而不是引 nodemailer：项目运行时依赖只有 `pg` 一个，加上 SMTP 客户端会很突兀；而且自实现的好处是**协议对话可以在本地假 SMTP 服务器上逐行断言**（EHLO → AUTH PLAIN → MAIL/RCPT → DATA → QUIT，连 `AUTH PLAIN` 里 `\0user\0pass` 的 base64 都能验），比"配好了应该能发"可靠。代价是不支持 OAuth2 与附件。
+
+中文主题按 RFC 2047 编码成 `=?UTF-8?B?...?=`，正文 base64 并按 76 字符折行——这两条都有测试，因为不这么写的话多数客户端会显示乱码。
+
 ## 10. 容量与性能
 
 | 项 | 估算 |

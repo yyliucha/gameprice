@@ -1,9 +1,6 @@
-// 降价提醒：判定 + 简报 + 投递。
+// 降价提醒：判定 + 简报。投递实现见 src/notify.js。
 //
-// 判定是纯函数（行 → 命中列表），因为它决定"要不要打扰用户"，必须能单测；
-// 投递（webhook）单独一层，失败不能影响判定结果的记录。
-import { serializeError } from './log.js';
-
+// 判定是纯函数（行 → 命中列表），因为它决定"要不要打扰用户"，必须能单测。
 export const REASON = {
   TARGET: 'target', // 到设定的目标价
   HIST_LOW: 'hist_low', // 没设目标，跌到史低
@@ -96,24 +93,6 @@ export function toPayload(hits, { now = new Date() } = {}) {
   };
 }
 
-/** 投递到 webhook。失败只记日志、不抛——提醒失败不该让整轮任务失败。 */
-export async function postWebhook(url, payload, { fetchImpl = globalThis.fetch, logger = null, timeoutMs = 15000 } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': 'gameprice-alerts/1.0' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const text = await res.text().catch(() => '');
-    logger?.info('alert.webhook', { status: res.status, bytes: text.length, ok: res.ok });
-    return { ok: res.ok, status: res.status, body: text.slice(0, 200) };
-  } catch (err) {
-    logger?.error('alert.webhook_failed', { err: serializeError(err) });
-    return { ok: false, status: null, error: String(err.message).slice(0, 200) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// 投递实现已下沉到 src/notify.js（webhook / 企业微信 / 邮件统一走那里），
+// 这里保留同名导出，避免调用方与既有测试改动。
+export { postJson as postWebhook } from './notify.js';

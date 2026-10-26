@@ -47,7 +47,8 @@
 | 只收官方渠道的结构约束 | ✅ 已生效 | 视图 + 查询层双重过滤 + 回归断言 |
 | 定时采集调度 | ✅ 已跑通 | 子进程隔离实测：真实任务完成、单任务失败不影响调度器 |
 | 结构化日志 / 自检 | ✅ 已跑通 | `diagnose` 输出 11 项检查并落盘 |
-| **关注与降价提醒** | ✅ 已跑通 | `watch` 加关注、`alerts` 判定到价；同价位不重复打扰；可投递 webhook |
+| **关注与降价提醒** | ✅ 已跑通 | `watch` 加关注、`alerts` 判定到价；同价位不重复打扰 |
+| **提醒通道** | ✅ 已跑通 | 通用 webhook / 企业微信机器人 / 邮件（自实现 SMTP），对着本地假服务器逐行验证 |
 | **采集熔断** | ✅ 已跑通 | 连续失败 3 次暂停 6 小时，实测 `circuit_tripped` → `circuit_skip` |
 | Steam 国区采集 | ⚠️ 代码完成，**本机网络不可达** | `store.steampowered.com` 连接超时（12s），需出口 |
 | ITAD 官方 API | ⚠️ 代码完成，**未用真 key 验证** | 无 key 时返回 403；响应结构按官方文档实现 |
@@ -97,7 +98,8 @@
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
-| 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重；webhook 可选 |
+| 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重 |
+| 提醒通道 | ✅ | webhook / 企业微信机器人 / 邮件（SMTP，支持 STARTTLS 与 AUTH PLAIN/LOGIN） |
 | 采集熔断 | ✅ | 连续失败自动暂停，避免持续撞墙 |
 | GOG 采集 | ✅ | 官方 catalog 接口，CNY 价格，只接受精确标题匹配 |
 | Humble 采集 | ⚠️ | slug 探测 + JSON-LD，名称必须完全一致；探测不到就跳过 |
@@ -232,7 +234,8 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `list` | 主榜：各游戏官方渠道最低价 + 是否史低 |
 | `chart` | 生成静态价格页（曲线图）到 `out/`（`--out`、`--days 90`、`--limit 200`） |
 | `watch add\|rm\|list` | 关注列表：`watch add 1091500 --target 99`（不带 target = 跌到史低才提醒） |
-| `alerts` | 检查到价（`--mark` 记录已通知、`--json` 机器可读、`--webhook URL` 投递） |
+| `alerts` | 检查到价（`--mark` 记录已通知、`--json` 机器可读、`--webhook URL` 临时投递） |
+| `notify-test` | 给所有已配置的提醒通道发一条测试消息（部署自检） |
 | `history <appid>` | 终端画价格轨迹 + 史低判断（`--days 90`） |
 | `stats` | 数据量 + 最近 5 次采集健康度 |
 
@@ -276,7 +279,11 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 |---|---|---|
 | `DATABASE_URL` | 无（必填） | `postgres://user:pass@host:5432/db` |
 | `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
-| `ALERT_WEBHOOK_URL` | 空 | 空则只输出简报；填了才投递并记录已通知 |
+| `ALERT_WEBHOOK_URL` | 空 | 通用 webhook；空则不发这条通道 |
+| `WECOM_WEBHOOK_URL` | 空 | 企业微信群机器人地址（`errcode=0` 才算成功） |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | 空 / 465 / 1 | 邮件通道；587 端口请设 `SMTP_SECURE=0` 走 STARTTLS |
+| `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 空 | SMTP 认证与发件人 |
+| `ALERT_EMAIL_TO` | 空 | 收件人，逗号分隔；**不填则邮件通道不启用** |
 | `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | `1` / `360` | 提醒检查开关与间隔 |
 | `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | `3` / `360` | 连续失败 N 次后暂停多久 |
 | `GOG_ENABLED` / `GOG_INTERVAL_MIN` | `1` / `720` | GOG 采集开关与间隔 |
@@ -374,6 +381,7 @@ node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校�
 node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
 node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
 node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报、webhook 失败不抛
+node test/notify.test.js     # 10 项：通道发现、MIME 编码、假 SMTP 协议对话、企业微信 errcode
 node test/watchlist.test.js  # 5 项：关注表 CRUD、候选查询、标记后不再提醒、级联删除
 node test/scheduler.test.js  # 11 项：调度时刻表、首轮错开、参数透传、熔断
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
@@ -381,7 +389,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **96 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **106 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -394,11 +402,11 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配。`add-sku --appid` 显式关联最可靠；未关联的会计入 `ingest.summary.noAppId`。
 5. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品（搜 `elden ring` 会返回 Whispers in the Moss）。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
 6. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，实测 8 个里命中 4 个；没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
-7. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。提醒只有 webhook / 终端两种出口，没有邮件通道。
+7. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。
+8. **邮件客户端是自实现的**，只覆盖 STARTTLS + AUTH PLAIN/LOGIN，不支持 OAuth2 与附件；协议对话已在本地假 SMTP 服务器上验证，但**未对真实邮件服务商做过端到端测试**。
 
 ## 路线图
 
-- [ ] 提醒通道：邮件 / 企业微信（现在只有 webhook）
 - [ ] 杉果 SKU 自动发现（反向扫 publisher_activity 页面）
 - [ ] 名称模糊匹配 + 人工确认工作流（降低 `noAppId`）
 - [ ] 多区服对比（国区 / 全球 / 低价区）

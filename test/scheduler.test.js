@@ -12,12 +12,18 @@ test('默认六个任务（含 gog / humble / alerts），各自间隔', () => {
   assert.equal(jobs[5].intervalMin, 360);
 });
 
-test('没配 webhook 时 alerts 只做只读检查，不标记已通知', () => {
+test('没配任何提醒通道时 alerts 只做只读检查，不标记已通知', () => {
   assert.deepEqual(jobsFromEnv({}).find((j) => j.name === 'alerts').args, ['alerts']);
   assert.deepEqual(jobsFromEnv({ ALERT_WEBHOOK_URL: 'https://example.com/hook' }).find((j) => j.name === 'alerts').args, [
     'alerts',
     '--mark',
   ]);
+  // 企业微信 / 邮件任一配好，也应该在检查后标记
+  assert.deepEqual(jobsFromEnv({ WECOM_WEBHOOK_URL: 'https://qyapi.weixin.qq.com/x' }).find((j) => j.name === 'alerts').args, ['alerts', '--mark']);
+  assert.deepEqual(
+    jobsFromEnv({ SMTP_HOST: 'smtp.example.com', ALERT_EMAIL_TO: 'a@x.com' }).find((j) => j.name === 'alerts').args,
+    ['alerts', '--mark'],
+  );
 });
 
 test('环境变量能改间隔与首轮延迟', () => {
