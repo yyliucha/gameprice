@@ -120,6 +120,36 @@ group by o.game_id, o.region;
 `;
 
 // 增量迁移：老库通过 alter 补齐，新库由上面的 create table 负责
+const USER_SCHEMA = `
+create table if not exists users (
+  id serial primary key,
+  username text not null unique,
+  password_hash text not null,
+  role text not null default 'user',
+  created_at timestamptz not null default now(),
+  last_login_at timestamptz
+);
+create table if not exists sessions (
+  token text primary key,
+  user_id integer not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+create table if not exists user_prefs (
+  user_id integer primary key references users(id) on delete cascade,
+  hide_uninterested boolean not null default true,
+  only_discount boolean not null default false,
+  sort text not null default 'discount'
+);
+create table if not exists page_views (
+  id bigserial primary key,
+  user_id integer references users(id) on delete set null,
+  path text not null,
+  appid integer,
+  created_at timestamptz not null default now()
+);
+`;
+
 const ALTERS = [
   'alter table games add column if not exists interested boolean not null default true',
   'alter table games add column if not exists developers text[]',
@@ -130,6 +160,7 @@ const ALTERS = [
 
 export async function migrate(store) {
   await store.exec(SCHEMA);
+  await store.exec(USER_SCHEMA);
   // 老库补列：必须幂等，容器每次启动都会跑
   for (const ddl of ALTERS) {
     await store.exec(ddl);
@@ -551,6 +582,105 @@ export async function watchCandidates(q, { region = 'cn' } = {}) {
       where w.region = $1
       order by g.name asc nulls last`,
     [region],
+  );
+  return r.rows;
+}
+
+// ---------------------------------------------------------------- 用户与会话
+
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+
+/** scrypt 哈希：salt:hash（hex）。不引第三方库，node:crypto 足够。 */
+export function hashPassword(password, salt = randomBytes(16).toString('hex')) {
+  const hash = scryptSync(String(password), salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored ?? '').split(':');
+  if (!salt || !hash) return false;
+  const candidate = scryptSync(String(password), salt, 64);
+  const expected = Buffer.from(hash, 'hex');
+  return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+}
+
+export async function createUser(q, { username, password, role = 'user' }) {
+  const r = await q(
+    'insert into users (username, password_hash, role) values ($1, $2, $3) returning id, username, role',
+    [username, hashPassword(password), role],
+  );
+  return r.rows[0];
+}
+
+export async function findUserByName(q, username) {
+  const r = await q('select id, username, password_hash, role from users where username = $1', [username]);
+  return r.rows[0] ?? null;
+}
+
+export async function listUsers(q) {
+  const r = await q('select id, username, role, created_at, last_login_at from users order by id');
+  return r.rows;
+}
+
+export async function setUserRole(q, { username, role }) {
+  const r = await q('update users set role = $1 where username = $2 returning id, username, role', [role, username]);
+  return r.rows[0] ?? null;
+}
+
+export async function createSession(q, { userId, days = 7 }) {
+  const token = randomBytes(32).toString('base64url');
+  await q("insert into sessions (token, user_id, expires_at) values ($1, $2, now() + ($3 || ' days')::interval)", [
+    token,
+    userId,
+    String(days),
+  ]);
+  await q('update users set last_login_at = now() where id = $1', [userId]);
+  return token;
+}
+
+/** 用 token 换用户；过期会话直接删掉。 */
+export async function userBySession(q, token) {
+  if (!token) return null;
+  const r = await q(
+    `select u.id, u.username, u.role, s.expires_at
+       from sessions s join users u on u.id = s.user_id
+      where s.token = $1 and s.expires_at > now()`,
+    [token],
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function deleteSession(q, token) {
+  if (!token) return;
+  await q('delete from sessions where token = $1', [token]);
+}
+
+export async function getPrefs(q, userId) {
+  const r = await q('select hide_uninterested, only_discount, sort from user_prefs where user_id = $1', [userId]);
+  return r.rows[0] ?? { hide_uninterested: true, only_discount: false, sort: 'discount' };
+}
+
+export async function savePrefs(q, userId, prefs) {
+  await q(
+    `insert into user_prefs (user_id, hide_uninterested, only_discount, sort) values ($1, $2, $3, $4)
+     on conflict (user_id) do update set
+       hide_uninterested = excluded.hide_uninterested,
+       only_discount = excluded.only_discount,
+       sort = excluded.sort`,
+    [userId, Boolean(prefs.hide_uninterested), Boolean(prefs.only_discount), String(prefs.sort ?? 'discount')],
+  );
+  return getPrefs(q, userId);
+}
+
+export async function recordView(q, { userId = null, path, appid = null }) {
+  await q('insert into page_views (user_id, path, appid) values ($1, $2, $3)', [userId, path, appid]);
+}
+
+export async function viewStats(q, { limit = 20 } = {}) {
+  const r = await q(
+    `select path, count(*)::int as views, max(created_at) as last_at
+       from page_views group by path order by views desc limit $1`,
+    [limit],
   );
   return r.rows;
 }
