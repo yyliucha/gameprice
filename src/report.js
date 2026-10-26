@@ -136,13 +136,14 @@ const copyBtn = (text, label = '名称') =>
  * 游戏名：中文在上、英文在下，各自带复制按钮。
  * 英文名缺失或与中文同名时不重复显示。
  */
-function nameBlock({ name, nameEn = null, href = null }) {
+function nameBlock({ name, nameEn = null, href = null, tag = null }) {
   const zh = href ? `<a href="${esc(href)}">${esc(name)}</a>` : esc(name);
   const en =
     nameEn && String(nameEn).trim() && String(nameEn).trim() !== String(name).trim()
       ? `<div class="name-en">${esc(nameEn)}${copyBtn(nameEn, '英文名')}</div>`
       : '';
-  return `<div class="name-zh">${zh}${copyBtn(name, '中文名')}</div>${en}`;
+  const badge = tag ? `<span class="tag">${esc(tag)}</span>` : '';
+  return `<div class="name-zh">${zh}${copyBtn(name, '中文名')}${badge}</div>${en}`;
 }
 
 const CSS = `
@@ -186,7 +187,7 @@ h2{font-size:17px;margin:30px 0 12px;letter-spacing:-.01em}
 .small{font-size:12px}
 
 /* 名称与复制按钮 */
-.name-zh{display:flex;align-items:center;gap:6px;font-weight:600}
+.name-zh{display:inline-flex;align-items:center;gap:6px;font-weight:600;vertical-align:middle}
 .name-en{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;margin-top:1px;font-family:var(--mono)}
 button.copy{
   border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;
@@ -330,7 +331,7 @@ export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
       const more = offers.length > 3 ? `<span class="muted">+${offers.length - 3}</span>` : '';
       const gap = offers.length > 1 ? offers[1].price - offers[0].price : null;
       return `<tr>
-  <td>${nameBlock({ name: g.name, nameEn: g.name_en, href })}${atLow ? '<span class="tag">史低</span>' : ''}</td>
+  <td>${nameBlock({ name: g.name, nameEn: g.name_en, href, tag: atLow ? '史低' : null })}</td>
   <td class="num">${esc(fmtYuan(g.current_low))}${
     gap != null ? `<div class="muted small">比次低便宜 ${esc(fmtYuan(gap))}</div>` : ''
   }</td>
