@@ -70,6 +70,18 @@ const readBody = (req, limit = 64 * 1024) =>
     req.on('error', fail);
   });
 
+/** 排序：折扣力度 / 金额 / 游戏名，默认折扣。 */
+export function sortGames(rows, sort = 'discount') {
+  const copy = [...rows];
+  if (sort === 'price') {
+    copy.sort((a, b) => (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
+  } else if (sort === 'name') {
+    copy.sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-Hans-CN'));
+  } else {
+    copy.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0) || (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
+  }
+  return copy;
+}
 /**
  * 创建 API 服务。
  * query: (sql, params) => Promise<{rows}>
@@ -149,14 +161,18 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       // ---- 游戏列表（匿名可读）----
       if (path === '/api/games' && req.method === 'GET') {
         const interest = url.searchParams.get('interest') ?? 'all';
+        const ownedParam = url.searchParams.get('owned') ?? 'exclude';
+        const sort = url.searchParams.get('sort') ?? 'discount';
         const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 500);
         const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit });
         const filtered = rows.filter((g) => {
+          if (ownedParam === 'exclude' && g.owned === true) return false;
+          if (ownedParam === 'only' && g.owned !== true) return false;
           if (interest === 'on') return g.interested !== false;
           if (interest === 'off') return g.interested === false;
           return true;
         });
-        return json(res, 200, { games: filtered, total: rows.length });
+        return json(res, 200, { games: sortGames(filtered, sort), total: rows.length, sort, owned: ownedParam });
       }
 
       // ---- 单个游戏（匿名可读）----

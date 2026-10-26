@@ -805,6 +805,18 @@ async function cmdImport() {
   console.log('下一步：node src/cli.js list，或直接 node src/cli.js chart 看页面');
 }
 
+/** 标记已拥有（默认在列表里收起，采集与统计不受影响）。 */
+async function cmdOwned() {
+  const appid = Number(args[1]);
+  const value = String(args[2] ?? '').toLowerCase();
+  if (!Number.isFinite(appid) || !['on', 'off'].includes(value)) {
+    throw new Error('用法: node src/cli.js owned <steamAppid> on|off');
+  }
+  const row = await withStore((store) => db.setOwned((sql, p) => store.query(sql, p), { steamAppid: appid, owned: value === 'on' }));
+  if (!row) throw new Error(`库里没有 appid ${appid}`);
+  logger.info('owned.set', { appid, owned: row.owned });
+  console.log(`${row.name ?? appid} → ${row.owned ? '已拥有' : '未拥有'}（默认在列表里收起）`);
+}
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响列表展示，采集与统计照常。 */
 async function cmdInterest() {
   const appid = Number(args[1]);
@@ -1005,6 +1017,7 @@ const commands = {
   import: cmdImport,
   serve: cmdServe,
   interest: cmdInterest,
+  owned: cmdOwned,
   'notify-test': cmdNotifyTest,
   history: cmdHistory,
   stats: cmdStats,
@@ -1091,6 +1104,7 @@ async function main() {
   match                把杉果 SKU 对齐到 Steam 游戏（--apply 自动应用、--confirm 手工确认）
   compare <appid>      多区服对比（--region 只看某区、--json 机器可读）
   import steam         导入 Steam 游戏信息（--appids / --urls / --file，双后端自动回落）
+  owned <appid> on|off      标记已拥有（列表默认收起）
   interest <appid> on|off   标记感兴趣 / 不感兴趣
   serve                内置静态页服务：直接 IP:端口 访问页面（--port 8090 --dir out）
   alerts               检查关注列表是否到价（--mark 记录、--json 输出、--webhook 投递）

@@ -152,6 +152,7 @@ create table if not exists page_views (
 
 const ALTERS = [
   'alter table games add column if not exists interested boolean not null default true',
+  'alter table games add column if not exists owned boolean not null default false',
   'alter table games add column if not exists developers text[]',
   'alter table games add column if not exists publishers text[]',
   'alter table games add column if not exists genres text[]',
@@ -419,6 +420,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
             coalesce(g.name, 'appid:' || g.steam_appid) as name,
             g.name_en,
             g.interested,
+            g.owned,
             g.developers,
             g.publishers,
             g.genres,
@@ -747,6 +749,14 @@ export async function setInterest(q, { steamAppid = null, gameId = null, interes
   return r.rows[0] ?? null;
 }
 
+/** 已拥有标记。已拥有默认在列表里收起，但仍照常采集与统计。 */
+export async function setOwned(q, { steamAppid, owned }) {
+  const r = await q('update games set owned = $1, updated_at = now() where steam_appid = $2 returning id, name, owned', [
+    Boolean(owned),
+    steamAppid,
+  ]);
+  return r.rows[0] ?? null;
+}
 export async function markNotified(q, { watchId, priceCents }) {
   await q('update watchlist set last_notified_at = now(), last_notified_cents = $1 where id = $2', [
     priceCents,

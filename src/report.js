@@ -220,7 +220,11 @@ tbody a{font-weight:600}
 /* 徽标 */
 .tag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--good-bg);color:var(--good);font-size:11.5px;font-weight:700;margin-left:6px;vertical-align:1px}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}
-.tabs{display:flex;gap:8px;margin:0 0 14px}
+.tabs{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}
+.sorts{display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--muted);font-size:12.5px}
+.sort{border:0;background:transparent;color:var(--muted);cursor:pointer;font-family:inherit;font-size:12.5px;padding:2px 6px;border-radius:6px}
+.sort:hover{color:var(--fg);background:var(--hover)}
+.sort.on{color:var(--brand);font-weight:600}
 .tab{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit}
 .tab:hover{color:var(--fg)}
 .tab.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -318,13 +322,18 @@ ${body}
       var btn=ev.currentTarget, want=btn.getAttribute('data-tab');
       for(var j=0;j<tabsEls.length;j++) tabsEls[j].classList.remove('on');
       btn.classList.add('on');
-      var rows=document.querySelectorAll('tbody tr[data-interested]');
-      for(var k=0;k<rows.length;k++){
-        var v=rows[k].getAttribute('data-interested');
-        rows[k].style.display=(want==='all'||want===v)?'':'none';
-      }
+      applyFilter(want);
     });
   }
+  var sortBtns=document.querySelectorAll('.sort');
+  for(var si=0;si<sortBtns.length;si++){
+    sortBtns[si].addEventListener('click',function(ev){
+      var b=ev.currentTarget, key=b.getAttribute('data-sort');
+      for(var x=0;x<sortBtns.length;x++) sortBtns[x].classList.remove('on');
+      b.classList.add('on'); applySort(key);
+    });
+  }
+  applyFilter('all');
   var toastEl=document.getElementById('toast'), timer=null;
   function toast(msg){
     if(!toastEl) return;
@@ -347,20 +356,27 @@ ${body}
 
 /** 列表页。games 来自 store.gameOverview，带上各自的 series 用于 sparkline。 */
 export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
-  const total = games.length;
-  const onCount = games.filter((g) => g.interested !== false).length;
-  const offCount = total - onCount;
+  const rest = games.filter((g) => g.owned !== true).length;
+  const ownedCount = games.length - rest;
+  const onCount = games.filter((g) => g.interested !== false && g.owned !== true).length;
+  const offCount = rest - onCount;
   const tabs = '<div class="tabs" role="tablist">' +
-    '<button class="tab on" data-tab="all" role="tab">全部 <b>' + total + '</b></button>' +
+    '<button class="tab on" data-tab="all" role="tab">全部 <b>' + rest + '</b></button>' +
     '<button class="tab" data-tab="1" role="tab">感兴趣 <b>' + onCount + '</b></button>' +
     '<button class="tab" data-tab="0" role="tab">不感兴趣 <b>' + offCount + '</b></button>' +
+    '<button class="tab" data-tab="own" role="tab">已拥有 <b>' + ownedCount + '</b></button>' +
     '</div>';
-
+  const sorts = '<div class="sorts">排序：' +
+    '<button class="sort on" data-sort="discount">折扣力度</button>' +
+    '<button class="sort" data-sort="price">价格</button>' +
+    '<button class="sort" data-sort="name">游戏名</button>' +
+    '</div>';
   const rows = games
     .map((g) => {
       const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
       const href = `game-${g.steam_appid ?? `n${g.id}`}.html`;
       const interested = g.interested !== false;
+      const owned = g.owned === true;
       const offers = Array.isArray(g.all_offers) ? g.all_offers : [];
       // 平台标签：按价格升序，最低价那个高亮；超过 3 个只显示前 3 个
       const chips = offers
@@ -369,7 +385,7 @@ export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
         .join(' ');
       const more = offers.length > 3 ? `<span class="muted">+${offers.length - 3}</span>` : '';
       const gap = offers.length > 1 ? offers[1].price - offers[0].price : null;
-      return `<tr data-interested="${interested ? '1' : '0'}">
+      return `<tr data-interested="${interested ? '1' : '0'}" data-owned="${owned ? '1' : '0'}" data-discount="${g.discount ?? 0}" data-price="${g.current_low ?? 0}" data-name="${esc(g.name)}">
   <td>${nameBlock({ name: g.name, nameEn: g.name_en, href, tag: atLow ? '史低' : null })}</td>
   <td class="num">${esc(fmtYuan(g.current_low))}${
     gap != null ? `<div class="muted small">比次低便宜 ${esc(fmtYuan(gap))}</div>` : ''
@@ -386,6 +402,7 @@ export function renderIndex({ games, generatedAt, region = 'cn', days = 90 }) {
   const body = `<h1>游戏价格轨迹</h1>
 <p class="meta">${esc(OFFICIAL_FILTER_NOTE)} · 区服 ${esc(region)} · 近 ${esc(days)} 天 · 生成于 ${esc(generatedAt)} · 共 ${games.length} 款</p>
 ${games.length ? tabs : ''}
+${games.length ? sorts : ''}
 ${
   games.length
     ? `<table>
