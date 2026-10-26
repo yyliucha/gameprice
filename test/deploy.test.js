@@ -105,7 +105,8 @@ test('内置静态页服务：不依赖 nginx，端口可配置', () => {
   const web = doc.services.web;
   assert.ok(web, '缺少 web 服务');
   assert.equal(web.image, 'gameprice:latest', '复用同一镜像');
-  assert.deepEqual(web.command, ['serve', '--port', '8080', '--dir', 'data/out']);
+  assert.deepEqual(web.command, ['serve', '--port', '8080', '--dir', 'web'], 'web 服务前端工程 + API');
+  assert.ok(web.environment.DATABASE_URL, 'web 需要数据库连接才能提供 API');
   assert.deepEqual(web.ports, ['${WEB_PORT:-8090}:8080'], '默认 8090，避免和已有 nginx(80)/其他服务冲突');
   assert.ok(!JSON.stringify(doc).includes('nginx'), '不应引入外部 nginx');
   assert.ok(web.healthcheck, 'web 需要健康检查');

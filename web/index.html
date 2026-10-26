@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SteamDeals · 跨平台最低价</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e5e7eb;
+  --brand:#4f46e5;--good:#059669;--good-bg:#ecfdf5;--warn:#b45309;--warn-bg:#fffbeb;
+  --hover:#f8fafc;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.18);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0b1020;--panel:#121a2e;--fg:#e6eaf2;--muted:#93a0b8;--border:#22304d;
+  --brand:#818cf8;--good:#34d399;--good-bg:#0d2b24;--warn:#fbbf24;--warn-bg:#2b2109;
+  --hover:#18233c;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -16px rgba(0,0,0,.7);
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--brand);text-decoration:none}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+header{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 84%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+header .wrap{display:flex;align-items:center;gap:12px;height:58px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--fg)}
+.dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#4f46e5)}
+.spacer{flex:1}
+button{font-family:inherit;cursor:pointer}
+.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:10px;padding:6px 12px;font-size:13px}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+main{padding:24px 0 60px}
+h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}
+.chip{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:999px;padding:5px 12px;font-size:13px}
+.chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;padding:11px 14px;background:color-mix(in srgb,var(--muted) 8%,transparent);color:var(--muted);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:var(--hover)}
+.num{text-align:right;font-family:var(--mono);font-size:13.5px}
+.name{font-weight:600}
+.en{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.pill{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--muted);margin:1px 2px}
+.pill.low{border-color:color-mix(in srgb,var(--good) 55%,var(--border));background:var(--good-bg);color:var(--good)}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--good-bg);color:var(--good);font-size:11.5px;font-weight:700;margin-left:6px}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+dialog{border:1px solid var(--border);border-radius:14px;padding:20px;background:var(--panel);color:var(--fg);box-shadow:var(--shadow);width:320px}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px;margin:6px 0 12px}
+#msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="/"><span class="dot"></span>SteamDeals</a>
+  <span class="muted small">以 Steam 为准 · 跨平台最低价</span>
+  <span class="spacer"></span>
+  <span id="who" class="muted small"></span>
+  <button id="loginBtn" class="btn">登录</button>
+  <button id="logoutBtn" class="btn" hidden>退出</button>
+</div></header>
+
+<main class="wrap">
+  <h1>游戏价格</h1>
+  <p class="muted small" id="meta">加载中…</p>
+
+  <div class="bar" id="tabs">
+    <button class="chip on" data-tab="all">全部</button>
+    <button class="chip" data-tab="on">感兴趣</button>
+    <button class="chip" data-tab="off">不感兴趣</button>
+    <button class="chip" data-tab="owned">已拥有</button>
+    <span class="spacer"></span>
+    <button class="chip" data-sort="discount">折扣</button>
+    <button class="chip" data-sort="price">价格</button>
+    <button class="chip" data-sort="name">名称</button>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th>游戏</th><th class="num">现价</th><th class="num">原价</th>
+        <th class="num">折扣</th><th>各平台</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="muted">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<dialog id="loginDlg">
+  <form method="dialog" id="loginForm">
+    <strong>登录</strong>
+    <input name="username" placeholder="用户名" autocomplete="username" required>
+    <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" value="cancel">取消</button>
+      <button class="btn primary" value="ok">登录</button>
+    </div>
+    <div id="msg"></div>
+  </form>
+</dialog>
+
+<script>
+const state = { games: [], tab: 'all', sort: 'discount', user: null };
+
+const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
+const pct = (d) => (d ? '-' + d + '%' : '—');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function visible(game) {
+  if (state.tab === 'owned') return game.owned === true;
+  if (game.owned === true) return false;          // 已拥有默认收起
+  if (state.tab === 'on') return game.interested !== false;
+  if (state.tab === 'off') return game.interested === false;
+  return true;
+}
+
+function sorted(list) {
+  const rows = [...list];
+  if (state.sort === 'price') rows.sort((a, b) => (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
+  else if (state.sort === 'name') rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+  else rows.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0) || (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
+  return rows;
+}
+
+function render() {
+  const list = sorted(state.games.filter(visible));
+  const tbody = document.getElementById('rows');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">这个分类下没有游戏</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map((g) => {
+    const offers = Array.isArray(g.all_offers) ? g.all_offers : [];
+    const pills = offers.slice(0, 3).map((o, i) =>
+      '<span class="pill' + (i === 0 ? ' low' : '') + '">' + esc(o.platform_name ?? o.platform) + ' ' + yuan(o.price) + '</span>').join(' ');
+    const gap = offers.length > 1 ? offers[1].price - offers[0].price : null;
+    const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
+    const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
+    const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
+    return '<tr>' +
+      '<td><div class="name">' + esc(g.name) + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
+      '<td class="num">' + yuan(g.current_low) + (gap != null ? '<div class="small muted">比次低便宜 ' + yuan(gap) + '</div>' : '') + '</td>' +
+      '<td class="num">' + yuan(g.current_original) + '</td>' +
+      '<td class="num">' + pct(g.discount) + '</td>' +
+      '<td>' + (pills || '<span class="muted">—</span>') + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+async function load() {
+  const res = await fetch('/api/games?limit=500&owned=include');
+  const data = await res.json();
+  state.games = data.games ?? [];
+  document.getElementById('meta').textContent =
+    '共 ' + state.games.length + ' 款 · 采集由后台调度器负责，前台只读';
+  render();
+}
+
+async function me() {
+  const data = await (await fetch('/api/me')).json();
+  state.user = data.user;
+  const who = document.getElementById('who');
+  const loginBtn = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (data.user) {
+    who.textContent = data.user.username + (data.user.role === 'admin' ? '（管理员）' : '');
+    loginBtn.hidden = true;
+    logoutBtn.hidden = false;
+  } else {
+    who.textContent = '未登录（浏览不受影响）';
+    loginBtn.hidden = false;
+    logoutBtn.hidden = true;
+  }
+}
+
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const tab = e.target.dataset.tab;
+  const sort = e.target.dataset.sort;
+  if (tab) {
+    state.tab = tab;
+    [...document.querySelectorAll('[data-tab]')].forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    render();
+  }
+  if (sort) {
+    state.sort = sort;
+    [...document.querySelectorAll('[data-sort]')].forEach((b) => b.classList.toggle('on', b.dataset.sort === sort));
+    render();
+  }
+});
+
+const dlg = document.getElementById('loginDlg');
+document.getElementById('loginBtn').addEventListener('click', () => dlg.showModal());
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  await me();
+});
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  if (e.submitter && e.submitter.value === 'cancel') return;
+  e.preventDefault();
+  const form = e.target;
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: form.username.value, password: form.password.value }),
+  });
+  const body = await res.json();
+  const msg = document.getElementById('msg');
+  if (!res.ok) { msg.textContent = body.error ?? '登录失败'; return; }
+  msg.textContent = '';
+  dlg.close();
+  await me();
+});
+
+me().then(load);
+</script>
+</body>
+</html>

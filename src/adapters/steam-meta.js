@@ -62,6 +62,15 @@ export function normalizeOfficial(appid, data) {
     genres: Array.isArray(data.genres) ? data.genres.map((g) => g.description).filter(Boolean) : null,
     tags: null,
     source: 'official',
+    // 完整 appdetails 会带 price_overview：Steam 自身价格（国内可达时就能用）
+    priceOverview: data.price_overview
+      ? {
+          final: data.price_overview.final,
+          initial: data.price_overview.initial,
+          discountPercent: data.price_overview.discount_percent,
+          currency: data.price_overview.currency,
+        }
+      : null,
   };
 }
 
@@ -125,12 +134,11 @@ export async function probeOfficial({ fetchImpl = globalThis.fetch, logger = nul
 
 async function fetchOfficial(appids, { logger, fetchImpl }) {
   const items = [];
-  // appdetails 支持逗号分隔批量；一次 10 个足够稳
-  for (let i = 0; i < appids.length; i += 10) {
-    const batch = appids.slice(i, i + 10);
-    const url = `${OFFICIAL_DETAILS}?appids=${batch.join(',')}&cc=cn&l=schinese&filters=basic`;
-    const { json } = await fetchJson(url, { logger, label: 'steam.meta.official', fetchImpl, timeoutMs: 20000 });
-    for (const appid of batch) {
+  // 注意：appdetails 一次只能查一个 appid，传逗号列表会返回 400（实测）
+  for (const appid of appids) {
+    const url = `${OFFICIAL_DETAILS}?appids=${appid}&cc=cn&l=schinese`;
+    try {
+      const { json } = await fetchJson(url, { logger, label: 'steam.meta.official', fetchImpl, retries: 1, timeoutMs: 20000 });
       const entry = json?.[String(appid)];
       if (entry?.success && entry.data) {
         const item = normalizeOfficial(appid, entry.data);
@@ -138,6 +146,8 @@ async function fetchOfficial(appids, { logger, fetchImpl }) {
       } else {
         logger?.warn('steam.meta.missing', { appid, backend: 'official' });
       }
+    } catch (err) {
+      logger?.warn('steam.meta.failed', { appid, backend: 'official', message: String(err.message).slice(0, 120) });
     }
   }
   return items;

@@ -834,28 +834,32 @@ async function cmdInterest() {
 /** 内置静态页服务：直接 IP:端口 访问生成好的页面，不需要外部 nginx。 */
 async function cmdServe() {
   const port = Number(flag('port', process.env.WEB_PORT ?? process.env.PORT ?? 8090));
-  const dir = String(flag('dir', process.env.OUT_DIR ?? 'out'));
   const host = String(flag('host', '0.0.0.0'));
+  // 有 web/ 就服务前端工程，否则退回静态页目录
+  const dir = String(flag('dir', existsSync('web') ? 'web' : (process.env.OUT_DIR ?? 'out')));
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-    console.warn(`目录 ${dir} 不存在，已创建；先跑 node src/cli.js chart 生成页面`);
-  }
+  const store = await openStore(dbTarget, { logger });
+  const srv = await startApiServer({
+    query: (sql, p) => store.query(sql, p),
+    logger,
+    outDir: dir,
+    port,
+    host,
+  });
 
-  const srv = await startStaticServer({ rootDir: dir, port, host, logger });
-  const shown = srv.host === '0.0.0.0' ? '<服务器IP>' : srv.host;
-  console.log(`静态页服务已启动：http://${shown}:${srv.port}/`);
-  console.log(`目录：${dir}（采集完成后自动重建，刷新即可）`);
+  console.log(`Web 服务已启动：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/`);
+  console.log(`静态目录：${dir} · 接口：/api/*（前台免登录可读，写操作需管理员）`);
   console.log('Ctrl+C 停止');
 
   await new Promise((done) => {
-    const stop = () => {
+    const stopServer = () => {
       logger.info('web.stopping', {});
-      srv.close().then(done);
+      srv.close().then(() => store.close()).then(done);
     };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+    process.once('SIGINT', stopServer);
+    process.once('SIGTERM', stopServer);
   });
 }
 

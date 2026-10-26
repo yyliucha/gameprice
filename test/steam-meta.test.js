@@ -101,23 +101,41 @@ test('backend=auto：官方探测失败后自动回落到 steamcmd', async () =>
   assert.equal(items[0].nameZh, '赛博朋克 2077');
 });
 
-test('backend=auto：官方可用时优先用官方', async () => {
+test('官方接口可用时逐个 appid 请求（批量会 400）', async () => {
+  const seen = [];
   const fetchImpl = routes({
-    'api/appdetails': (url) =>
-      url.includes('filters=basic')
-        ? {
-            '730': {
-              success: true,
-              data: { type: 'game', name: '反恐精英 2', is_free: true, header_image: 'https://x/h.jpg', developers: ['Valve'] },
-            },
-          }
-        : { ok: true },
+    'api/appdetails': (url) => {
+      seen.push(url);
+      if (url.includes('filters=basic')) return { ok: true };
+      const appid = (url.match(/appids=(\d+)/) ?? [])[1] ?? '730';
+      return {
+        [appid]: {
+          success: true,
+          data: {
+            type: 'game',
+            name: '反恐精英 2',
+            is_free: true,
+            header_image: 'https://x/h.jpg',
+            developers: ['Valve'],
+            publishers: ['Valve'],
+            genres: [{ id: '1', description: '动作' }],
+            price_overview: { final: 0, initial: 0, discount_percent: 0, currency: 'CNY' },
+          },
+        },
+      };
+    },
     'api.steamcmd.net': steamcmd,
   });
-  const { backend, items } = await fetchMetadata([730], { backend: 'auto', fetchImpl });
+
+  const { backend, items } = await fetchMetadata([730, 413150], { backend: 'official', fetchImpl });
   assert.equal(backend, 'official');
+  assert.equal(items.length, 2, '两个 appid 都要取到');
   assert.equal(items[0].nameZh, '反恐精英 2');
-  assert.equal(items[0].isFree, true);
+  assert.deepEqual(items[0].genres, ['动作']);
+
+  const dataCalls = seen.filter((u) => !u.includes('filters=basic'));
+  assert.equal(dataCalls.length, 2, '每个 appid 一次请求');
+  assert.ok(dataCalls.every((u) => /appids=\d+&/.test(u)), 'URL 只能带单个 appid');
 });
 
 test('backend 可强制指定，且会去重', async () => {

@@ -97,10 +97,11 @@ services:
       dockerfile: Dockerfile
     image: gameprice:latest
     restart: unless-stopped
-    command: ["serve", "--port", "8080", "--dir", "data/out"]
+    command: ["serve", "--port", "8080", "--dir", "web"]
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-gameprice}@db:5432/${POSTGRES_DB:-gameprice}}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
