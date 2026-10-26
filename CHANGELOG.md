@@ -2,6 +2,30 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.12.0] - 2026-10-26
+
+国内服务器访问 Steam 的问题，有了可配的出口。
+
+### 新增
+
+- **按主机分流的出网代理**（`src/proxy.js` + `src/http.js`）
+  - `STEAM_PROXY`：只作用于 Steam 域名（store/api/community）
+  - `HTTPS_PROXY`：通用代理，受 `NO_PROXY` 排除
+  - 境内源（杉果）和可达源（GOG/Humble）保持直连——全走代理既慢又浪费流量
+  - 支持 `http(s)://`（undici `ProxyAgent`），**不支持 socks5**；代理密码在日志与 `diagnose` 中脱敏
+  - 每个请求日志带 `via=direct|proxy|steam-proxy`，失败信息也带上走了哪条路
+- `diagnose` 增加 `proxy:steam` / `proxy:others` 两行，部署后第一眼就能确认出口配置
+- `scripts/local-proxy.js`：零依赖的最小代理（HTTP absolute-form + HTTPS CONNECT），
+  用来验证"请求确实被转发了"而无需第三方工具
+
+### 验证
+
+- `test/proxy.test.js` 10 项：决策矩阵、NO_PROXY 匹配、密码脱敏、**本地起代理真实转发**
+- 真实 HTTPS 验证：`HTTPS_PROXY=http://127.0.0.1:8899` 下，`import steam` 成功且日志 `via=proxy`，
+  代理端记录 `CONNECT api.steamcmd.net:443`；`STEAM_PROXY` 下 Steam 请求记录
+  `CONNECT store.steampowered.com:443` 并报 `经 steam-proxy`
+- 合计 184 项
+
 ## [0.11.0] - 2026-10-26
 
 游戏信息不用手填了。

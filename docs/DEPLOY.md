@@ -82,6 +82,97 @@ docker compose up -d --build      # 只会启动 app
 
 ---
 
+## 网络与代理（国内服务器必读）
+
+Steam 官方接口（`store.steampowered.com` / `api.steampowered.com`）在境内通常**直连超时**。
+实测症状是 `UND_ERR_CONNECT_TIMEOUT`，重试也无用——这是链路层阻断，不是限流。
+
+三种解法，按推荐顺序：
+
+### 方案 A：只配 ITAD key（最省事，不碰 Steam 网络）
+
+`sync itad` 用 Isthereanydeal 的 API 拿 Steam 各区域价，**完全不需要访问 Steam**。
+免费 key 在 <https://isthereanydeal.com/apps/my/> 申请。
+
+```bash
+ITAD_API_KEY=你的key
+node src/cli.js sync itad
+```
+
+代价：ITAD 的价格有延迟（通常小时级），且受其条款约束（不得改造价格、不得去掉联盟参数）。
+对"每小时更新一次个人比价"完全够用。**这是国内部署的首选。**
+
+### 方案 B：代理出口（要 Steam 原始数据时）
+
+代码内置按目标主机分流的代理支持，**只让被墙的域名走代理**，境内源（杉果）和可达源（GOG/Humble）
+仍然直连——全走代理既慢又浪费流量。
+
+| 变量 | 作用 | 示例 |
+|---|---|---|
+| `STEAM_PROXY` | **只**作用于 Steam 域名（store/api/community） | `http://127.0.0.1:7890` |
+| `HTTPS_PROXY` | 其余所有主机的通用代理 | `http://10.0.0.5:3128` |
+| `NO_PROXY` | 排除列表，逗号分隔，支持后缀与 `*` | `sonkwo.hk,sonkwo.cn` |
+
+只支持 http/https 代理（undici 的 `ProxyAgent` 不支持 socks5）。配好后先自检：
+
+```bash
+node src/cli.js diagnose
+# ✔ proxy:steam      steam-proxy → http://***@127.0.0.1:7890
+# ✔ net:steam        HTTP 200 ...
+```
+
+日志里每个请求会带 `via=direct|proxy|steam-proxy`，排障时一眼能看出走了哪条路。
+
+> 合规提醒：代理的用途与合法性取决于你的网络环境与当地法规，请自行确认。
+
+### 方案 C：双机分流（自用最稳）
+
+境内机器跑主站 + 杉果采集，境外机器跑 Steam/ITAD 采集，两边共用一个 PostgreSQL：
+
+```
+[境外 VPS]  采集 Steam / ITAD ──┐
+                                ├─→ PostgreSQL ←─ [境内机器] 站点 / 杉果 / 提醒
+[境内机器]  采集杉果 / 通知 ────┘
+```
+
+部署要点：
+
+1. 数据库放一侧，另一侧通过 **TLS** 连（`sslmode=require`），别裸奔公网；
+2. 两侧跑同一个镜像，只是 `*_ENABLED` 环境变量不同：
+
+```bash
+# 境外机器：只采 Steam/ITAD
+STEAM_ENABLED=1  ITAD_ENABLED=1  SONKWO_ENABLED=0  GOG_ENABLED=0  DISCOVER_ENABLED=0  ALERTS_ENABLED=0
+
+# 境内机器：采杉果 + 出页面 + 发提醒
+STEAM_ENABLED=0  ITAD_ENABLED=0  SONKWO_ENABLED=1  GOG_ENABLED=1  DISCOVER_ENABLED=1  ALERTS_ENABLED=1
+```
+
+3. 采集器只写库、站点只读库，两边并发不会互相干扰（这是数据模型一开始就定好的）。
+
+### 元数据怎么办
+
+`import steam` 有双后端：官方不可达时自动回落到 `api.steamcmd.net`（Steam PICS 镜像，
+境内可达）。所以**即使不配代理，游戏名字/封面/发行日期也能补全**，只有"价格"需要另想办法。
+
+```bash
+node src/cli.js import steam --appids 730,570,1091500
+# 元数据来源：steamcmd，取到 3 条
+```
+
+### 本地验证代理是否真的生效
+
+仓库自带一个零依赖的最小代理，可用来验证接线（不会解决墙的问题，只证明"请求确实被转发了"）：
+
+```bash
+node scripts/local-proxy.js --port 8899
+# 另开一个终端
+HTTPS_PROXY=http://127.0.0.1:8899 node src/cli.js import steam --appids 1091500
+# 代理端会打印：CONNECT api.steamcmd.net:443
+```
+
+---
+
 ## 容器里跑了什么
 
 ```

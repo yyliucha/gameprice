@@ -99,6 +99,7 @@
 | 跨平台名称匹配 | ✅ | bigram Dice 打分 + 阈值分级（自动/待确认/无候选）+ 人工 `--confirm`；确认后自动合并重复游戏行 |
 | 多区服对比 | ✅ | 同一游戏按区服并排（GOG 支持 cn/us/tr/ru/ar 等）；**不同币种不折算** |
 | Steam 游戏信息导入 | ✅ | `import steam`：appid / 商店链接 / 清单文件 → 中文名、封面、发行日期、开发商 |
+| 出网代理 | ✅ | 按目标主机分流：Steam 走 `STEAM_PROXY`，其余走 `HTTPS_PROXY`，境内源直连 |
 | ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
 | 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
 | 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
@@ -314,6 +315,9 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `GOG_REGIONS` | `cn` | 多区服采集，逗号分隔（`cn,us,tr` 等；仅 GOG 支持） |
 | `CHART_ON_SYNC` | `1` | 采集成功后自动重建静态页；置 `0` 关闭 |
 | `OUT_DIR` | `out` | 静态页输出目录（容器内为 `/app/out`） |
+| `STEAM_PROXY` | 空 | **只**给 Steam 域名用的代理（国内服务器必配）；支持 `http(s)://`，不支持 socks5 |
+| `HTTPS_PROXY` | 空 | 通用出网代理（受 `NO_PROXY` 排除） |
+| `NO_PROXY` | 空 | 排除列表，逗号分隔，支持后缀与 `*` |
 | `HUMBLE_ENABLED` / `HUMBLE_INTERVAL_MIN` | `1` / `720` | Humble 采集开关与间隔 |
 | `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
 | `LOG_DIR` | `logs` | 日志目录 |
@@ -408,6 +412,7 @@ node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝�
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
 node test/steam-meta.test.js # 11 项：appid 解析、双后端归一化、官方不可用时自动回落
 node test/gamemeta.test.js   # 5 项：元数据只补空缺、不覆盖人工维护的名字
+node test/proxy.test.js      # 10 项：代理决策、NO_PROXY、密码脱敏、本地代理真实转发
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
 node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
@@ -425,7 +430,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **174 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **184 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -433,6 +438,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 
 1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`，12 秒超时）。代码完整、单测覆盖，但没有在真实网络跑通过。需要给采集机配出口，或改用 ITAD 的 Steam 价。
    - 元数据导入做了**双后端**：先探官方（5s 超时），不通则自动回落到 `api.steamcmd.net`（Steam PICS 数据镜像）。镜像能给出中文名、封面、发行日期、开发商，但**不提供 `is_free`**，也**不能按名字搜索**（只能给 appid 或商店链接）。
+   - 价格层面三条路：配 `STEAM_PROXY` 走代理；只用 ITAD（不需要访问 Steam）；或按 [DEPLOY](docs/DEPLOY.md#网络与代理国内服务器必读) 做双机分流。
 2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
 3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
 4. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
@@ -464,7 +470,8 @@ gameprice/
 │   ├── report.js        静态价格页：内联 SVG 图表 + 纯函数渲染
 │   ├── alerts.js        降价提醒：判定 / 简报 / webhook 投递
 │   ├── log.js           结构化日志
-│   ├── http.js          唯一出网点（超时/重试/脱敏/观测）
+│   ├── http.js          唯一出网点（超时/重试/脱敏/代理分流/观测）
+│   ├── proxy.js         出网代理决策（按主机分流 + NO_PROXY + 密码脱敏）
 │   └── probe.js         目标可达性探针
 ├── test/                53 项断言 + 真实页面夹具
 ├── data/                games.json（游戏清单）、skus.json（杉果 SKU）

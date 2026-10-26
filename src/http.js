@@ -7,11 +7,32 @@
 //   http.error     最终失败（错误码 / 主机名 / 响应片段）
 // 只有 requestId 相同的记录属于同一次尝试，排障时按它串起来即可。
 import { redactUrl } from './log.js';
+import * as undici from 'undici';
+import { decideProxy, redactProxy } from './proxy.js';
 
 export const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 gameprice/0.2 (personal use)';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 代理连接复用：同一代理地址只建一个 Agent
+const agents = new Map();
+
+/** 按目标主机挑选出网通道；返回 null 表示直连。 */
+function dispatcherFor(host) {
+  const decision = decideProxy(host, process.env);
+  if (!decision.url) return { dispatcher: null, via: 'direct', proxy: null };
+  if (!agents.has(decision.url)) agents.set(decision.url, new undici.ProxyAgent(decision.url));
+  return { dispatcher: agents.get(decision.url), via: decision.via, proxy: redactProxy(decision.url) };
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+};
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
@@ -42,10 +63,14 @@ export async function fetchText(url, opts = {}) {
     headers = {},
     timeoutMs = 20000,
     retries = 2,
-    fetchImpl = globalThis.fetch,
+    fetchImpl = null,
     method = 'GET',
     body,
   } = opts;
+
+  // 传入 fetchImpl 时（测试/特殊场景）不干预出网通道；否则按主机决定是否走代理
+  const route = fetchImpl ? { dispatcher: null, via: 'custom', proxy: null } : dispatcherFor(hostOf(url));
+  const doFetch = fetchImpl ?? undici.fetch;
 
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -61,14 +86,17 @@ export async function fetchText(url, opts = {}) {
       method,
       url: redactUrl(url),
       timeoutMs,
+      via: route.via,
+      ...(route.proxy ? { proxy: route.proxy } : {}),
     });
 
     try {
-      const res = await fetchImpl(url, {
+      const res = await doFetch(url, {
         method,
         body,
         signal: controller.signal,
         redirect: 'follow',
+        ...(route.dispatcher ? { dispatcher: route.dispatcher } : {}),
         headers: {
           accept: 'application/json, text/html;q=0.9, */*;q=0.8',
           'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -88,6 +116,7 @@ export async function fetchText(url, opts = {}) {
         elapsedMs,
         contentType: res.headers.get('content-type'),
         finalUrl: redactUrl(res.url || url),
+        via: route.via,
       });
 
       if (!res.ok) {
@@ -114,6 +143,7 @@ export async function fetchText(url, opts = {}) {
         hint: aborted ? `超时（${timeoutMs}ms 内无响应）` : hint,
         message: String(err.message).slice(0, 200),
         bodySnippet: err.body ? err.body.slice(0, 300) : undefined,
+        via: route.via,
         retryable,
       });
 
@@ -136,13 +166,22 @@ export async function fetchText(url, opts = {}) {
     /* 保留原串 */
   }
   const finalErr = new Error(
-    `${lastError?.message ?? 'request failed'}${code ? ` (${code})` : ''} → ${host}${hint ? ` · ${hint}` : ''}`,
+    `${lastError?.message ?? 'request failed'}${code ? ` (${code})` : ''} → ${host}${hint ? ` · ${hint}` : ''}` +
+      `${route.via !== 'direct' ? ` · 经 ${route.via}` : ''}`,
   );
   finalErr.status = lastError?.status;
   finalErr.body = lastError?.body;
   finalErr.code = code;
+  finalErr.via = route.via;
   finalErr.cause = lastError?.cause;
-  logger?.error('http.fail', { label, url: redactUrl(url), code, hint, status: lastError?.status ?? null });
+  logger?.error('http.fail', {
+    label,
+    url: redactUrl(url),
+    code,
+    hint,
+    status: lastError?.status ?? null,
+    via: route.via,
+  });
   throw finalErr;
 }
 

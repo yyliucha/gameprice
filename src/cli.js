@@ -21,6 +21,7 @@ import {
 import { bestMatch, confidenceLabel } from './match.js';
 import { renderCompare, groupOffersByRegion } from './compare.js';
 import { extractAppId, fetchMetadata } from './adapters/steam-meta.js';
+import { describeProxy } from './proxy.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
@@ -895,6 +896,11 @@ async function cmdDiagnose() {
   add('cwd', true, process.cwd());
   add('DATABASE_URL', Boolean(process.env.DATABASE_URL), process.env.DATABASE_URL ? '已设置（已脱敏）' : '未设置');
   add('ITAD_API_KEY', Boolean(process.env.ITAD_API_KEY), process.env.ITAD_API_KEY ? '已设置' : '未设置（ITAD 源会跳过）');
+
+  // 出网通道：国内服务器访问 Steam 需要蒸汽专用代理，这里把决策结果显式打出来
+  const proxyInfo = describeProxy(process.env);
+  add('proxy:steam', true, proxyInfo.steam.via === 'direct' ? '直连（国内通常不可达）' : `${proxyInfo.steam.via} → ${proxyInfo.steam.proxy}`);
+  add('proxy:others', true, proxyInfo.others.via === 'direct' ? '直连' : `${proxyInfo.others.via} → ${proxyInfo.others.proxy}`);
 
   if (dbTarget) {
     try {
