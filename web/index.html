@@ -58,7 +58,6 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
 .hide{display:none !important}
 .toTop{position:fixed;right:20px;bottom:88px;z-index:40;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--fg);cursor:pointer;box-shadow:var(--shadow);font-family:inherit;opacity:.92}
-.steamLibImg{width:92px;height:43px;object-fit:cover;border-radius:6px;margin-right:10px;vertical-align:middle;background:var(--hover)}
 .gameImg{width:92px;height:43px;object-fit:cover;border-radius:6px;margin-right:10px;vertical-align:middle;background:var(--hover)}
 .name{display:inline-block;vertical-align:middle}
 </style>
@@ -82,7 +81,6 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     <button class="chip" data-tab="on">感兴趣</button>
     <button class="chip" data-tab="off">不感兴趣</button>
     <button class="chip" data-tab="owned">已拥有</button>
-    <button class="chip" data-tab="steam">Steam</button>
     <input id="q" placeholder="搜索游戏（中文 / 英文）" style="max-width:250px;margin-left:8px">
     <span class="spacer"></span>
     <button class="chip" data-sort="discount">折扣</button>
@@ -100,10 +98,6 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     </table>
 
   </div>
-
-    <div   <section id="steamPanel" class="hide" style="margin-top:12px">
-    <div id="steamBox"></div>
-  </section>
 
   <div class="card pad pagerbar" id="pager" style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 16px;margin-top:12px">
     <span class="small muted" id="pgInfo"></span>
@@ -147,7 +141,6 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     </div>
     <div id="msg" class="small" style="color:var(--warn);min-height:18px"></div>
     <div class="small muted"><a href="#" id="forgotLink">忘记密码？</a></div>
-<div style="margin-top:10px"><a class="btn" id="steamLoginBtn" href="/api/auth/steam/start" style="display:block;text-align:center;text-decoration:none">用 Steam 账号登录</a></div>
   </div>
 </dialog>
 
@@ -185,7 +178,10 @@ function saveLocal() {
 function applyLocal() {
   const saved = readLocal();
   if (!saved) return false;
-  if (saved.tab) state.tab = saved.tab;
+  // Steam 页签已移到后台控制台；旧本地偏好里的 steam 回落到「全部」
+  const tabs = ['all', 'on', 'off', 'owned'];
+  if (saved.tab && tabs.includes(saved.tab)) state.tab = saved.tab;
+  else state.tab = 'all';
   if (saved.sort) state.sort = saved.sort;
   document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.tab));
   document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
@@ -221,19 +217,6 @@ function sorted(list) {
 }
 
 function render() {
-  const tableCard = document.querySelector('main .card');
-  const steamPanel = document.getElementById('steamPanel');
-  if (state.tab === 'steam') {
-    if (tableCard) tableCard.style.display = 'none';
-    const pager = document.getElementById('pager');
-    if (pager) pager.style.display = 'none';
-    if (steamPanel) { steamPanel.classList.remove('hide'); loadSteam(); }
-    return;
-  }
-  if (tableCard) tableCard.style.display = '';
-  const pager2 = document.getElementById('pager');
-  if (pager2) pager2.style.display = '';
-  if (steamPanel) steamPanel.classList.add('hide');
   const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
   const matched = (g) => !kw || [g.name, g.name_en].some((v) => String(v || '').toLowerCase().includes(kw));
   const filtered = sorted(state.games.filter(visible).filter(matched));
@@ -346,8 +329,6 @@ async function load(background) {
   if (sig !== lastGamesSig) {
     lastGamesSig = sig;
     render();
-  } else if (state.tab === 'steam') {
-    loadSteam();
   }
 }
 
@@ -639,60 +620,6 @@ applyLocal();
   const sel = document.getElementById('pgSize');
   if (sel) sel.onchange = function () { state.pageSize = Number(sel.value) || 50; state.page = 1; render(); };
 })();
-
-async function loadSteam() {
-  const box = document.getElementById('steamBox');
-  if (!box) return;
-  let me = { steamId: null };
-  try { me = await (await fetch('/api/steam/me')).json(); } catch (e) { /* 忽略 */ }
-  if (!me.steamId) {
-    box.innerHTML =
-      '<div class="card pad">' +
-        '<strong>Steam 账号</strong>' +
-        '<p class="muted small">登录 Steam 后可同步你的游戏库与游玩时长；与站点账号相互独立。</p>' +
-        '<a class="chip" href="/api/auth/steam/start" style="text-decoration:none">用 Steam 登录</a>' +
-      '</div>';
-    return;
-  }
-  const lib = await (await fetch('/api/steam/library')).json();
-  const fmt = (v) => v ? new Date(v).toISOString().slice(0, 10) : '—';
-  const rows = (lib.games || []).map(function (g) {
-    const hours = (g.playtime_minutes / 60).toFixed(1);
-    const low = g.low != null ? '¥' + (g.low / 100).toFixed(2) : '—';
-    const href = 'https://store.steampowered.com/app/' + g.appid + '/';
-    const cover = '<img class="steamLibImg" loading="lazy" src="/img/steam/' + g.appid + '/capsule_sm_120" alt="" onerror="this.style.display=\'none\'">';
-    return '<tr><td>' + cover + '<a href="' + href + '" target="_blank" rel="noopener" title="在 Steam 商店查看">' + esc(g.name || ('appid:' + g.appid)) + '</a>' + (g.in_db ? '' : ' <span class="pill">未入库</span>') + '</td>' +
-      '<td class="num">' + hours + ' h</td>' +
-      '<td class="num">' + low + '</td>' +
-      '<td class="small muted">' + fmt(g.last_played_at) + '</td></tr>';
-  }).join('');
-  box.innerHTML =
-    '<div class="card pad">' +
-      '<strong>' + esc(me.persona_name || ('SteamID ' + me.steamId)) + '</strong>' +
-      ' <span class="small muted">' + me.steamId + ' · ' + ((lib.games || []).length) + ' 款已同步</span>' +
-      ' <span id="steamMsg" class="small muted"></span>' +
-      '<div style="margin-top:8px"><button class="chip" id="steamSync">同步游戏库</button> <button class="chip" id="steamLogout">退出 Steam</button></div>' +
-    '</div>' +
-    '<div class="card" style="margin-top:12px"><table><thead><tr><th>游戏（点击查看 Steam 详情）</th><th class="num">时长</th><th class="num">最低价</th><th>最近游玩</th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="4" class="muted">还没有同步，点「同步游戏库」</td></tr>') + '</tbody></table></div>';
-  const syncBtn = document.getElementById('steamSync');
-  const logoutBtn = document.getElementById('steamLogout');
-  if (syncBtn) syncBtn.onclick = async function () {
-    try {
-      const r = await fetch('/api/steam/library/sync', { method: 'POST' });
-      const j = await r.json();
-      const msg = document.getElementById('steamMsg');
-      if (msg) msg.textContent = r.ok ? ('已同步 ' + j.total + ' 款') : (j.error || '同步失败');
-      await loadSteam();
-    } catch (e) {
-      const msg = document.getElementById('steamMsg');
-      if (msg) msg.textContent = '同步失败：' + e.message;
-    }
-  };
-  if (logoutBtn) logoutBtn.onclick = function () {
-    fetch('/api/steam/logout', { method: 'POST' }).then(function () { state.tab = 'steam'; render(); });
-  };
-}
 
 // 前台实时更新：每 10 秒与后端比对一次，后台同步的新价格/新游戏会自动出现；
 // 页面切回可见时立即刷一次，避免后台挂着错过更新。

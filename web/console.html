@@ -61,6 +61,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
       <button data-page="users" class="on">用户管理</button>
       <button data-page="games">游戏管理</button>
       <button data-page="visitors">访问记录</button>
+      <button data-page="steam">Steam 账号</button>
       <button data-page="sync">日志</button>
       <button data-page="mail">邮箱配置</button>
       <button data-page="stats">数据统计</button>
@@ -209,6 +210,12 @@ textarea{width:100%;min-height:100px;resize:vertical}
         </div>
       </section>
 
+      <section data-section="steam" class="hide">
+        <h2>Steam 账号（仅后台）</h2>
+        <div id="steamPanel" class="card pad">加载中…</div>
+        <p class="muted small">Steam 登录只用于同步你自己的游戏库与游玩时长，与站点账号相互独立；前台页面不提供 Steam 登录。</p>
+      </section>
+
       <section data-section="sync" class="hide">
         <h2>日志（当前容器全部输出）</h2>
         <div class="card pad">
@@ -346,6 +353,7 @@ function showPage(page) {
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
   if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
+  if (page === 'steam') loadSteam();
   if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
@@ -737,6 +745,62 @@ async function triggerSync(mode) {
 }
 $('syncAll').onclick = function () { triggerSync('steamall'); };
 if ($('syncCatalog')) $('syncCatalog').onclick = function () { triggerSync('catalog'); };
+
+// ---- Steam 账号（仅后台）：OpenID 登录 + 游戏库同步 ----
+async function loadSteam() {
+  const box = $('steamPanel');
+  if (!box) return;
+  box.innerHTML = '<span class="muted small">加载中…</span>';
+  let me = { steamId: null };
+  try { me = await (await fetch('/api/steam/me')).json(); } catch (e) { /* 忽略 */ }
+  if (!me.steamId) {
+    box.innerHTML =
+      '<strong>Steam 账号</strong>' +
+      '<p class="muted small">登录 Steam 后可同步你的游戏库与游玩时长；仅后台可见，与站点账号相互独立。</p>' +
+      '<a class="btn primary" href="/api/auth/steam/start" style="text-decoration:none">用 Steam 登录</a>';
+    return;
+  }
+  let lib = { games: [] };
+  try { lib = await (await fetch('/api/steam/library')).json(); } catch (e) { /* 忽略 */ }
+  const fmt = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '—');
+  const rows = (lib.games || []).map(function (g) {
+    const hours = (g.playtime_minutes / 60).toFixed(1);
+    const low = g.low != null ? '¥' + (g.low / 100).toFixed(2) : '—';
+    const href = 'https://store.steampowered.com/app/' + g.appid + '/';
+    const cover = '<img loading="lazy" src="/img/steam/' + g.appid + '/capsule_sm_120" style="width:92px;height:43px;object-fit:cover;border-radius:6px;margin-right:8px;vertical-align:middle;background:var(--hover)" onerror="this.style.display=\'none\'">';
+    return '<tr><td>' + cover + '<a href="' + href + '" target="_blank" rel="noopener" title="在 Steam 商店查看">' + esc(g.name || ('appid:' + g.appid)) + '</a>' + (g.in_db ? '' : ' <span class="pill off">未入库</span>') + '</td>' +
+      '<td class="num">' + g.playtime_minutes + ' 分钟（' + hours + ' h）</td>' +
+      '<td class="num">' + low + '</td>' +
+      '<td class="small muted">' + fmt(g.last_played_at) + '</td></tr>';
+  }).join('');
+  box.innerHTML =
+    '<div class="row" style="justify-content:space-between;align-items:center;gap:10px">' +
+      '<div><strong>' + esc(me.persona_name || ('SteamID ' + me.steamId)) + '</strong> ' +
+        '<span class="small muted">' + esc(me.steamId) + ' · ' + ((lib.games || []).length) + ' 款已同步</span></div>' +
+      '<div class="row" style="margin:0"><button class="btn primary" id="steamSync">同步游戏库</button> ' +
+        '<button class="btn" id="steamLogout">退出 Steam</button></div>' +
+    '</div>' +
+    '<div class="small muted" id="steamMsg" style="min-height:16px"></div>' +
+    '<div class="card" style="margin-top:10px"><table><thead><tr><th>游戏（点击打开 Steam 商店）</th><th class="num">时长</th><th class="num">最低价</th><th>最近游玩</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4" class="muted">还没有同步，点「同步游戏库」</td></tr>') + '</tbody></table></div>';
+  const syncBtn = $('steamSync');
+  const logoutBtn = $('steamLogout');
+  if (syncBtn) syncBtn.onclick = async function () {
+    const msg = $('steamMsg');
+    if (msg) msg.textContent = '同步中…';
+    try {
+      const r = await fetch('/api/steam/library/sync', { method: 'POST' });
+      const j = await r.json();
+      if (msg) msg.textContent = r.ok ? ('已同步 ' + j.total + ' 款') : (j.error || '同步失败');
+      await loadSteam();
+    } catch (e) {
+      if (msg) msg.textContent = '同步失败：' + e.message;
+    }
+  };
+  if (logoutBtn) logoutBtn.onclick = function () {
+    fetch('/api/steam/logout', { method: 'POST' }).then(function () { loadSteam(); });
+  };
+}
 
 async function loadLogs() {
   const grep = $('logGrep').value.trim();

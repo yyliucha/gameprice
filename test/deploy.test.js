@@ -124,3 +124,14 @@ test('镜像必须包含前端工程（否则容器里 GET / 404）', () => {
   const ignore = read('.dockerignore');
   assert.ok(!/^web$/m.test(ignore), '.dockerignore 不能排除 web 目录');
 });
+
+test('Steam 登录只在后台：前台不得出现登录入口，控制台必须有', () => {
+  const front = read('web/index.html');
+  assert.ok(!front.includes('/api/auth/steam/start'), '前台不得提供 Steam 登录链接');
+  assert.ok(!front.includes('steamPanel'), '前台不得有 Steam 面板');
+  assert.ok(!front.includes('data-tab="steam"'), '前台不得有 Steam 页签');
+  const console = read('web/console.html');
+  assert.ok(console.includes('/api/auth/steam/start'), '控制台必须有 Steam 登录入口');
+  assert.ok(console.includes('data-section="steam"'), '控制台必须有 Steam 账号页');
+  assert.ok(console.includes('/api/steam/library/sync'), '控制台必须有游戏库同步');
+});
