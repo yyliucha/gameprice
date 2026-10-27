@@ -200,6 +200,22 @@ test('密码错误、登出、管理员看用户列表', async () => {
   }
 });
 
+test('单款详情不受列表前 500 名限制（后台编辑不再 404）', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    await q("insert into games (steam_appid, name) values (999999, '后排游戏')");
+    const r = await fetch(`${base}/api/games/999999`);
+    assert.equal(r.status, 200, '没有报价、不在列表里的游戏也要能取到详情');
+    assert.equal((await r.json()).game.name, '后排游戏');
+    const id = (await q('select id from games where steam_appid = 999999')).rows[0].id;
+    const r2 = await fetch(`${base}/api/games/by-id/${id}`);
+    assert.equal(r2.status, 200, '按内部 id 同样要能取到');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

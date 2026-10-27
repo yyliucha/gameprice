@@ -341,8 +341,7 @@ export function createApiServer({
       const byIdMatch = path.match(/^\/api\/games\/by-id\/(\d+)$/);
       if (byIdMatch && req.method === 'GET') {
         const id = Number(byIdMatch[1]);
-        const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit: 500 });
-        const game = rows.find((g) => Number(g.id) === id);
+        const game = await db.gameDetail(q, { gameId: id, region: url.searchParams.get('region') ?? 'cn' });
         if (!game) return json(res, 404, { error: '没有该游戏' });
         const offers = await db.offersOfGame(q, { gameId: game.id, region: 'cn' });
         const series = await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' });
@@ -407,8 +406,8 @@ export function createApiServer({
       const gameMatch = path.match(/^\/api\/games\/(\d+)$/);
       if (gameMatch && req.method === 'GET') {
         const appid = Number(gameMatch[1]);
-        const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit: 500 });
-        const game = rows.find((g) => Number(g.steam_appid) === appid);
+        // 单款查询：不走"列表前 500 名"，否则排在后面的游戏会 404（后台编辑曾因此失败）
+        const game = await db.gameDetail(q, { steamAppid: appid, region: url.searchParams.get('region') ?? 'cn' });
         if (!game) return json(res, 404, { error: '没有该游戏' });
         const offers = await db.regionOffers(q, { steamAppid: appid });
         const series = await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' });

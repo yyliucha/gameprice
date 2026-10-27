@@ -462,10 +462,11 @@ export async function serverVersion(q) {
   return { version: r.rows[0]?.v ?? null, timeZone: r.rows[0]?.tz ?? null };
 }
 
-/** 有价格记录的游戏概览：当前最低 / 史低 / 数据天数 / 最近更新。 */
-export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
-  const r = await q(
-    `select g.id,
+/**
+ * 单款游戏的完整字段（概览列表与详情共用）。注意 $1 永远是 region。
+ * 详情必须能不依赖"前 500 名"直接按 appid / id 取到，否则后台编辑会 404。
+ */
+const GAME_SELECT = `select g.id,
             g.steam_appid,
             coalesce(g.name, 'appid:' || g.steam_appid) as name,
             g.name_en,
@@ -513,7 +514,22 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
                    from offers o
                    join platforms p on p.code = o.platform_code
                   where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS}
-               ) x) as all_offers
+               ) x) as all_offers`;
+
+/**
+ * 单款游戏（按 steam_appid 或内部 id）。与列表不同，不受 limit / 排序影响，
+ * 也不需要"有日价格数据"——后台编辑、回收站恢复后查看都要能取到。
+ */
+export async function gameDetail(q, { steamAppid = null, gameId = null, region = 'cn' }) {
+  const cond = steamAppid != null ? 'g.steam_appid = $2' : 'g.id = $2';
+  const r = await q(`${GAME_SELECT} from games g where ${cond} and not g.deleted`, [region, steamAppid ?? gameId]);
+  return r.rows[0] ?? null;
+}
+
+/** 有价格记录的游戏概览：当前最低 / 史低 / 数据天数 / 最近更新。 */
+export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
+  const r = await q(
+    `${GAME_SELECT}
        from games g
       where exists (select 1 from daily_prices d
                      where d.game_id = g.id and d.region = $1)
