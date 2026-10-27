@@ -38,6 +38,7 @@ const def = (key, env, group, label, type, defaultValue, extra = {}) => ({
   label,
   type,
   default: defaultValue,
+  secret: type === 'secret',
   ...extra,
 });
 
@@ -122,6 +123,13 @@ export const SETTINGS = [
   def('system.logsPruneEnabled', 'LOGS_PRUNE_ENABLED', 'advanced', '定期清理日志', 'bool', true, { advanced: true }),
   def('system.logsPruneDays', 'LOGS_PRUNE_DAYS', 'advanced', '日志保留天数', 'int', 7, { min: 1, max: 365, advanced: true }),
   def('system.logLevel', 'LOG_LEVEL', 'advanced', '日志级别', 'enum', 'info', { options: LOG_LEVELS }),
+
+  // ---- 封面图本地缓存（下载一次后由本机磁盘提供）----
+  def('images.enabled', 'IMAGES_ENABLED', 'advanced', '启用封面图补缓存', 'bool', true, { advanced: true, help: '定时把游戏封面下载到 data/images，之后不再依赖 Steam CDN。' }),
+  def('images.intervalMin', 'IMAGES_INTERVAL_MIN', 'advanced', '补图间隔（分钟）', 'int', 240, { min: 0, max: 10080, advanced: true }),
+  def('images.initialDelaySec', 'IMAGES_INITIAL_DELAY_SEC', 'advanced', '补图首轮延迟（秒）', 'int', 1200, { min: 0, max: 86400, advanced: true }),
+  def('images.limit', 'IMAGES_LIMIT', 'advanced', '每轮补图数量', 'int', 200, { min: 1, max: 5000, advanced: true }),
+  def('images.sleepMs', 'IMAGES_SLEEP_MS', 'advanced', '每张图间隔（毫秒）', 'int', 300, { min: 0, max: 60000, advanced: true }),
 ];
 
 export const SETTING_MAP = new Map(SETTINGS.map((d) => [d.key, d]));
@@ -642,7 +650,6 @@ export async function markSetupComplete(q, { by = null } = {}) {
     );
   }
   await bumpRevision(q, by);
-  completedCache = { value: true, at: Date.now() };
   return at;
 }
 

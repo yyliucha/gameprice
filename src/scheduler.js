@@ -10,6 +10,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createLogger, serializeError } from './log.js';
 import { hasNotifier } from './notify.js';
+import { openStore } from './store/index.js';
+import * as db from './store/pg.js';
+import * as settings from './settings.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, 'cli.js');
@@ -89,6 +92,21 @@ export function jobsFromEnv(env = process.env) {
       initialDelaySec: num(env.ALERTS_INITIAL_DELAY_SEC, 420),
       enabled: env.ALERTS_ENABLED !== '0',
     },
+    {
+      name: 'images',
+      // 封面图补缓存：下载到 data/images（宿主机卷），之后前台直接读本地文件，不再依赖 CDN/代理
+      args: [
+        'images',
+        'pull',
+        '--limit',
+        String(num(env.IMAGES_LIMIT, 200)),
+        '--sleep',
+        String(num(env.IMAGES_SLEEP_MS, 300)),
+      ],
+      intervalMin: num(env.IMAGES_INTERVAL_MIN, 240),
+      initialDelaySec: num(env.IMAGES_INITIAL_DELAY_SEC, 1200),
+      enabled: env.IMAGES_ENABLED !== '0',
+    },
   ].filter((j) => j.enabled && j.intervalMin > 0);
 }
 
@@ -155,15 +173,22 @@ export function forwardedArgs(argv = process.argv) {
   return out;
 }
 
+function argValue(name) {
+  const i = process.argv.indexOf(name);
+  if (i === -1) return null;
+  const value = process.argv[i + 1];
+  return value && !value.startsWith('--') ? value : null;
+}
+
 export async function main() {
   const logger = createLogger({ prefix: 'scheduler', level: process.env.LOG_LEVEL ?? 'info' });
-  const jobs = jobsFromEnv();
-  const startedMs = Date.now();
-  const lastRunMs = new Map();
-  const health = new Map(); // job.name -> { failures, openUntil }
-  const running = new Set();
-  const circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
-  const circuitCooldownMs = num(process.env.CIRCUIT_COOLDOWN_MIN, CIRCUIT.cooldownMs / 60_000) * 60_000;
+  const dbTarget = String(argValue('--db') ?? process.env.DATABASE_URL ?? '');
+  if (!dbTarget || dbTarget.startsWith('pglite:')) {
+    throw new Error('scheduler 需要 PostgreSQL：请设置 DATABASE_URL（PGlite 不能被子进程并发访问）');
+  }
+
+  const store = await openStore(dbTarget, { logger });
+  const q = (sql, p) => store.query(sql, p);
 
   let stopping = false;
   let currentChild = null;
@@ -216,68 +241,110 @@ export async function main() {
       });
     });
 
-  if (!jobs.length) logger.warn('scheduler.no_jobs', { hint: '所有任务均被禁用或间隔为 0' });
-  logger.info('scheduler.start', {
-    jobs: jobs.map((j) => j.name),
-    schedule: describeSchedule(jobs),
-    node: process.version,
-    tickMs: TICK_MS,
-  });
+  try {
+    await db.migrate(store);
+    const initialized = await settings.initializeSettings({ store, logger });
 
-  while (!stopping) {
-    const now = Date.now();
-    const due = dueJobs(jobs, { nowMs: now, startedMs, lastRunMs });
-    for (const job of due) {
-      if (stopping) break;
-      if (running.has(job.name)) continue;
-
-      const state = health.get(job.name) ?? { failures: 0, openUntil: null };
-      if (isCircuited(state, now)) {
-        // 熔断期内不再打目标站：持续 403 时继续重试只会更快被封
-        logger.warn('scheduler.circuit_skip', {
-          job: job.name,
-          failures: state.failures,
-          openUntil: new Date(state.openUntil).toISOString(),
-        });
-        lastRunMs.set(job.name, now);
-        continue;
+    // 初始化完成前不采集：用户还没配数据源/Key，先跑只会刷失败日志。
+    let waitingLogged = false;
+    while (!stopping && !(await settings.isSetupComplete(q))) {
+      if (!waitingLogged) {
+        logger.info('scheduler.waiting_setup', { hint: '打开 /setup 完成初始化后自动开始采集' });
+        console.log('系统尚未初始化：请打开 /setup 完成设置，完成前不会采集。');
+        waitingLogged = true;
       }
-
-      running.add(job.name);
-      const { code } = await runJob(job);
-      running.delete(job.name);
-      lastRunMs.set(job.name, Date.now());
-
-      // 采集成功后顺手重建静态页（失败不影响主任务状态）
-      const followUp = followUpArgs(job.name, code, process.env);
-      if (followUp) {
-        logger.info('scheduler.followup', { job: job.name, args: followUp.join(' ') });
-        await runJob({ name: `${job.name}:chart`, args: followUp });
-      }
-
-      const next = recordJobResult(state, {
-        code,
-        nowMs: Date.now(),
-        threshold: circuitThreshold,
-        cooldownMs: circuitCooldownMs,
-      });
-      health.set(job.name, next);
-      if (next.opened) {
-        logger.error('scheduler.circuit_tripped', {
-          job: job.name,
-          failures: next.failures,
-          openUntil: new Date(next.openUntil).toISOString(),
-        });
-      } else if (code === 0 && (state.failures ?? 0) > 0) {
-        logger.info('scheduler.circuit_reset', { job: job.name, afterFailures: state.failures });
-      }
-      if (stopping) break;
+      await sleepInterruptible(15000);
     }
-    if (stopping) break;
-    await sleepInterruptible(TICK_MS);
-  }
+    if (stopping) return;
 
-  logger.info('scheduler.exit', {});
+    await settings.hydrateSettings({ store, logger });
+    let jobs = jobsFromEnv();
+    let lastRevision = await settings.getRevision(q);
+    let circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
+    let circuitCooldownMs = num(process.env.CIRCUIT_COOLDOWN_MIN, CIRCUIT.cooldownMs / 60_000) * 60_000;
+
+    const startedMs = Date.now();
+    const lastRunMs = new Map();
+    const health = new Map(); // job.name -> { failures, openUntil }
+    const running = new Set();
+
+    if (!jobs.length) logger.warn('scheduler.no_jobs', { hint: '所有任务均被禁用或间隔为 0' });
+    logger.info('scheduler.start', {
+      jobs: jobs.map((j) => j.name),
+      schedule: describeSchedule(jobs),
+      node: process.version,
+      tickMs: TICK_MS,
+      setupCompleted: initialized.completed,
+    });
+
+    while (!stopping) {
+      // 设置页保存后 revision +1：重新水合 env 并重建任务表，无需重启容器
+      const revision = await settings.getRevision(q);
+      if (revision !== lastRevision) {
+        await settings.hydrateSettings({ store, logger });
+        jobs = jobsFromEnv();
+        circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
+        circuitCooldownMs = num(process.env.CIRCUIT_COOLDOWN_MIN, CIRCUIT.cooldownMs / 60_000) * 60_000;
+        lastRevision = revision;
+        logger.info('scheduler.settings_reloaded', { revision, jobs: jobs.map((j) => j.name) });
+      }
+
+      const now = Date.now();
+      const due = dueJobs(jobs, { nowMs: now, startedMs, lastRunMs });
+      for (const job of due) {
+        if (stopping) break;
+        if (running.has(job.name)) continue;
+
+        const state = health.get(job.name) ?? { failures: 0, openUntil: null };
+        if (isCircuited(state, now)) {
+          // 熔断期内不再打目标站：持续 403 时继续重试只会更快被封
+          logger.warn('scheduler.circuit_skip', {
+            job: job.name,
+            failures: state.failures,
+            openUntil: new Date(state.openUntil).toISOString(),
+          });
+          lastRunMs.set(job.name, now);
+          continue;
+        }
+
+        running.add(job.name);
+        const { code } = await runJob(job);
+        running.delete(job.name);
+        lastRunMs.set(job.name, Date.now());
+
+        // 采集成功后顺手重建静态页（失败不影响主任务状态）
+        const followUp = followUpArgs(job.name, code, process.env);
+        if (followUp) {
+          logger.info('scheduler.followup', { job: job.name, args: followUp.join(' ') });
+          await runJob({ name: `${job.name}:chart`, args: followUp });
+        }
+
+        const next = recordJobResult(state, {
+          code,
+          nowMs: Date.now(),
+          threshold: circuitThreshold,
+          cooldownMs: circuitCooldownMs,
+        });
+        health.set(job.name, next);
+        if (next.opened) {
+          logger.error('scheduler.circuit_tripped', {
+            job: job.name,
+            failures: next.failures,
+            openUntil: new Date(next.openUntil).toISOString(),
+          });
+        } else if (code === 0 && (state.failures ?? 0) > 0) {
+          logger.info('scheduler.circuit_reset', { job: job.name, afterFailures: state.failures });
+        }
+        if (stopping) break;
+      }
+      if (stopping) break;
+      await sleepInterruptible(TICK_MS);
+    }
+
+    logger.info('scheduler.exit', {});
+  } finally {
+    await store.close().catch(() => {});
+  }
 }
 
 const invokedDirectly = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;

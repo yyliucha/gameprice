@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SteamDeals · 初始化</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e5e7eb;--brand:#4f46e5;--good:#059669;--good-bg:#ecfdf5;--warn:#b45309;--warn-bg:#fffbeb;--danger:#dc2626;--hover:#f8fafc;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.18)}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1020;--panel:#121a2e;--fg:#e6eaf2;--muted:#93a0b8;--border:#22304d;--brand:#818cf8;--good:#34d399;--good-bg:#0d2b24;--warn:#fbbf24;--warn-bg:#2b2109;--danger:#f87171;--hover:#18233c;--shadow:0 1px 2px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:34px 20px 70px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px;margin-bottom:18px}
+.dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#4f46e5)}
+h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+.lead{color:var(--muted);margin:0 0 18px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:18px;margin:14px 0}
+.card h2{font-size:13px;margin:0 0 4px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:680px){.grid{grid-template-columns:1fr}}
+label.f{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px}
+.hint{color:var(--muted);font-size:12px;margin:5px 0 0}
+.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:10px;padding:9px 16px;cursor:pointer;font-family:inherit;font-size:14px}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.btn.primary:disabled{opacity:.6;cursor:wait}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.msg{min-height:20px;font-size:13px;margin-top:10px}
+.msg.err{color:var(--danger)}
+.msg.ok{color:var(--good)}
+.pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:var(--hover);color:var(--muted)}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.hide{display:none!important}
+.steps{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px;color:var(--muted);font-size:12px}
+.steps span{padding:3px 9px;border:1px solid var(--border);border-radius:999px}
+.notice{background:var(--warn-bg);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 30%,var(--border));border-radius:12px;padding:10px 12px;font-size:13px;margin:12px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot"></span>SteamDeals</div>
+  <h1>初始化系统</h1>
+  <p class="lead">首次启动需要创建管理员并确认基础配置。完成前，前台与 API 不会对外开放。</p>
+  <div class="steps"><span>1 · 创建管理员</span><span>2 · 数据源</span><span>3 · 提醒（可选）</span><span>4 · 完成</span></div>
+  <div id="statusLine" class="hint">正在检查初始化状态…</div>
+  <div id="hasAdminBox" class="card hide">
+    <strong>检测到已存在的管理员</strong>
+    <p class="hint">系统即将自动完成初始化。请直接登录控制台，在「系统设置」里检查配置。</p>
+    <a class="btn primary" href="/console" style="text-decoration:none">去登录控制台</a>
+  </div>
+
+  <div id="setupForm">
+    <div id="tokenBox" class="card hide">
+      <h2>初始化口令</h2>
+      <p class="hint">部署者设置了 <code>SETUP_TOKEN</code>。口令在容器日志或部署命令里，填错无法继续。</p>
+      <input id="setupToken" type="password" placeholder="SETUP_TOKEN" autocomplete="off">
+    </div>
+
+    <div class="card">
+      <h2>管理员账号</h2>
+      <p class="hint">第一个管理员拥有全部权限；密码使用 scrypt 哈希存储。</p>
+      <div class="grid">
+        <div>
+          <label class="f" for="adminUser">用户名</label>
+          <input id="adminUser" autocomplete="username" placeholder="3-32 位，不能有空格">
+        </div>
+        <div>
+          <label class="f" for="adminEmail">登录邮箱（可选）</label>
+          <input id="adminEmail" type="email" autocomplete="email" placeholder="用于验证码登录/找回密码">
+        </div>
+        <div>
+          <label class="f" for="adminPass">密码</label>
+          <input id="adminPass" type="password" autocomplete="new-password" placeholder="至少 8 位">
+        </div>
+        <div>
+          <label class="f" for="adminPass2">确认密码</label>
+          <input id="adminPass2" type="password" autocomplete="new-password" placeholder="再输一次">
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsBox"></div>
+
+    <div class="notice">
+      建议先填写 ITAD API Key 或 Steam 代理，否则国内服务器可能采集不到 Steam 价格。其余配置可以完成初始化后到「控制台 → 系统设置」修改。
+    </div>
+    <div class="row">
+      <button class="btn primary" id="completeBtn">完成初始化</button>
+      <span class="hint">完成后会自动登录并进入控制台；调度器随后开始采集。</span>
+    </div>
+    <div id="msg" class="msg"></div>
+  </div>
+</div>
+
+<script src="/settings-ui.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let schema = null;
+let setupTokenRequired = false;
+
+async function getJson(url, opts) {
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  return { res, body };
+}
+
+function setMsg(text, kind) {
+  const el = $('msg');
+  el.textContent = text || '';
+  el.className = 'msg' + (kind ? ' ' + kind : '');
+}
+
+function showCompleted(where) {
+  $('setupForm').classList.add('hide');
+  $('hasAdminBox').classList.add('hide');
+  const line = $('statusLine');
+  line.innerHTML = '<span class="pill ok">初始化已完成</span> 正在进入' + (where === 'console' ? '控制台' : '首页') + '…';
+  setTimeout(function () { location.href = where === 'console' ? '/console' : '/'; }, 700);
+}
+
+async function boot() {
+  const status = await getJson('/api/setup/status');
+  if (!status.res.ok) {
+    $('statusLine').textContent = '无法连接后端：' + (status.body && status.body.error ? status.body.error : status.res.status);
+    return;
+  }
+  const s = status.body;
+  setupTokenRequired = Boolean(s.setupTokenRequired);
+  $('statusLine').innerHTML =
+    '版本 <span class="pill">' + (s.version || '?') + '</span> · 数据库 <span class="pill">' + (s.database || '?') + '</span>' +
+    (s.setupTokenRequired ? ' · <span class="pill warn">需要初始化口令</span>' : '');
+  if (s.completed) return showCompleted('home');
+  if (s.hasAdmin) {
+    $('setupForm').classList.add('hide');
+    $('hasAdminBox').classList.remove('hide');
+    return;
+  }
+  if (setupTokenRequired) $('tokenBox').classList.remove('hide');
+
+  const schemaRes = await getJson('/api/setup/schema');
+  if (!schemaRes.res.ok) {
+    setMsg((schemaRes.body && schemaRes.body.error) || ('加载设置失败：HTTP ' + schemaRes.res.status), 'err');
+    return;
+  }
+  schema = schemaRes.body;
+  // 初始化页只展示核心配置，高级项留给控制台「系统设置」
+  schema.groups = (schema.groups || []).filter(function (g) { return g.id !== 'advanced'; });
+  schema.fields = (schema.fields || []).filter(function (f) { return f.group !== 'advanced'; });
+  window.SettingsUI.render($('settingsBox'), schema, {
+    mode: 'setup',
+    showSource: false,
+    allowClear: false,
+    hideAdvanced: true,
+  });
+}
+
+function validateAdmin() {
+  const username = $('adminUser').value.trim();
+  const password = $('adminPass').value;
+  const confirm = $('adminPass2').value;
+  const email = $('adminEmail').value.trim();
+  if (!/^[^\s/]{3,32}$/.test(username)) throw new Error('用户名需要 3-32 个字符，且不能包含空格或斜杠');
+  if (password.length < 8) throw new Error('密码至少 8 位');
+  if (password !== confirm) throw new Error('两次输入的密码不一致');
+  return { username: username, password: password, email: email || null };
+}
+
+$('completeBtn').onclick = async function () {
+  const btn = $('completeBtn');
+  btn.disabled = true;
+  setMsg('正在创建管理员并写入配置…');
+  try {
+    const admin = validateAdmin();
+    const values = window.SettingsUI.collect($('settingsBox'));
+    for (const key of Object.keys(values)) {
+      if (values[key] === null) delete values[key];
+    }
+    const token = setupTokenRequired ? $('setupToken').value : '';
+    const out = await getJson('/api/setup/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ admin: admin, settings: values, setupToken: token }),
+    });
+    if (out.res.ok) {
+      setMsg('初始化完成，正在进入控制台…', 'ok');
+      setTimeout(function () { location.href = '/console'; }, 800);
+      return;
+    }
+    if (out.res.status === 409) {
+      showCompleted('console');
+      return;
+    }
+    setMsg((out.body && out.body.error) || ('初始化失败：HTTP ' + out.res.status), 'err');
+  } catch (err) {
+    setMsg(String(err.message || err), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+boot().catch(function (err) {
+  $('statusLine').textContent = '加载失败：' + String(err.message || err);
+});
+</script>
+</body>
+</html>

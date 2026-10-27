@@ -1,7 +1,16 @@
 # 云服务器部署教程（从零到跑通）
 
 面向：一台全新的 Linux 云服务器（Ubuntu 22.04 / Debian 12 最顺），2 核 2G 起，20G 磁盘。
-不需要域名，**默认不对外开任何端口**（它没有 Web 服务，只产出静态 HTML 和采集数据）。
+不需要域名，**只发布 Web 端口 8090（首次打开是 /setup）**，数据库端口不对外。
+
+> **只是部署，不想克隆代码？** 用 Docker Hub 镜像，三条命令：
+>
+> ```bash
+> docker compose -f compose.hub.yaml up -d
+> # 打开 http://服务器IP:8090 → /setup 创建管理员
+> ```
+>
+> 用已有 PostgreSQL 见 [DOCKER-HUB.md](DOCKER-HUB.md)。下面的第 2–4 节是“从源码构建”的完整流程，只有改代码/自定义镜像时才需要。
 
 ---
 
@@ -9,7 +18,7 @@
 
 | 资源 | 情况 |
 |---|---|
-| 端口 | 默认**不发布任何端口**；数据库只在 compose 内网可达 |
+| 端口 | 只发布 **8090**（Web/初始化页）；数据库只在 compose 内网可达 |
 | 内存 | 常驻约 200–300MB（node 调度器 + postgres） |
 | 磁盘 | 镜像约 250MB；数据每天几 MB（价格快照），一年量级 < 1G |
 | 外网 | 需要能访问 杉果 / GOG / Humble；Steam 官方**国内大概率不通**（见第 8 节） |
@@ -94,18 +103,16 @@ sudo -u postgres psql -c "create database gameprice owner gameprice"
 #    pg_hba.conf 追加: host all all 172.16.0.0/12 scram-sha-256
 sudo systemctl reload postgresql
 
-# 3) 告诉应用连哪里（host.docker.internal 已在 compose 里映射到宿主机）
-cat >> .env <<'EOF'
-DATABASE_URL=postgres://gameprice:密码@host.docker.internal:5432/gameprice
-EOF
+# 3) 用 Docker Hub 镜像连现有库（数据库地址写在命令里，不建 .env）
+DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
+  docker compose -f compose.hub.external-db.yaml up -d
 
-# 4) 只起 app，不再启动自带的 db
-docker compose up -d --no-deps app
-docker compose rm -sf db
+# 从源码构建时也可以用：在 .env 里写 DATABASE_URL，然后
+# docker compose up -d --no-deps app && docker compose rm -sf db
 ```
 
 表结构、平台字典、首次游戏导入仍然全自动（`migrate` + `bootstrap`）。
-验证：`docker compose exec app node src/cli.js ping`。
+验证：`docker compose -f compose.hub.external-db.yaml exec app node src/cli.js ping`。
 
 数据库在**另一台机器**时，URL 换成那台机器的内网地址，并加 `?sslmode=require`。
 

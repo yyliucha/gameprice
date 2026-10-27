@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs } from '../src/scheduler.js';
 
-test('默认八个任务（含 gog / humble / discover / backup / alerts），各自间隔', () => {
+test('默认任务表（含 gog / humble / discover / backup / alerts / images），各自间隔', () => {
   const jobs = jobsFromEnv({});
-  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'backup', 'logs', 'alerts']);
+  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'backup', 'logs', 'alerts', 'images']);
   assert.equal(jobs[0].intervalMin, 60);
   assert.equal(jobs[2].intervalMin, 1440);
   assert.equal(jobs[3].intervalMin, 720);
@@ -13,8 +13,10 @@ test('默认八个任务（含 gog / humble / discover / backup / alerts），�
   assert.equal(jobs[6].intervalMin, 1440, '备份每天一次');
   assert.equal(jobs[7].intervalMin, 7 * 1440, '日志每 7 天清理一次');
   assert.equal(jobs[8].intervalMin, 360);
+  assert.equal(jobs[9].intervalMin, 240, '封面图补缓存默认每 4 小时');
   assert.deepEqual(jobs[5].args, ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12']);
   assert.deepEqual(jobs[6].args, ['backup']);
+  assert.deepEqual(jobs[9].args, ['images', 'pull', '--limit', '200', '--sleep', '300']);
 });
 
 test('没配任何提醒通道时 alerts 只做只读检查，不标记已通知', () => {
@@ -46,6 +48,7 @@ test('显式禁用或间隔为 0 的任务会被剔除', () => {
     DISCOVER_ENABLED: '0',
     BACKUP_ENABLED: '0',
     LOGS_PRUNE_ENABLED: '0',
+    IMAGES_ENABLED: '0',
   });
   assert.deepEqual(jobs.map((j) => j.name), ['sonkwo', 'alerts']);
 });

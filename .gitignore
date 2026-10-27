@@ -5,6 +5,7 @@ data/pgdata/
 data/*-pgdata/
 data/demo-pgdata/
 data/pages/
+data/images/
 data/*.jsonl
 data/sonkwo-discovery.json
 .env

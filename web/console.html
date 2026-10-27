@@ -64,6 +64,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
       <button data-page="steam">Steam 账号</button>
       <button data-page="sync">日志</button>
       <button data-page="mail">邮箱配置</button>
+      <button data-page="settings">系统设置</button>
       <button data-page="stats">数据统计</button>
     </nav>
     <div style="margin-top:18px" class="small muted" id="who"></div>
@@ -264,6 +265,19 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th><th style="width:90px">内容</th></tr></thead><tbody id="mailRows"></tbody></table></div>
       </section>
 
+      <section data-section="settings" class="hide">
+        <h2>系统设置</h2>
+        <div class="card pad">
+          <div class="row" style="margin-top:0">
+            <button class="btn primary" id="settingsSave">保存设置</button>
+            <button class="btn" id="settingsReload">重新加载</button>
+            <span class="small muted" id="settingsMsg">修改后调度器约 15 秒内生效；密钥留空表示不修改。</span>
+          </div>
+          <p class="muted small" style="margin-bottom:0">这里管理采集、提醒、代理等业务配置。数据库连接、对外端口等部署参数仍由 docker compose 提供，不在页面里改。</p>
+        </div>
+        <div id="settingsBox"></div>
+      </section>
+
       <section data-section="logs" class="hide">
         <h2>系统日志</h2>
         <div class="card pad">
@@ -284,6 +298,9 @@ textarea{width:100%;min-height:100px;resize:vertical}
       </section>
 
       <section data-section="stats" class="hide">
+        <h2>封面图缓存</h2>
+        <div class="card pad"><div class="row" id="imgStats" style="gap:18px"><span class="muted">加载中…</span></div></div>
+
         <h2>浏览排行（90 天）</h2>
 <div class="row"><label class="small muted"><input type="checkbox" id="aggBtn"> 按游戏聚合（同一游戏的多个页面合并）</label></div>
         <div class="card"><table><thead><tr><th>游戏</th><th>页面</th><th class="num">现价</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
@@ -325,6 +342,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
 <button id="toTop" class="btn" style="position:fixed;right:24px;bottom:70px;display:none;z-index:40">↑ 顶部</button>
 <div id="toast"></div>
 
+<script src="/settings-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -350,12 +368,13 @@ function showPage(page) {
   currentPage = page;
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
-  if (page === 'stats') loadStats();
+  if (page === 'stats') { loadStats(); loadImgStats(); }
   if (page === 'sync') loadLogs();
   if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'steam') loadSteam();
   if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
+  if (page === 'settings') loadSettings();
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
 
@@ -983,6 +1002,66 @@ async function loadStats() {
     }).join('') || '<tr><td colspan="5" class="muted">还没有浏览记录</td></tr>';
   } catch (e) { /* ignore */ }
 }
+
+/** 封面图缓存：已下载到本机的张数/覆盖游戏数/体积（之后前台直接读文件，不依赖 CDN）。 */
+async function loadImgStats() {
+  const box = $('imgStats');
+  if (!box) return;
+  try {
+    const d = await api('/api/admin/images');
+    const s = d.images || {};
+    const mb = ((s.bytes || 0) / 1024 / 1024).toFixed(1);
+    box.innerHTML =
+      '<span>已缓存 <strong>' + (s.images || 0) + '</strong> 张</span>' +
+      '<span>覆盖 <strong>' + (s.games || 0) + '</strong> 款游戏</span>' +
+      '<span>合计 <strong>' + mb + '</strong> MB</span>' +
+      '<span class="small muted">目录 ' + esc(s.root || 'data/images') + '</span>';
+  } catch (e) {
+    box.innerHTML = '<span class="muted small">读取失败：' + esc(e.message) + '</span>';
+  }
+}
+
+// ---- 系统设置：业务配置落库，保存后调度器轮询 revision 自动生效 ----
+let settingsSchema = null;
+function renderSettingsView(d) {
+  settingsSchema = d;
+  window.SettingsUI.render($('settingsBox'), d, { mode: 'console', showSource: true, allowClear: true });
+}
+async function loadSettings() {
+  if (!$('settingsBox')) return;
+  $('settingsMsg').textContent = '加载中…';
+  try {
+    const d = await api('/api/admin/settings');
+    renderSettingsView(d);
+    $('settingsMsg').textContent = '版本 ' + (d.version || '?') + ' · 设置版本 ' + (d.revision || 0) + ' · 保存后调度器约 15 秒内生效';
+  } catch (err) {
+    $('settingsMsg').textContent = '加载失败：' + err.message;
+  }
+}
+async function saveSettings() {
+  const box = $('settingsBox');
+  if (!box || !window.SettingsUI) return;
+  const values = window.SettingsUI.collect(box);
+  const byKey = new Map(((settingsSchema && settingsSchema.fields) || []).map(function (f) { return [f.key, f]; }));
+  for (const key of Object.keys(values)) {
+    if (values[key] === null && (byKey.get(key) || {}).type !== 'secret') delete values[key];
+  }
+  const btn = $('settingsSave');
+  btn.disabled = true;
+  $('settingsMsg').textContent = '保存中…';
+  try {
+    const d = await api('/api/admin/settings', { method: 'POST', body: JSON.stringify({ values: values }) });
+    renderSettingsView(d);
+    $('settingsMsg').textContent = '已保存 ' + ((d.keys || []).length) + ' 项 · 调度器将在约 15 秒内应用';
+    toast('设置已保存');
+  } catch (err) {
+    $('settingsMsg').textContent = '保存失败：' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+if ($('settingsSave')) $('settingsSave').onclick = saveSettings;
+if ($('settingsReload')) $('settingsReload').onclick = loadSettings;
 
 $('login').onclick = async function () {
   $('msg').textContent = '';

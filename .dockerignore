@@ -7,6 +7,12 @@ logs
 out
 data/pgdata
 data/demo-pgdata
+data/*-pgdata
+data/pages
+data/images
+data/backup
+data/backup-*.json.gz
+data/secret.key
 data/*.jsonl
 data/*.db
 data/*.db-*

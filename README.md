@@ -188,9 +188,32 @@ cli.js 生成 runId
 
 ## 快速开始
 
-### 方式一：Docker（零配置）
+### 方式一：Docker Hub（零配置，推荐）
 
-**部署到云服务器的完整教程见 [docs/QUICKSTART.md](docs/QUICKSTART.md)**（含装 Docker、权限、验收、排障）。
+镜像：`yyliucha/steamdeals:latest`。**不需要 `.env`，也不需要改业务配置。**
+
+```bash
+docker compose -f compose.hub.yaml up -d
+```
+
+打开 `http://服务器IP:8090`，会先进入 `/setup`：
+
+1. 创建第一个管理员
+2. 填数据源（国内服务器建议 ITAD Key 或 Steam 代理）
+3. 可选填 Webhook / 企业微信 / SMTP
+
+完成后自动登录，调度器约 15 秒内开始采集。之后所有业务设置都在「控制台 → 系统设置」，保存后热加载，不用重启容器。
+
+**用已有 PostgreSQL**：数据库连接串直接写在命令里（不需要 `.env`）：
+
+```bash
+DATABASE_URL='postgres://user:password@host:5432/gameprice?sslmode=require' \
+  docker compose -f compose.hub.external-db.yaml up -d
+```
+
+完整说明（外部库、docker run、卷、备份、SETUP_TOKEN、排障）见 **[docs/DOCKER-HUB.md](docs/DOCKER-HUB.md)**。
+
+**从源码构建**（开发/自定义镜像）：
 
 ```bash
 mkdir -p logs out                       # 这两个目录不在仓库里，必须自己建
@@ -206,15 +229,14 @@ docker compose logs -f app    # 看到 bootstrap.done 即启动成功
 postgres 容器创建库 gameprice
   → app 启动：ensureDatabase（库不在就 CREATE DATABASE）
   → bootstrap：建表 + 平台字典 + 首次导入 data/games.json（幂等）
-  → 调度器：按间隔采集
+  → /setup：创建管理员、写业务设置
+  → 调度器：初始化完成后按间隔采集
 ```
 
 内置 `postgres:15-alpine` 用 trust 认证且端口不发布到宿主机，只在 compose 内网可达；需要密码见 [DEPLOY.md](docs/DEPLOY.md)。
 用外部数据库时填好 `DATABASE_URL` 后执行 `docker compose up -d app`（只起 app）。
 
-用你已有的 PostgreSQL：清空 `COMPOSE_PROFILES` 并填 `DATABASE_URL`，详见 **[docs/DEPLOY.md](docs/DEPLOY.md)、[docs/WEB.md](docs/WEB.md)（Web/API 契约）**。
-
-> 镜像本身尚未在真实 Docker 环境验证过（开发机无 Docker）。首次部署请按 [DEPLOY.md 的故障排查表](docs/DEPLOY.md#故障排查) 对照日志。
+> 镜像构建与首次启动冒烟由 GitHub Actions 执行；开发机没有 Docker，本地只做配置/单测/前端语法校验。首次部署仍建议对照 [DOCKER-HUB.md 排障表](docs/DOCKER-HUB.md#排障) 看日志。
 
 ### 方式二：本地运行（推荐先这样验证）
 
@@ -311,34 +333,41 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 
 ## 配置
 
+### 业务设置（落库，页面维护）
+
+50 项业务配置 **不再需要改 `.env`**，全部存在 PostgreSQL：
+
+- 首次启动：`/setup` 初始化页
+- 之后：控制台 →「系统设置」
+- 保存后调度器约 15 秒内热加载；密钥字段只显示「已配置」，不回显
+
+| 分组 | 内容 |
+|---|---|
+| 数据源 | Steam / 杉果 / ITAD / GOG / Humble / SKU 发现的开关、间隔、首轮延迟 |
+| Key 与区服 | `ITAD_API_KEY`、`STEAM_API_KEY`、`GOG_REGIONS` |
+| 提醒 | Webhook、企业微信、SMTP（授权码 AES-256-GCM 加密）、收件人、检查间隔 |
+| 网络 | `STEAM_PROXY`、`HTTPS_PROXY`、`NO_PROXY` |
+| 高级 | 熔断、备份、日志清理、静态页开关、日志级别 |
+| 封面图缓存 | 开关、间隔、每轮数量、下载间隔（图片落 `data/images`，不进库） |
+
+旧 `.env` 里的这些变量仍会被识别：如果是老库（已有管理员），首次启动自动导入数据库；新库则由 `/setup` 写入。优先级是 **数据库 > 环境变量 > 默认值**。完整列表见 [docs/DEPLOY.md](docs/DEPLOY.md#旧环境变量迁移)。
+
+### 部署参数（仍用环境变量）
+
+这些必须在连接数据库/启动容器前确定，不能搬进数据库：
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | 无（自动降级） | 不配时用内置嵌入式 PG（`data/pgdata`）；配了 `postgres://` 会自动建库 |
-| `POSTGRES_HOST_AUTH_METHOD` | `trust` | 仅容器内置库使用；改密码时同时设它与 `DATABASE_URL` |
-| `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
-| `ALERT_WEBHOOK_URL` | 空 | 通用 webhook；空则不发这条通道 |
-| `WECOM_WEBHOOK_URL` | 空 | 企业微信群机器人地址（`errcode=0` 才算成功） |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | 空 / 465 / 1 | 邮件通道；587 端口请设 `SMTP_SECURE=0` 走 STARTTLS |
-| `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 空 | SMTP 认证与发件人 |
-| `ALERT_EMAIL_TO` | 空 | 收件人，逗号分隔；**不填则邮件通道不启用** |
-| `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | `1` / `360` | 提醒检查开关与间隔 |
-| `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | `3` / `360` | 连续失败 N 次后暂停多久 |
-| `GOG_ENABLED` / `GOG_INTERVAL_MIN` | `1` / `720` | GOG 采集开关与间隔 |
-| `GOG_REGIONS` | `cn` | 多区服采集，逗号分隔（`cn,us,tr` 等；仅 GOG 支持） |
-| `CHART_ON_SYNC` | `1` | 采集成功后自动重建静态页；置 `0` 关闭 |
-| `OUT_DIR` | `out` | 静态页输出目录（容器内为 `/app/out`；用内置服务时设 `data/out`） |
-| `WEB_PORT` | `8090` | 内置静态页服务的宿主机端口（容器内固定 8080） |
-| `STEAM_PROXY` | 空 | **只**给 Steam 域名用的代理（国内服务器必配）；支持 `http(s)://`，不支持 socks5 |
-| `HTTPS_PROXY` | 空 | 通用出网代理（受 `NO_PROXY` 排除） |
-| `NO_PROXY` | 空 | 排除列表，逗号分隔，支持后缀与 `*` |
-| `HUMBLE_ENABLED` / `HUMBLE_INTERVAL_MIN` | `1` / `720` | Humble 采集开关与间隔 |
-| `LOG_LEVEL` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
-| `LOG_DIR` | `logs` | 日志目录 |
+| `DATABASE_URL` | 自带 db / 嵌入式 PG | 外部 PostgreSQL 连接串；写在 compose 命令里即可 |
+| `POSTGRES_PASSWORD` / `POSTGRES_HOST_AUTH_METHOD` | 空 / `trust` | 仅自带 db 的可选加固 |
+| `WEB_PORT` | `8090` | 宿主机端口（容器内固定 8080） |
+| `TZ` | `Asia/Shanghai` | 影响日志时间与 `current_date` |
+| `SETUP_TOKEN` | 空 | 设置后 `/setup` 要求口令；公网部署建议设置 |
+| `SECRET_KEY` | 自动生成 | 不设则用 `data/secret.key`；务必持久化 data 卷 |
 | `DB_WAIT_SEC` | `0`（容器内 60） | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | `1` | 首次启动是否自动导入游戏 |
-| `TZ` | `Asia/Shanghai` | 影响日志时间与 `current_date` |
-
-容器专属（见 [compose.yaml](compose.yaml)）：`POSTGRES_PASSWORD`、`RUN_MODE`、`*_ENABLED`、`*_INTERVAL_MIN`。
+| `OUT_DIR` / `LOG_DIR` | `out` / `logs` | 静态页与日志目录 |
+| `RUN_MODE` | `scheduler` | 容器入口模式；compose 用 `all` |
 
 ## 数据模型
 

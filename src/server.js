@@ -13,6 +13,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, extname, resolve, sep } from 'node:path';
 import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
+import * as images from './images.js';
+import * as settings from './settings.js';
+import { handleSetupRoutes } from './setup-routes.js';
+import { handleSettingsRoutes } from './settings-routes.js';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -26,9 +30,23 @@ const TYPES = {
 
 const COOKIE = 'gp_session';
 
-// Steam 图片路由的路径记忆：成功过的那条路（CDN/直连组合）优先复用，失败也记 5 分钟
-const imgRouteCache = new Map(); // appid/size -> { url, forceDirect }
+// 封面图内存热缓存：数据库是持久层，这里只放最近访问的少量图片（LRU，约 300 张）
+const imgMemCache = new Map(); // appid/size -> { contentType, body }
+const IMG_MEM_MAX = 300;
+// 取图失败缓存：5 分钟内不再重试，避免每次都拖满超时
 const imgMissCache = new Map(); // appid/size -> ts
+
+function memoGetImage(key) {
+  const hit = imgMemCache.get(key);
+  if (!hit) return null;
+  imgMemCache.delete(key);
+  imgMemCache.set(key, hit); // 移到队尾（最近使用）
+  return hit;
+}
+function memoPutImage(key, entry) {
+  imgMemCache.set(key, entry);
+  if (imgMemCache.size > IMG_MEM_MAX) imgMemCache.delete(imgMemCache.keys().next().value);
+}
 
 function parseCookies(header) {
   const out = {};
@@ -91,7 +109,15 @@ export function sortGames(rows, sort = 'discount') {
  * 创建 API 服务。
  * query: (sql, params) => Promise<{rows}>
  */
-export function createApiServer({ query, logger = null, outDir = null }) {
+export function createApiServer({
+  query,
+  logger = null,
+  outDir = null,
+  store = null,
+  setupToken = '',
+  getSetupState = null,
+  imageFetch = null, // 测试注入：() => { body, bytes, contentType }；默认用 http.js 的 fetchBuffer
+}) {
   const q = query;
   // 手动同步的进程内状态：同一时刻只允许一个同步任务
   let syncChild = null;
@@ -158,8 +184,60 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       };
       logVisit();
 
+      // ---- 首次初始化拦截：完成前只允许 /setup、设置页静态资源和 /api/setup/* ----
+      const setupState = getSetupState ? await getSetupState() : { completed: true };
+      if (!setupState.completed) {
+        if (path === '/setup' || path === '/settings-ui.js') {
+          return serveStatic(res, outDir, path);
+        }
+        if (path.startsWith('/api/setup/')) {
+          const handled = await handleSetupRoutes({
+            path,
+            req,
+            res,
+            q,
+            store,
+            logger,
+            json,
+            readBody,
+            setupToken,
+            cookieName: COOKIE,
+          });
+          if (handled) return;
+        }
+        if (path.startsWith('/api/')) {
+          return json(res, 428, { error: '系统尚未初始化', setupRequired: true, setup: '/setup' });
+        }
+        res.writeHead(302, { location: '/setup', 'cache-control': 'no-store' });
+        res.end();
+        return;
+      }
+      if (path === '/setup') {
+        res.writeHead(302, { location: '/', 'cache-control': 'no-store' });
+        res.end();
+        return;
+      }
+      // 初始化完成后 /api/setup/status 仍可读；complete/schema 会返回 409
+      if (path.startsWith('/api/setup/')) {
+        const handled = await handleSetupRoutes({
+          path,
+          req,
+          res,
+          q,
+          store,
+          logger,
+          json,
+          readBody,
+          setupToken,
+          cookieName: COOKIE,
+        });
+        if (handled) return;
+      }
+
       // 静态资源（页面本身仍由 chart 生成，这里只发文件）
-      if (!path.startsWith('/api/')) {
+      // 注意：/img/ 是服务端图片代理路由（本地缓存 → CDN 兜底），不能当静态文件处理，
+      // 否则会直接 404——这正是之前"前台只有名字没有图"的真正原因。
+      if (!path.startsWith('/api/') && !path.startsWith('/img/')) {
         return serveStatic(res, outDir, path);
       }
 
@@ -186,6 +264,13 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         }
         return true;
       };
+
+      // 系统设置（管理员）：读写 app_settings / smtp_settings
+      if (path.startsWith('/api/admin/settings')) {
+        if (!requireAdmin()) return;
+        const handled = await handleSettingsRoutes({ path, req, res, q, store, logger, json, readBody, user });
+        if (handled) return;
+      }
 
       // ---- 登录 / 登出 ----
       if (path === '/api/login' && req.method === 'POST') {
@@ -270,51 +355,52 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       if (imgMatch && req.method === 'GET') {
         const appid = imgMatch[1];
         const size = imgMatch[2];
-        const SIZES = new Set(['header', 'capsule_231x87', 'capsule_sm_120', 'capsule_616x353', 'library_600x900', 'library_hero']);
-        if (!SIZES.has(size)) return json(res, 404, { error: 'unknown size' });
-        const { fetchBuffer } = await import('./http.js');
-        // 三条路兜底：Cloudflare(默认走代理) → Akamai(默认直连) → Cloudflare(强制直连)。
-        // 记住上次成功的那条路；失败也记 5 分钟，避免每次都拖满超时。
+        if (!images.isImageSize(size)) return json(res, 404, { error: 'unknown size' });
         const key = appid + '/' + size;
+        const imgHeaders = (contentType, length) => ({
+          'content-type': contentType,
+          'content-length': length,
+          'cache-control': 'public, max-age=31536000, immutable',
+        });
+
+        // 1) 内存热缓存（列表刷新会重复取同一批图）
+        const hot = memoGetImage(key);
+        if (hot) {
+          res.writeHead(200, imgHeaders(hot.contentType, hot.body.length));
+          res.end(hot.body);
+          return;
+        }
+
+        // 2) 本地磁盘：图片下载过一次后只读文件，不再碰 CDN/代理（VPS 只用于数据联通）
+        const local = images.readImage(appid, size);
+        if (local) {
+          memoPutImage(key, { contentType: 'image/jpeg', body: local });
+          res.writeHead(200, imgHeaders('image/jpeg', local.length));
+          res.end(local);
+          return;
+        }
+
+        // 3) 本地没有：走三条 CDN 兜底取一次，成功后落盘
         const missAt = imgMissCache.get(key);
         if (missAt && Date.now() - missAt < 5 * 60 * 1000) {
           res.writeHead(404);
           res.end();
           return;
         }
-        const candidates = [];
-        const hit = imgRouteCache.get(key);
-        if (hit) candidates.push(hit);
-        // 三条互不重复的路：Cloudflare(默认=代理) / Akamai(默认=直连) / Cloudflare(强制直连)
-        candidates.push({ url: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/${size}.jpg` });
-        candidates.push({ url: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/${size}.jpg` });
-        candidates.push({ url: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/${size}.jpg`, forceDirect: true });
-        let lastError = null;
-        let served = false;
-        for (const cand of candidates) {
-          try {
-            const img = await fetchBuffer(cand.url, { logger: null, label: 'steam.img', timeoutMs: 8000, retries: 0, forceDirect: cand.forceDirect === true });
-            imgRouteCache.set(key, { url: cand.url, forceDirect: cand.forceDirect === true });
-            if (imgRouteCache.size > 2000) imgRouteCache.delete(imgRouteCache.keys().next().value);
-            res.writeHead(200, {
-              'content-type': img.contentType,
-              'content-length': img.bytes,
-              'cache-control': 'public, max-age=604800',
-            });
-            res.end(img.body);
-            served = true;
-            break;
-          } catch (err) {
-            lastError = err;
-          }
+        const fetcher = imageFetch ?? (await import('./http.js')).fetchBuffer;
+        const got = await images.downloadImage(appid, size, { fetchBuffer: fetcher, timeoutMs: 8000 });
+        if (got.ok) {
+          memoPutImage(key, { contentType: got.contentType, body: got.body });
+          logger?.info('steam.img_cached', { appid, size, bytes: got.bytes });
+          res.writeHead(200, imgHeaders(got.contentType, got.body.length));
+          res.end(got.body);
+          return;
         }
-        if (!served) {
-          imgMissCache.set(key, Date.now());
-          if (imgMissCache.size > 2000) imgMissCache.delete(imgMissCache.keys().next().value);
-          logger?.warn('steam.img_miss', { appid, size, message: String(lastError?.message ?? '').slice(0, 160) });
-          res.writeHead(404);
-          res.end();
-        }
+        imgMissCache.set(key, Date.now());
+        if (imgMissCache.size > 2000) imgMissCache.delete(imgMissCache.keys().next().value);
+        logger?.warn('steam.img_miss', { appid, size, message: String(got.error?.message ?? '').slice(0, 160) });
+        res.writeHead(404);
+        res.end();
         return;
       }
 
@@ -706,6 +792,11 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           ],
         );
         logger?.info('api.smtp_saved', { by: user.username, host: String(body.host ?? '').trim() });
+        if (store) {
+          await settings.hydrateSettings({ store, logger }).catch((err) => {
+            logger?.warn('settings.hydrate_failed', { message: String(err.message).slice(0, 160) });
+          });
+        }
         return json(res, 200, { ok: true });
       }
 
@@ -934,6 +1025,12 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { ...list, page, pageSize, pages: Math.max(1, Math.ceil(list.total / pageSize)), summary });
       }
 
+      // ---- 管理员：封面图本地缓存统计 ----
+      if (path === '/api/admin/images' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { images: images.imageStats() });
+      }
+
       // ---- 管理员：IP 黑名单 ----
       if (path === '/api/admin/blacklist' && req.method === 'GET') {
         if (!requireAdmin()) return;
@@ -993,6 +1090,7 @@ function serveStatic(res, outDir, pathname) {
   }
   if (clean === '/') clean = '/index.html';
   if (clean === '/console' || clean === '/console/') clean = '/console.html';
+  if (clean === '/setup' || clean === '/setup/') clean = '/setup.html';
   const root = resolve(outDir);
   const file = resolve(root, `.${clean}`);
   if (file !== root && !file.startsWith(root + sep)) {
@@ -1012,8 +1110,18 @@ function serveStatic(res, outDir, pathname) {
   res.end(body);
 }
 
-export function startApiServer({ query, logger = null, outDir = null, port = 8090, host = '0.0.0.0' }) {
-  const server = createApiServer({ query, logger, outDir });
+export function startApiServer({
+  query,
+  logger = null,
+  outDir = null,
+  port = 8090,
+  host = '0.0.0.0',
+  store = null,
+  setupToken = '',
+  getSetupState = null,
+  imageFetch = null,
+}) {
+  const server = createApiServer({ query, logger, outDir, store, setupToken, getSetupState, imageFetch });
   // 黑名单定时刷新（管理端增删后也会即时刷新；unref 不阻止进程退出）
   const blockTimer = setInterval(() => {
     visitors.refreshBlocklist(query).catch(() => {});

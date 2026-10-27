@@ -1,8 +1,33 @@
 # 部署
 
-两种方式，先说结论：**有现成 PG 就用方式二，没有就用方式一（三条命令，零配置）。**
+先说结论：**普通部署用 Docker Hub（`compose.hub.yaml`，零配置）；有现成 PostgreSQL 用 `compose.hub.external-db.yaml`；要改源码才用 `compose.yaml` 本地构建。**
 
 前置：Docker ≥ 24 与 Docker Compose ≥ 2.20（用到了 `depends_on.required` 字段）。
+
+---
+
+## Docker Hub（推荐，零配置）
+
+镜像：`yyliucha/steamdeals:latest`。完整说明见 **[DOCKER-HUB.md](DOCKER-HUB.md)**。
+
+```bash
+# 自带 PostgreSQL，不建 .env、不 chown
+docker compose -f compose.hub.yaml up -d
+
+# 用已有 PostgreSQL：连接串写在命令里
+DATABASE_URL='postgres://user:password@10.0.0.5:5432/gameprice?sslmode=require' \
+  docker compose -f compose.hub.external-db.yaml up -d
+```
+
+打开 `http://服务器IP:8090`，先进入 `/setup`：
+
+1. 创建第一个管理员（密码 ≥ 8 位）
+2. 填数据源；国内服务器建议 ITAD API Key 或 Steam 代理
+3. 可选填 Webhook / 企业微信 / SMTP
+
+初始化完成前，所有页面 302 到 `/setup`，业务 API 返回 `428`；健康检查只验证数据库，容器不会因未初始化而重启。业务设置写入 PostgreSQL 的 `app_settings` / `smtp_settings`，之后在「控制台 → 系统设置」修改，调度器约 15 秒内热加载。
+
+> 数据库连接串必须在应用启动前存在，不能搬进数据库；但它可以直接写在 compose 命令的环境变量里，不需要 `.env`。可选 `SETUP_TOKEN` 用来防止公网被抢先初始化。
 
 ---
 
@@ -40,48 +65,53 @@ docker compose exec app node src/cli.js stats
 docker compose exec app node src/cli.js list
 ```
 
-首轮采集在三分钟内陆续开始（steam 30s、sonkwo 180s、itad 300s 之后各自触发一次，避免同时打满）。
+完成 `/setup` 后，首轮采集会在三分钟内陆续开始（steam 30s、sonkwo 180s、itad 300s 之后各自触发一次，避免同时打满）。
 
 ## 方式二：用你自己的 PostgreSQL
 
-你的库是 15.17，直接用。**注意不要用 `--build` 之外的特殊操作，改 `.env` 即可：**
+### Docker Hub 镜像（推荐）
+
+数据库连接串直接写在 compose 命令里，不需要 `.env`：
+
+```bash
+DATABASE_URL='postgres://gameprice:密码@10.0.0.5:5432/gameprice?sslmode=require' \
+  docker compose -f compose.hub.external-db.yaml up -d
+```
+
+宿主机上的 PostgreSQL 用 `host.docker.internal`（Linux 已映射到网关）：
+
+```bash
+DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
+  docker compose -f compose.hub.external-db.yaml up -d
+```
+
+已建库的用户需要有建表权限（启动时会 `create table if not exists`）。
+
+### 从源码构建
 
 ```bash
 cp .env.example .env
-vi .env
+vi .env       # 只填 DATABASE_URL 和部署参数；业务配置在 /setup 页面
+docker compose up -d --build
 ```
 
-```ini
-# 把这一行清空或删掉，compose 就不会启动自带的 db
-COMPOSE_PROFILES=
-DATABASE_URL=postgres://gameprice:密码@10.0.0.5:5432/gameprice
-```
-
-```bash
-docker compose up -d --build      # 只会启动 app
-```
-
-已建库的用户需要有建表权限（`init` 会 `create table if not exists`）。
-
-> 如果你的 Compose 低于 2.20，`required: false` 会报未知字段。两种办法：
-> ① 升级 compose；② 把 `compose.yaml` 里 `app.depends_on` 整段删掉——
-> app 自带 `DB_WAIT_SEC=60` 的等库重试，数据库慢一点也能自己连上。
+如果 Compose 低于 2.20，`required: false` 会报未知字段：升级 compose，或把 `compose.yaml` 里 `app.depends_on` 整段删掉——app 自带 `DB_WAIT_SEC=60` 的等库重试。
 
 ---
 
 ### 邮箱通道速配
 
-国内常用邮箱都需要先在网页端开启 SMTP 并获取**授权码**（不是登录密码）：
+在 `/setup` 或「控制台 → 系统设置 → 降价提醒」里填 SMTP。国内常用邮箱需要先在网页端开启 SMTP 并获取**授权码**（不是登录密码）：
 
-| 服务 | 配置 |
-|---|---|
-| QQ 邮箱 | `SMTP_HOST=smtp.qq.com` `SMTP_PORT=465` `SMTP_SECURE=1` `SMTP_PASS=`授权码 |
-| 163 邮箱 | `SMTP_HOST=smtp.163.com` `SMTP_PORT=465` `SMTP_SECURE=1` `SMTP_PASS=`授权码 |
-| 阿里企业邮 | `SMTP_HOST=smtp.qiye.aliyun.com` `SMTP_PORT=465` `SMTP_SECURE=1` |
-| Gmail | `SMTP_HOST=smtp.gmail.com` `SMTP_PORT=587` `SMTP_SECURE=0` `SMTP_PASS=`应用专用密码 |
-| Outlook | `SMTP_HOST=smtp-mail.outlook.com` `SMTP_PORT=587` `SMTP_SECURE=0` |
+| 服务 | 主机 | 端口 | 加密 |
+|---|---|---|---|
+| QQ 邮箱 | `smtp.qq.com` | 465 | SSL |
+| 163 邮箱 | `smtp.163.com` | 465 | SSL |
+| 阿里企业邮 | `smtp.qiye.aliyun.com` | 465 | SSL |
+| Gmail | `smtp.gmail.com` | 587 | STARTTLS（关闭 SSL） |
+| Outlook | `smtp-mail.outlook.com` | 587 | STARTTLS（关闭 SSL） |
 
-配好后先跑 `node src/cli.js notify-test`，看到 `✔ email` 再依赖它。失败时看日志 `notify.email_failed`，里面带 SMTP 返回码（535 = 认证失败，554 = 被当成垃圾邮件拒绝）。
+授权码加密存库，页面不回显。配好后在「邮箱配置」页发测试邮件，或跑 `node src/cli.js notify-test`，看到 `✔ email` 再依赖它。失败时看日志 `notify.email_failed`，里面带 SMTP 返回码（535 = 认证失败，554 = 被当成垃圾邮件拒绝）。
 
 ---
 
@@ -96,6 +126,8 @@ Steam 官方接口（`store.steampowered.com` / `api.steampowered.com`）在境�
 
 `sync itad` 用 Isthereanydeal 的 API 拿 Steam 各区域价，**完全不需要访问 Steam**。
 免费 key 在 <https://isthereanydeal.com/apps/my/> 申请。
+
+推荐直接在「控制台 → 系统设置 → 数据源 → ITAD API Key」填写（加密存库，页面不回显）。旧 `.env` 也兼容：
 
 ```bash
 ITAD_API_KEY=你的key
@@ -116,6 +148,8 @@ node src/cli.js sync itad
 | `HTTPS_PROXY` | 其余所有主机的通用代理 | `http://10.0.0.5:3128` |
 | `NO_PROXY` | 排除列表，逗号分隔，支持后缀与 `*` | `sonkwo.hk,sonkwo.cn` |
 
+以上三项在「控制台 → 系统设置 → 网络与代理」里填写，旧 `.env` 仍可被首次导入。
+
 只支持 http/https 代理（undici 的 `ProxyAgent` 不支持 socks5）。配好后先自检：
 
 ```bash
@@ -127,7 +161,18 @@ node src/cli.js diagnose
 日志里每个请求会带 `via=direct|proxy|steam-proxy`，排障时一眼能看出走了哪条路。
 
 **封面图是另一个域名**：`cdn.cloudflare.steamstatic.com` / `cdn.akamai.steamstatic.com`。
-页面"只有名字没有图"时，先看三行图片探测：
+图片**下载一次就落到本机**（`data/images`，宿主机卷），之后前台直接读本地文件，
+不再依赖 CDN/代理——代理只用于采集数据。补图有两种方式：
+
+```bash
+# 手动批量补图（有价格数据的游戏才会补）
+node src/cli.js images pull --limit 400 --sleep 200
+node src/cli.js images stats          # 看已缓存张数/覆盖/体积
+```
+
+调度器默认每 4 小时自动补 200 款（`IMAGES_ENABLED=0` 可关，`IMAGES_LIMIT/SLEEP_MS` 可调）。
+
+页面"只有名字没有图"时，先看三行图片探测（对应 `/img/steam` 的三条兜底路）：
 
 ```bash
 node src/cli.js diagnose
@@ -136,9 +181,9 @@ node src/cli.js diagnose
 # ✔ net:img:cf-direct  Cloudflare 强制直连
 ```
 
-三行全红说明服务器到 Steam CDN 的路都不通：给代理放行 `cdn.cloudflare.steamstatic.com`
+三行全红且本地也没缓存，说明服务器到 Steam CDN 的路都不通：给代理放行 `cdn.cloudflare.steamstatic.com`
 与 `cdn.akamai.steamstatic.com`（自建代理常常只白名单了 api/store/community，图片域名会被拒）。
-`/img/steam` 本身已按「Cloudflare 代理 → Akamai 直连 → Cloudflare 直连」自动兜底。
+`/img/steam` 本身已按「内存热缓存 → 本地文件 → Cloudflare 代理 → Akamai 直连 → Cloudflare 直连」自动兜底。
 
 > 合规提醒：代理的用途与合法性取决于你的网络环境与当地法规，请自行确认。
 
@@ -216,25 +261,41 @@ docker compose run --rm app diagnose
 
 ## 环境变量
 
+### 部署参数（仍用环境变量）
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | 指向内置 db | `postgres://user:pass@host:5432/db` |
-| `POSTGRES_PASSWORD` | 空（不需要） | 仅方式一；启用密码时配合 `POSTGRES_HOST_AUTH_METHOD` |
-| `ITAD_API_KEY` | 空 | 空则跳过 itad 源（日志记 `sync.skip`） |
-| `STEAM_ENABLED` / `SONKWO_ENABLED` / `ITAD_ENABLED` | `1` | 置 `0` 关闭该源 |
-| `STEAM_INTERVAL_MIN` / `SONKWO_INTERVAL_MIN` / `ITAD_INTERVAL_MIN` | 60/60/1440 | 采集间隔（分钟） |
+| `DATABASE_URL` | 自带 db / 嵌入式 PG | 外部 PostgreSQL 连接串；可写在 compose 命令里 |
+| `POSTGRES_PASSWORD` / `POSTGRES_HOST_AUTH_METHOD` | 空 / `trust` | 仅自带 db 的可选加固 |
+| `WEB_PORT` | `8090` | 宿主机端口（容器内固定 8080） |
+| `TZ` | Asia/Shanghai | 影响日志与 `current_date` |
+| `SETUP_TOKEN` | 空 | 设置后 `/setup` 要求口令 |
+| `SECRET_KEY` | 自动生成 | 不设则用 `data/secret.key` |
 | `DB_WAIT_SEC` | 60 | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | 1 | 首次启动是否导入 `data/games.json` |
-| `LOG_LEVEL` | info | trace/debug/info/warn/error |
-| `ALERT_WEBHOOK_URL` | 空 | 通用 webhook，POST JSON |
-| `WECOM_WEBHOOK_URL` | 空 | 企业微信群机器人地址 |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | 空 / 465 / 1 | 邮件通道；587 端口设 `SMTP_SECURE=0` |
-| `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 空 | SMTP 认证与发件人 |
-| `ALERT_EMAIL_TO` | 空 | 收件人，逗号分隔（不填则不启用邮件） |
-| `ALERTS_ENABLED` / `ALERTS_INTERVAL_MIN` | 1 / 360 | 提醒检查开关与间隔 |
-| `CIRCUIT_THRESHOLD` / `CIRCUIT_COOLDOWN_MIN` | 3 / 360 | 连续失败 N 次后暂停多久 |
-| `TZ` | Asia/Shanghai | 影响日志与 `current_date` |
-| `RUN_MODE` | scheduler | `scheduler` 常驻；`once` 只 bootstrap 后退出 |
+| `RUN_MODE` | scheduler | `scheduler` 常驻；`once` 只 bootstrap 后退出；compose 用 `all` |
+| `LOG_DIR` / `OUT_DIR` | `logs` / `out` | 日志与静态页目录 |
+
+### 业务设置
+
+50 项业务配置落库，不再需要 `.env`：
+
+- 首次启动：`/setup`
+- 之后：控制台「系统设置」
+- 保存后调度器约 15 秒内热加载
+- 密钥（ITAD/Steam Key、SMTP 授权码、Webhook、代理）AES-256-GCM 加密；页面只显示「已配置」
+
+完整定义在 `src/settings.js` 的 `SETTINGS` 数组，页面会按分组自动渲染。
+
+### 旧环境变量迁移
+
+老部署升级时，如果库里已经有管理员：
+
+1. 启动时自动把当前 `.env` 里的旧业务变量导入 `app_settings`（只填空缺，不覆盖已有库值）
+2. 写入 `setup.completed_at`，不会把老用户拦到 `/setup`
+3. 之后优先级：数据库 > 环境变量 > 默认值
+
+可迁移的旧变量：`ITAD_API_KEY`、`STEAM_API_KEY`、`*_ENABLED`、`*_INTERVAL_MIN`、`*_INITIAL_DELAY_SEC`、`GOG_REGIONS`、`ALERT_*`、`WECOM_WEBHOOK_URL`、`SMTP_*`、`CIRCUIT_*`、`CHART_ON_SYNC`、`BACKUP_*`、`LOGS_PRUNE_*`、`IMAGES_*`、`STEAM_PROXY` / `HTTPS_PROXY` / `NO_PROXY`、`LOG_LEVEL`。确认页面配置正确后，可以把它们从 `.env` 删掉。
 
 ---
 

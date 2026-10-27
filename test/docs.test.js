@@ -17,6 +17,7 @@ const DOCS = [
   'docs/DATA-SOURCES.md',
   'docs/QUICKSTART.md',
   'docs/WEB.md',
+  'docs/DOCKER-HUB.md',
 ];
 
 // [文本](目标) —— 跳过外链、页内锚点、mailto

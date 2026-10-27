@@ -135,3 +135,55 @@ test('Steam 登录只在后台：前台不得出现登录入口，控制台必�
   assert.ok(console.includes('data-section="steam"'), '控制台必须有 Steam 账号页');
   assert.ok(console.includes('/api/steam/library/sync'), '控制台必须有游戏库同步');
 });
+
+test('Docker Hub 零配置 compose：镜像 + 自带 db + 命名卷 + 首次初始化', () => {
+  const doc = parse(read('compose.hub.yaml'));
+  assert.equal(doc.services.app.image, 'yyliucha/steamdeals:latest');
+  assert.equal(doc.services.app.build, undefined, 'Hub compose 不应要求本地源码构建');
+  assert.ok(doc.services.db, '零配置模式必须自带 db');
+  assert.match(doc.services.app.ports.join(' '), /\$\{WEB_PORT:-8090\}:8080/);
+  const env = doc.services.app.environment;
+  assert.match(env.DATABASE_URL, /@db:5432/);
+  assert.equal(env.ITAD_API_KEY, undefined, '业务配置不能继续塞进 compose');
+  assert.equal(env.STEAM_INTERVAL_MIN, undefined, '业务配置不能继续塞进 compose');
+  const vols = doc.services.app.volumes.join(' ');
+  assert.match(vols, /appdata:\/app\/data/);
+  assert.match(vols, /logs:\/app\/logs/);
+  assert.ok('appdata' in doc.volumes && 'pgdata' in doc.volumes && 'logs' in doc.volumes);
+  assert.ok(existsSync(new URL('../web/setup.html', import.meta.url)), '初始化页必须存在');
+  assert.ok(existsSync(new URL('../web/settings-ui.js', import.meta.url)), '设置表单渲染器必须存在');
+});
+
+test('Docker Hub 外部数据库 compose：不启动 db，DATABASE_URL 由命令传入', () => {
+  const doc = parse(read('compose.hub.external-db.yaml'));
+  assert.equal(doc.services.app.image, 'yyliucha/steamdeals:latest');
+  assert.equal(doc.services.db, undefined, '外部库模式不能启动 db');
+  const raw = doc.services.app.environment.DATABASE_URL;
+  assert.match(raw, /DATABASE_URL:\?/, '缺少 DATABASE_URL 时应由 compose 直接报错');
+  assert.ok(doc.services.app.extra_hosts.includes('host.docker.internal:host-gateway'));
+  assert.match(doc.services.app.ports.join(' '), /\$\{WEB_PORT:-8090\}:8080/);
+});
+
+test('发布工作流：多架构构建、Docker Hub 镜像名、先跑测试与冒烟', () => {
+  const wf = read('.github/workflows/docker-hub.yml');
+  assert.match(wf, /yyliucha\/steamdeals/);
+  assert.match(wf, /linux\/amd64,linux\/arm64/);
+  assert.match(wf, /docker\/build-push-action/);
+  assert.match(wf, /npm test/);
+  assert.match(wf, /gameprice:ci all/, '冒烟必须真正启动 Web/API 进程');
+  assert.match(wf, /api\/setup\/complete/);
+});
+
+test('.dockerignore 不能把 secret.key / 测试数据库打进镜像', () => {
+  const ignore = read('.dockerignore');
+  assert.match(ignore, /^data\/secret\.key$/m);
+  assert.match(ignore, /^data\/\*-pgdata$/m);
+  assert.match(ignore, /^data\/backup$/m);
+  assert.match(ignore, /^\.env$/m);
+});
+
+test('容器入口在 all 模式先 bootstrap，保证首次启动导入种子游戏', () => {
+  const sh = read('scripts/docker-entrypoint.sh');
+  assert.match(sh, /"\$1" = "all"/);
+  assert.match(sh, /node src\/cli\.js bootstrap/);
+});

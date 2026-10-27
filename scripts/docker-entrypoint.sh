@@ -25,6 +25,13 @@ BOOT_LOG=/app/logs/boot.log
 exec > >(tee -a "$BOOT_LOG") 2>&1
 
 if [ "$#" -gt 0 ]; then
+    # compose 的 app 用 `command: ["all"]` 直接启动一体化进程；
+    # 这里先 bootstrap，保证首次启动会建表 + 导入 data/games.json。
+    if [ "$1" = "all" ]; then
+        log "bootstrap：建表 + 首次导入游戏（已导入则跳过）"
+        node src/cli.js bootstrap
+        log "启动 all（Web/API + 调度器）"
+    fi
     exec node src/cli.js "$@"
 fi
 

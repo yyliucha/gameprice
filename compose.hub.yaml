@@ -1,0 +1,66 @@
+name: gameprice
+
+# Docker Hub 零配置部署（自带 PostgreSQL）。
+#
+#   docker compose -f compose.hub.yaml up -d
+#
+# 不需要 .env、不需要改密码、不需要 mkdir/chown。首次打开 http://服务器IP:8090
+# 会进入 /setup 初始化页；业务配置全部写到数据库，之后在「控制台 → 系统设置」修改。
+#
+# 用已有 PostgreSQL：见 compose.hub.external-db.yaml。
+# 只想构建源码：见 compose.yaml。
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gameprice
+      POSTGRES_USER: gameprice
+      # 数据库端口不发布到宿主机，只在 compose 内网可达
+      POSTGRES_HOST_AUTH_METHOD: trust
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gameprice -d gameprice"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    image: yyliucha/steamdeals:latest
+    restart: unless-stopped
+    command: ["all"]
+    ports:
+      - "${WEB_PORT:-8090}:8080"
+    environment:
+      DATABASE_URL: postgres://gameprice@db:5432/gameprice
+      TZ: ${TZ:-Asia/Shanghai}
+      # 可选：设置后初始化页要求输入口令；不设则首次访问者可初始化
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # 命名卷：镜像内 /app/data、/app/logs 已归 node 用户，不需要宿主机 chown
+      - appdata:/app/data
+      - logs:/app/logs
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "src/cli.js", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  appdata:
+  logs:

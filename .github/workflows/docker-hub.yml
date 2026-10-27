@@ -1,0 +1,110 @@
+name: docker-hub
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: node scripts/check-html-syntax.mjs web/index.html web/console.html web/setup.html
+
+  smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: gameprice
+          POSTGRES_USER: gameprice
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gameprice -d gameprice"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t gameprice:ci .
+      - name: Run container against external PostgreSQL
+        run: |
+          docker run -d --name gameprice-ci -p 8090:8080 \
+            --add-host=host.docker.internal:host-gateway \
+            -e DATABASE_URL='postgres://gameprice@host.docker.internal:5432/gameprice?sslmode=disable' \
+            -e SECRET_KEY='ci-secret-key-0123456789abcdef' \
+            -e SETUP_TOKEN='ci-setup-token' \
+            gameprice:ci all
+      - name: Wait for /setup
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8090/setup >/tmp/setup.html; then
+              head -5 /tmp/setup.html
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs gameprice-ci
+          exit 1
+      - name: Complete setup through API
+        run: |
+          set -e
+          curl -fsS -c /tmp/cookies.txt \
+            -H 'content-type: application/json' \
+            -H 'x-setup-token: ci-setup-token' \
+            -d '{"admin":{"username":"admin","password":"admin123456"},"settings":{"sources.steam.enabled":false},"setupToken":"ci-setup-token"}' \
+            http://127.0.0.1:8090/api/setup/complete
+          curl -fsS -b /tmp/cookies.txt http://127.0.0.1:8090/api/games >/dev/null
+          curl -fsS -b /tmp/cookies.txt http://127.0.0.1:8090/api/admin/settings >/dev/null
+      - name: Container logs
+        if: always()
+        run: docker logs gameprice-ci || true
+
+  publish:
+    needs: [test, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: yyliucha/steamdeals
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=SteamDeals
+            org.opencontainers.image.description=跨平台游戏比价与降价提醒
+            org.opencontainers.image.licenses=MIT
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -2,6 +2,66 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.18.1] - 2026-10-27
+
+封面图本地缓存：下载一次后由本机磁盘直接提供，之后不再依赖 CDN / 代理（VPS 只用于采集数据）。
+
+### 新增
+
+- **图片本地缓存**（`src/images.js`）：`<IMG_DIR>/<appid>/<size>.jpg`，默认 `data/images`；
+  `data` 是 compose 挂到宿主机的卷，重建容器不丢
+- **`images pull` 命令**：批量补图（默认 `capsule_sm_120,header`，支持 `--limit/--sleep/--sizes`），
+  只补「有价格数据」的游戏（列表/详情才用得到），已缓存齐全的自动跳过
+- **`images stats`**：已缓存张数 / 覆盖游戏数 / 体积
+- **调度器 `images` 任务**：默认每 4 小时补 200 款（`IMAGES_ENABLED` / `IMAGES_INTERVAL_MIN` /
+  `IMAGES_LIMIT` / `IMAGES_SLEEP_MS` 可调）
+- **`GET /api/admin/images`** 与控制台「数据统计 → 封面图缓存」：张数 / 覆盖 / 体积 / 目录
+- `.gitignore` 忽略 `data/images/`
+
+### 修复
+
+- **`/img/steam/<appid>/<size>` 路由此前永远不可达**：非 `/api/` 路径会先被静态资源分支处理并 404，
+  于是图片请求根本到不了图片路由——这是「前台只有名字没有图」的真正原因（与代理无关）。
+  现在 `/img/` 与 `/api/` 一样先走路由，再回落到静态文件
+- 图片路由改为「内存热缓存 → 本地磁盘 → 三条 CDN 兜底并落盘」；命中本地后不再出网，
+  失败结果缓存 5 分钟避免拖满超时
+
+### 测试
+
+- 新增 `images.test.js` 4 项：路径安全（appid 只留数字 / size 白名单）、读写与统计、
+  下载落盘（注入 fetchBuffer，全失败不落盘）、`/img` 路由命中本地文件时不再触网
+
+## [0.18.0] - 2026-10-27
+
+Docker Hub 零配置部署：业务配置落库 + 首次 `/setup` 初始化 + 控制台系统设置 + 调度器热加载。
+
+### 新增
+
+- **设置存储**：`app_settings`（jsonb + 密钥密文）与 `app_meta`（初始化状态 / settings.revision）；
+  50 项业务设置集中定义在 `src/settings.js`，SMTP 继续复用 `smtp_settings`
+- **首次初始化 `/setup`**：创建第一个管理员 + 写业务设置 + 标记完成，全部在一个事务里；
+  完成前页面 302 到 `/setup`、业务 API 返回 428，健康检查不受影响
+- **`SETUP_TOKEN`**：可选初始化口令，防止公网被抢先初始化
+- **控制台「系统设置」页**：按服务端 schema 渲染分组表单；密钥只显示「已配置」，留空保持、可显式清除
+- **`GET/POST /api/admin/settings`**：管理员读写设置，保存后递增 revision
+- **调度器热加载**：初始化完成前等待，不采集；轮询 revision，设置变更后重新水合 env 并重建任务表
+- **Docker Hub**：`compose.hub.yaml`（自带 PostgreSQL、命名卷、零 `.env`）与
+  `compose.hub.external-db.yaml`（已有库，连接串写在 compose 命令里）
+- **发布工作流**：GitHub Actions 多架构构建 `linux/amd64,linux/arm64`，测试 + 容器冒烟 + 推送 `yyliucha/steamdeals`
+- **文档**：`docs/DOCKER-HUB.md`，README/DEPLOY/QUICKSTART/WEB 同步更新
+
+### 变更
+
+- CLI 启动时自动水合数据库设置；老部署（已有管理员）自动导入旧 `.env` 并标记初始化完成
+- `all` 模式入口先 bootstrap 再启动，保证首次部署导入种子游戏
+- 容器默认使用命名卷，不再需要 `mkdir` / `chown`；`.dockerignore` 排除 `data/secret.key`、测试数据库与备份
+- `.env.example` 缩减为部署参数；业务配置不再需要改 `.env`
+
+### 测试
+
+- 新增 `settings.test.js`（默认值/密钥加密/env 导入/水合/事务）与 `setup.test.js`（拦截、初始化、口令、老库迁移）
+- `deploy.test.js` 增加 Hub compose、外部库 compose、发布工作流、`.dockerignore` 守卫
+
 ## [0.17.7] - 2026-10-27
 
 Steam 登录整体移到后台，前台只展示优惠数据。

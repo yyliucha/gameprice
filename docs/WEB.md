@@ -17,27 +17,64 @@ web 服务（web 容器）——只读：页面 + JSON API
 ## 启动
 
 ```bash
-# 全栈（前端 + API + 数据库）
+# Docker Hub 零配置（自带数据库）
+docker compose -f compose.hub.yaml up -d
+# 首次打开 http://IP:8090 → /setup
+
+# 从源码构建（开发）
 docker compose up -d --build
 
 # 本地开发：直接用 CLI 起服务
 node src/cli.js serve --port 8090
 ```
 
-默认 `web` 服务对外映射 **8090**（容器内 8080），`WEB_PORT` 可改。
+默认对外映射 **8090**（容器内 8080），`WEB_PORT` 可改。
 
 ## 页面
 
 | 路径 | 说明 |
 |---|---|
+| `/setup` | 首次初始化：创建管理员、数据源/代理/提醒；完成前其他页面一律 302 到这里 |
 | `/` | 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称）、登录、后台 |
+| `/console` | 控制台（仅管理员）：用户、游戏管理、访问记录、**Steam 账号**、日志、邮箱、**系统设置**、统计 |
 | 点游戏名 | 详情弹窗：价格曲线（客户端 SVG）、各平台报价、开发商/发行商/分类；管理员可直接改标记 |
-| `/console` | 控制台（仅管理员）：用户、游戏管理、访问记录、**Steam 账号**、日志、邮箱、统计 |
 
 **前台不提供 Steam 登录**：Steam OpenID 登录与游戏库同步全部放在控制台的「Steam 账号」页，
 与站点账号体系相互独立；前台只展示游戏优惠数据。
 
-前端是**零构建**的：`web/index.html` 一个文件，改完刷新即可生效，不需要 npm build。
+前端是**零构建**的：`web/index.html` / `console.html` / `setup.html` 直接改，刷新即可生效，不需要 npm build。
+设置表单由 `web/settings-ui.js` 按服务端 schema 渲染，setup 与控制台共用。
+
+## 初始化与系统设置
+
+首次启动（无管理员）时：
+
+```
+GET /               → 302 /setup
+GET /api/*          → 428 { setupRequired: true }（/api/setup/* 除外）
+GET /setup          → 初始化页
+POST /api/setup/complete
+     原子事务：创建管理员 + 写 app_settings/smtp_settings + 写 setup.completed
+     返回 gp_session cookie，前端跳 /console
+```
+
+- `GET /api/setup/status` → `{ completed, hasAdmin, setupTokenRequired, version, database }`
+- `GET /api/setup/schema` → 字段定义 + 非密钥当前值（密钥只给 `hasValue`）
+- 完成后 setup 接口失效（`complete`/`schema` 409），`/setup` 302 到 `/`
+- 可选 `SETUP_TOKEN`：设置后 `POST /api/setup/complete` 必须带 `x-setup-token` 或 body `setupToken`
+
+老部署如果已经有管理员，启动时自动导入旧 `.env` 并标记完成，不会被拦。
+
+## 业务设置 API（管理员）
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/admin/settings` | 字段定义 + 值 + `sources`（database/env/default）+ 密钥 `hasValue` |
+| `POST /api/admin/settings` | `{ values: { "sources.steam.enabled": false, ... } }` |
+
+- 密钥字段：`GET` 不回显；`POST` 空字符串/省略 = 保持，`null` = 清除
+- 保存后写库、递增 `settings.revision`；调度器轮询到 revision 变化后重新水合 `.env` 并重建任务表
+- SMTP 仍落 `smtp_settings`，与其他业务设置共用页面 API；旧的 `/api/admin/smtp` 保留兼容
 
 ## 权限模型
 
@@ -46,6 +83,9 @@ node src/cli.js serve --port 8090
 | `GET /api/games` | ✅ | ✅ | ✅ |
 | `GET /api/games/:appid` | ✅ | ✅ | ✅ |
 | `POST /api/login` / `POST /api/logout` | ✅ | ✅ | ✅ |
+| `GET /api/setup/status` / `GET /api/setup/schema` | ✅（仅未初始化时） | ✅ | ✅ |
+| `POST /api/setup/complete` | ✅（仅未初始化时；可要求 SETUP_TOKEN） | ✅ | ✅ |
+| `GET/POST /api/admin/settings` | ❌ 401 | ❌ 403 | ✅ |
 | `POST /api/prefs` | ❌ 401 | ✅ | ✅ |
 | `POST /api/games/:appid/interest` | ❌ 401 | ❌ 403 | ✅ |
 | `POST /api/games/:appid/owned` | ❌ 401 | ❌ 403 | ✅ |
@@ -97,9 +137,13 @@ node src/cli.js serve --port 8090
 - `GET /api/admin/views` → 浏览排行（90 天前自动清理）
 - `POST /api/admin/users` → `{ username, password, role }` 建号
 - `GET /api/admin/visitors?page&pageSize&ip&path` → 访问记录分页 + 今日汇总（访问数/独立 IP/黑名单数/高频 IP）
+- `GET /api/admin/images` → 封面图本地缓存统计（张数/覆盖游戏数/体积/目录）
 - `GET /api/admin/emails` → 验证码邮件记录（含 `subject`/`body`：用户收不到邮件时直接看验证码）
 - `GET /api/admin/blacklist` → 黑名单列表；`POST /api/admin/blacklist` → `{ ip, note }` 拉黑（支持 CIDR）；
   `DELETE /api/admin/blacklist/:ip` → 移出。增删后内存黑名单即时刷新
+
+封面图走 `/img/steam/<appid>/<size>`：先查内存热缓存，再查本地文件（`data/images`），
+都没有才经代理取 CDN 并落盘；之后一直读本地文件，不再出网。
 
 也可以走 CLI：`node src/cli.js user add <用户名> --admin`
 

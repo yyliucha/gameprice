@@ -26,11 +26,12 @@ import { renderCompare, groupOffersByRegion } from './compare.js';
 import { extractAppId, fetchMetadata } from './adapters/steam-meta.js';
 import { describeProxy } from './proxy.js';
 import { startStaticServer } from './serve.js';
+import * as settings from './settings.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
 const humble = { ...humbleDescriptor, searchOffer: humbleSearch };
-import { fetchText, sleep } from './http.js';
+import { fetchText, fetchBuffer, sleep } from './http.js';
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
@@ -88,6 +89,31 @@ async function ensureSchema(store) {
 
 const SKIP_AUTO_MIGRATE = new Set(['ping', 'init', 'bootstrap']);
 
+/**
+ * 大多数 CLI 命令在真正干活前先水合一次设置：
+ *   sync itad 这类命令在 withStore 之前就读 process.env.ITAD_API_KEY，
+ *   不提前水合会拿到旧值。这里单独开一个短连接，读完即关。
+ */
+const NO_HYDRATE = new Set(['init', 'bootstrap', 'ping', 'help', 'logs', 'all', 'serve']);
+async function hydrateCliSettings() {
+  if (NO_HYDRATE.has(command)) return;
+  try {
+    const store = await openStore(dbTarget, { logger });
+    try {
+      // 老库可能还没建表；先补齐，避免设置水合时 SMTP 表不存在
+      await ensureSchema(store);
+      await settings.initializeSettings({ store, logger });
+    } finally {
+      await store.close();
+    }
+    // 显式 --level 优先于数据库里的日志级别
+    const level = flag('level', null);
+    if (level && typeof level === 'string') logger.setLevel(level);
+  } catch (err) {
+    logger.warn('settings.hydrate_failed', { message: String(err.message).slice(0, 200) });
+  }
+}
+
 async function withStore(fn) {
   // ping 是健康检查，必须快速返回；等库重试只对真正要干活的命令生效
   const attempts = dbWaitSec > 0 && command !== 'ping' ? Math.max(1, Math.ceil(dbWaitSec / 2)) : 1;
@@ -123,6 +149,7 @@ async function cmdInit() {
     const timer = logger.timed('db.migrate', {});
     await db.migrate(store);
     timer.done();
+    await settings.initializeSettings({ store, logger });
     const v = await db.serverVersion((sql, p) => store.query(sql, p));
     logger.info('db.server', { version: v.version?.slice(0, 60), timeZone: v.timeZone, alive: await ping(store) });
     console.log(`数据库就绪：${dbTarget.startsWith('pglite:') ? dbTarget : 'postgres（凭据已隐藏）'}`);
@@ -137,6 +164,8 @@ async function cmdBootstrap() {
     const timer = logger.timed('db.migrate', {});
     await db.migrate(store);
     timer.done();
+    // 建设置表；老部署（已有管理员）在这里自动标记初始化完成并导入 .env
+    await settings.initializeSettings({ store, logger });
 
     const countRow = await store.query('select count(*)::int as c from games');
     const games = countRow.rows[0]?.c ?? 0;
@@ -1056,19 +1085,30 @@ async function cmdAll() {
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
   await (await import('./steam-login.js')).ensureSteamSchema(store); // Steam 登录与游戏库
+  const initialized = await settings.initializeSettings({ store, logger });
+  const levelFlag = flag('level', null);
+  if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);
+  const q = (sql, p) => store.query(sql, p);
   const srv = await startApiServer({
-    query: (sql, p) => store.query(sql, p),
+    query: q,
     logger,
     outDir: dir,
     port,
     host,
+    store,
+    setupToken: process.env.SETUP_TOKEN ?? '',
+    getSetupState: async () => ({ completed: await settings.isSetupComplete(q) }),
   });
-  logger.info('app.all_mode', { port: srv.port, staticDir: dir });
+  logger.info('app.all_mode', { port: srv.port, staticDir: dir, setupCompleted: initialized.completed });
 
   const child = spawn(process.execPath, ['src/scheduler.js'], { stdio: 'inherit' });
   child.on('exit', (code) => logger.warn('app.scheduler_exit', { code }));
 
   console.log(`服务已启动：http://<服务器IP>:${srv.port}/`);
+  if (!initialized.completed) {
+    console.log(`首次初始化：http://<服务器IP>:${srv.port}/setup`);
+    logger.info('app.setup_required', { url: '/setup', setupToken: Boolean(process.env.SETUP_TOKEN) });
+  }
   console.log(`管理控制台：http://<服务器IP>:${srv.port}/console（需管理员登录）`);
   console.log('采集调度器已在同一容器内启动；Ctrl+C 停止');
 
@@ -1099,15 +1139,23 @@ async function cmdServe() {
   const store = await openStore(dbTarget, { logger });
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
+  const initialized = await settings.initializeSettings({ store, logger });
+  const levelFlag = flag('level', null);
+  if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);
+  const q = (sql, p) => store.query(sql, p);
   const srv = await startApiServer({
-    query: (sql, p) => store.query(sql, p),
+    query: q,
     logger,
     outDir: dir,
     port,
     host,
+    store,
+    setupToken: process.env.SETUP_TOKEN ?? '',
+    getSetupState: async () => ({ completed: await settings.isSetupComplete(q) }),
   });
 
   console.log(`Web 服务已启动：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/`);
+  if (!initialized.completed) console.log(`首次初始化：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/setup`);
   console.log(`静态目录：${dir} · 接口：/api/*（前台免登录可读，写操作需管理员）`);
   console.log('Ctrl+C 停止');
 
@@ -1341,7 +1389,80 @@ const commands = {
   stats: cmdStats,
   logs: cmdLogs,
   diagnose: cmdDiagnose,
+  images: cmdImages,
 };
+
+/**
+ * 封面图本地缓存：批量下载到 data/images（宿主机挂载卷），下载一次后由本机直接提供，
+ * 之后不再依赖 Steam CDN / 香港代理（VPS 只用于采集数据）。
+ */
+async function cmdImages() {
+  const sub = String(args[1] ?? 'pull');
+  const images = await import('./images.js');
+  if (sub === 'stats') {
+    const s = images.imageStats();
+    console.log(`图片缓存：${s.images} 张 / ${s.games} 款游戏 / ${(s.bytes / 1024 / 1024).toFixed(1)} MB`);
+    console.log(`目录：${s.root}`);
+    return;
+  }
+  if (sub !== 'pull') {
+    throw new Error('用法: node src/cli.js images pull [--limit 200] [--sleep 300] [--sizes capsule_sm_120,header] | images stats');
+  }
+  const limit = Math.min(Math.max(Number(flag('limit', '200')) || 200, 1), 5000);
+  const sleepMs = Math.max(0, Number(flag('sleep', '300')) || 0);
+  const sizes = String(flag('sizes', 'capsule_sm_120,header'))
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => images.isImageSize(s));
+  if (!sizes.length) throw new Error('--sizes 不合法，可选：' + images.IMG_SIZES.join(' / '));
+
+  // 只补「有价格数据」的游戏：列表/详情才用得到图，全量目录不下载
+  const rows = await withStore((store) =>
+    store.query(
+      'select g.steam_appid from games g where g.steam_appid is not null ' +
+        'and exists (select 1 from daily_prices d where d.game_id = g.id) ' +
+        'order by g.updated_at desc nulls last, g.id desc limit $1',
+      [limit * 4],
+    ),
+  );
+  const appids = [];
+  for (const row of rows.rows) {
+    const appid = Number(row.steam_appid);
+    if (!Number.isFinite(appid) || appid <= 0) continue;
+    if (sizes.every((size) => images.hasImage(appid, size))) continue; // 已缓存齐全
+    appids.push(appid);
+    if (appids.length >= limit) break;
+  }
+  if (!appids.length) {
+    const s = images.imageStats();
+    console.log(`都有图了：${s.images} 张 / ${s.games} 款游戏 / ${(s.bytes / 1024 / 1024).toFixed(1)} MB`);
+    return;
+  }
+
+  console.log(`准备补图：${appids.length} 款 × ${sizes.length} 张（${sizes.join(' + ')}），每张间隔 ${sleepMs}ms`);
+  const stats = { downloaded: 0, skipped: 0, failed: 0 };
+  for (const appid of appids) {
+    for (const size of sizes) {
+      if (images.hasImage(appid, size)) {
+        stats.skipped += 1;
+        continue;
+      }
+      const r = await images.downloadImage(appid, size, { fetchBuffer, logger, timeoutMs: 12000 });
+      if (r.ok) {
+        stats.downloaded += 1;
+        if (stats.downloaded % 20 === 0) console.log(`  已下载 ${stats.downloaded} 张…（最近 ${appid}/${size}）`);
+      } else {
+        stats.failed += 1;
+        logger.warn('images.failed', { appid, size, message: String(r.error?.message ?? '').slice(0, 160) });
+      }
+      if (sleepMs) await sleep(sleepMs);
+    }
+  }
+  const local = images.imageStats();
+  logger.info('images.pull.done', { ...stats, images: local.images, games: local.games, bytes: local.bytes });
+  console.log(`完成：新下载 ${stats.downloaded} 张，跳过 ${stats.skipped} 张，失败 ${stats.failed} 张`);
+  console.log(`缓存合计：${local.images} 张 / ${local.games} 款游戏 / ${(local.bytes / 1024 / 1024).toFixed(1)} MB → ${local.root}`);
+}
 
 /** 一键同步：把能采集的源按顺序跑一遍，最后重建页面。 */
 async function cmdSyncAll() {
@@ -1391,6 +1512,10 @@ async function cmdSyncAll() {
 }
 
 async function main() {
+  // 先把库里的业务设置水合到 process.env（sync itad 等命令在 withStore 之前就会读 Key）
+  if (command === 'sync' || (commands[command] && !NO_HYDRATE.has(command))) {
+    await hydrateCliSettings();
+  }
   if (command === 'sync') {
     const target = args[1];
     if (target === 'all') return cmdSyncAll();
