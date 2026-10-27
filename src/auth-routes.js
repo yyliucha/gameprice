@@ -88,11 +88,17 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
     }
 
     const code = generateCode();
+    const subject = purpose === 'reset' ? 'SteamDeals 重置密码验证码' : 'SteamDeals 登录验证码';
+    const text =
+      `你的验证码是：${code}\n` +
+      `用途：${purpose === 'reset' ? '重置密码' : '登录'}\n` +
+      `有效期：${Math.round(CODE_TTL_SEC / 60)} 分钟，用完即失效。\n` +
+      '如果不是你本人操作，请忽略这封邮件。';
     const inserted = await q(
-      `insert into email_codes (email, user_id, purpose, code_hash, expires_at)
-       values ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval)
+      `insert into email_codes (email, user_id, purpose, code_hash, subject, body, expires_at)
+       values ($1, $2, $3, $4, $5, $6, now() + ($7 || ' seconds')::interval)
        returning id`,
-      [email, target.id, purpose, hashCode(email, code), String(CODE_TTL_SEC)],
+      [email, target.id, purpose, hashCode(email, code), subject, text, String(CODE_TTL_SEC)],
     );
     const id = inserted.rows[0].id;
 
@@ -106,12 +112,8 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
           pass: cfg.pass,
           from: cfg.from,
           to: email,
-          subject: purpose === 'reset' ? 'SteamDeals 重置密码验证码' : 'SteamDeals 登录验证码',
-          text:
-            `你的验证码是：${code}\n` +
-            `用途：${purpose === 'reset' ? '重置密码' : '登录'}\n` +
-            `有效期：${Math.round(CODE_TTL_SEC / 60)} 分钟，用完即失效。\n` +
-            '如果不是你本人操作，请忽略这封邮件。',
+          subject,
+          text,
         },
         { logger },
       );

@@ -445,8 +445,9 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         if (!auth.isSmtpConfigured(cfg)) return json(res, 503, { error: 'SMTP 未配置，无法发送验证邮件' });
         const code = auth.generateCode();
         const ins = await q(
-          "insert into email_codes (email, user_id, purpose, code_hash, expires_at) values ($1, $2, 'bind', $3, now() + interval '5 minutes') returning id",
-          [target.email, target.id, auth.hashCode(target.email, code)],
+          "insert into email_codes (email, user_id, purpose, code_hash, subject, body, expires_at) " +
+          "values ($1, $2, 'bind', $3, $4, $5, now() + interval '5 minutes') returning id",
+          [target.email, target.id, auth.hashCode(target.email, code), 'SteamDeals 邮箱验证码', '验证码：' + code + '\n有效期 5 分钟。'],
         );
         try {
           await sendMail(
@@ -638,8 +639,9 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const to = String(body.to ?? '').trim() || cfg.from;
         if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
         const record = await q(
-          "insert into email_codes (email, purpose, code_hash, expires_at, sent_ok) values ($1, 'test', '-', now(), null) returning id",
-          [to],
+          "insert into email_codes (email, purpose, code_hash, subject, body, expires_at, sent_ok) " +
+          "values ($1, 'test', '-', $2, $3, now(), null) returning id",
+          [to, 'SteamDeals 测试邮件', '这是一封测试邮件。收到说明 SMTP 配置可用。'],
         );
         try {
           const result = await sendMail(
@@ -671,7 +673,8 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       if (path === '/api/admin/emails' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const rows = await q(
-          'select email, purpose, sent_ok, error, ip, created_at from email_codes order by created_at desc limit 50',
+          'select id, email, purpose, sent_ok, error, ip, subject, body, expires_at, used_at, created_at ' +
+          'from email_codes order by created_at desc limit 50',
         );
         return json(res, 200, { records: rows.rows });
       }

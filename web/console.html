@@ -245,7 +245,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
           <pre id="smtpTrace" class="small muted" style="white-space:pre-wrap;margin:6px 0 0;max-height:120px;overflow:auto"></pre>
         </div>
         <h2>验证码发送记录</h2>
-        <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
+        <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th><th style="width:90px">内容</th></tr></thead><tbody id="mailRows"></tbody></table></div>
       </section>
 
       <section data-section="logs" class="hide">
@@ -295,6 +295,15 @@ textarea{width:100%;min-height:100px;resize:vertical}
   <div class="actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
     <button class="btn" id="gmCancel" type="button">取消</button>
     <button class="btn primary" id="gmSave" type="button">保存</button>
+  </div>
+</dialog>
+<dialog id="mailModal" style="border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--fg);padding:20px;width:520px;box-shadow:var(--shadow)">
+  <h3 id="mmTitle" style="margin:0 0 4px;font-size:16px">邮件内容</h3>
+  <p class="hint" id="mmMeta" style="color:var(--muted);font-size:12px;margin:0 0 10px"></p>
+  <pre id="mmBody" style="white-space:pre-wrap;word-break:break-all;font-family:inherit;font-size:14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin:0;max-height:280px;overflow:auto"></pre>
+  <div class="actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+    <button class="btn" id="mmCopy" type="button">复制验证码</button>
+    <button class="btn primary" id="mmClose" type="button">关闭</button>
   </div>
 </dialog>
 <button id="toTop" class="btn" style="position:fixed;right:24px;bottom:70px;display:none;z-index:40">↑ 顶部</button>
@@ -739,13 +748,45 @@ $('testSmtp').onclick = async function () {
 async function loadMail() {
   try {
     const d = await api('/api/admin/emails');
-    $('mailRows').innerHTML = (d.records || []).map(function (r) {
+    mailCache = d.records || [];
+    $('mailRows').innerHTML = mailCache.map(function (r) {
       return '<tr><td>' + esc(r.email) + '</td><td>' + esc(r.purpose) + '</td><td>' +
         (r.sent_ok ? '<span class="pill ok">成功</span>' : '<span class="pill off">失败</span> ' + esc(r.error || '')) +
-        '</td><td class="muted small">' + when(r.created_at) + '</td></tr>';
-    }).join('') || '<tr><td colspan="4" class="muted">还没有发送记录</td></tr>';
+        '</td><td class="muted small">' + when(r.created_at) + '</td>' +
+        '<td>' + (r.body ? '<button class="btn" data-mail="' + r.id + '">查看</button>' : '<span class="muted small">—</span>') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">还没有发送记录</td></tr>';
   } catch (e) { /* 表可能未建 */ }
 }
+
+// ---- 邮件内容弹窗：用户收不到邮件时，管理员直接看到验证码提供给用户 ----
+let mailCache = [];
+let mailCode = null;
+function openMailModal(r) {
+  $('mmTitle').textContent = r.subject || '（无主题）';
+  $('mmBody').textContent = r.body || '（无正文）';
+  const m = /(\d{6})/.exec(r.body || '');
+  mailCode = m ? m[1] : null;
+  $('mmCopy').disabled = !mailCode;
+  $('mmMeta').textContent = '收件人 ' + r.email + ' · 用途 ' + esc(r.purpose) + ' · ' + when(r.created_at) +
+    (r.expires_at ? ' · 过期 ' + when(r.expires_at) : '') + (r.used_at ? ' · 已使用' : '');
+  $('mailModal').showModal();
+}
+if ($('mmClose')) $('mmClose').onclick = function () { $('mailModal').close(); };
+if ($('mmCopy')) $('mmCopy').onclick = async function () {
+  if (!mailCode) return;
+  try {
+    await navigator.clipboard.writeText(mailCode);
+    toast('验证码已复制：' + mailCode);
+  } catch (e) {
+    toast('复制失败：' + (mailCode || '') + '（请手动选择复制）');
+  }
+};
+document.addEventListener('click', function (e) {
+  const mail = e.target.closest('button[data-mail]');
+  if (!mail) return;
+  const r = mailCache.find(function (x) { return String(x.id) === String(mail.dataset.mail); });
+  if (r) openMailModal(r);
+});
 
 async function loadAllLogs() {
   const grep = $('allGrep').value.trim();

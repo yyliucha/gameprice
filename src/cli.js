@@ -993,12 +993,16 @@ async function cmdBackup() {
 
   const dump = {};
   let purged = 0;
+  let purgedCodes = 0;
   await withStore(async (store) => {
     const q = (sql, p) => store.query(sql, p);
     for (const table of tables) {
       dump[table] = (await q(`select * from ${table}`)).rows;
     }
     purged = await db.purgeOldViews(q, { days: Number(flag('days', 90)) });
+    // 邮件正文含明文验证码，只保留 3 天
+    const { purgeOldCodes } = await import('./email-auth.js');
+    purgedCodes = await purgeOldCodes(q, { days: 3 });
   });
 
   const stamp = new Date().toISOString().slice(0, 10);
@@ -1013,9 +1017,9 @@ async function cmdBackup() {
   }
 
   const rows = tables.reduce((sum, t) => sum + dump[t].length, 0);
-  logger.info('backup.done', { file, tables: tables.length, rows, removedOld: removed, purgedViews: purged });
+  logger.info('backup.done', { file, tables: tables.length, rows, removedOld: removed, purgedViews: purged, purgedCodes });
   console.log(`备份完成：${file}`);
-  console.log(`  表 ${tables.length} 张、${rows} 行；清理旧备份 ${removed} 份；清理过期浏览记录 ${purged} 条`);
+  console.log(`  表 ${tables.length} 张、${rows} 行；清理旧备份 ${removed} 份；清理过期浏览记录 ${purged} 条；清理过期邮件记录 ${purgedCodes} 条`);
 }
 
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响列表展示，采集与统计照常。 */

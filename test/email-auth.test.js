@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import { openStore } from '../src/store/index.js';
 import * as db from '../src/store/pg.js';
+import { startApiServer } from '../src/server.js';
 import {
   generateCode,
   hashCode,
@@ -11,12 +13,55 @@ import {
   encryptSecret,
   decryptSecret,
   ensureEmailSchema,
+  purgeOldCodes,
   smtpConfig,
   isSmtpConfigured,
   CODE_TTL_SEC,
   SEND_COOLDOWN_SEC,
   SEND_HOURLY_LIMIT,
 } from '../src/email-auth.js';
+
+/** 起一个假 SMTP 服务器，记录收到的每一行命令与邮件正文。 */
+function startFakeSmtp({ authCode = 235 } = {}) {
+  const state = { commands: [], data: '' };
+  const server = net.createServer((socket) => {
+    socket.write('220 fake ESMTP ready\r\n');
+    let buf = '';
+    let inData = false;
+    socket.on('data', (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf('\r\n')) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        state.commands.push(line);
+        if (inData) {
+          if (line === '.') {
+            inData = false;
+            socket.write('250 2.0.0 Ok: queued\r\n');
+          } else {
+            state.data += `${line}\r\n`;
+          }
+          continue;
+        }
+        if (/^EHLO/i.test(line)) socket.write('250-fake\r\n250-AUTH PLAIN LOGIN\r\n250 HELP\r\n');
+        else if (/^AUTH PLAIN/i.test(line)) socket.write(`${authCode} auth result\r\n`);
+        else if (/^MAIL FROM/i.test(line)) socket.write('250 2.1.0 Ok\r\n');
+        else if (/^RCPT TO/i.test(line)) socket.write('250 2.1.5 Ok\r\n');
+        else if (/^DATA/i.test(line)) {
+          inData = true;
+          socket.write('354 End data with <CR><LF>.<CR><LF>\r\n');
+        } else if (/^QUIT/i.test(line)) {
+          socket.write('221 2.0.0 Bye\r\n');
+          socket.end();
+        } else socket.write('250 OK\r\n');
+      }
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, state, port: server.address().port }));
+  });
+}
 
 test('验证码：6 位数字，范围合法', () => {
   for (let i = 0; i < 20; i += 1) {
@@ -118,7 +163,66 @@ test('建表：email_codes / smtp_settings 与 users.email', async () => {
       "select column_name from information_schema.columns where table_name='users' and column_name='email'",
     );
     assert.equal(cols.rows.length, 1);
+    const mailCols = await store.query(
+      "select column_name from information_schema.columns where table_name='email_codes' and column_name in ('subject','body')",
+    );
+    assert.equal(mailCols.rows.length, 2, 'email_codes 要有 subject/body（管理员查看邮件内容用）');
   } finally {
     await store.close();
+  }
+});
+
+test('发码后邮件内容落库：正文含验证码且可哈希校验，管理员接口可读，过期可清理', async () => {
+  const { server: smtp, port } = await startFakeSmtp();
+  const store = await openStore('pglite:', {});
+  try {
+    await db.migrate(store);
+    await ensureEmailSchema(store);
+    const q = (sql, p) => store.query(sql, p);
+    await db.createUser(q, { username: 'alice', password: 'alice123456' });
+    await q("update users set email = 'alice@example.com', email_verified = true where username = 'alice'");
+    await q(
+      "insert into smtp_settings (id, host, port, secure, username, from_addr, enabled) values (1, '127.0.0.1', $1, false, 's@x.com', 's@x.com', true)",
+      [port],
+    );
+    await db.createUser(q, { username: 'admin', password: 'admin123456', role: 'admin' });
+
+    const srv = await startApiServer({ query: q, port: 0, host: '127.0.0.1' });
+    const base = `http://127.0.0.1:${srv.port}`;
+    try {
+      const res = await fetch(`${base}/api/auth/email/request`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'alice@example.com', purpose: 'login' }),
+      });
+      assert.equal(res.status, 200, JSON.stringify(await res.text()));
+
+      const row = (await q('select id, subject, body, code_hash from email_codes order by id desc limit 1')).rows[0];
+      assert.equal(row.subject, 'SteamDeals 登录验证码');
+      const code = /(\d{6})/.exec(row.body ?? '')?.[1];
+      assert.ok(code, '正文里要有 6 位验证码');
+      assert.equal(verifyCodeHash('alice@example.com', code, row.code_hash), true, '正文里的验证码能通过哈希校验');
+
+      // 管理员接口能看到主题/正文，直接提供验证码给收不到邮件的用户
+      const login = await fetch(`${base}/api/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: 'admin123456' }),
+      });
+      const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
+      const emails = await (await fetch(`${base}/api/admin/emails`, { headers: { cookie } })).json();
+      assert.equal(emails.records[0].body, row.body);
+      assert.equal(emails.records[0].subject, 'SteamDeals 登录验证码');
+
+      // 清理：3 天前的记录被删（正文含明文验证码，不能久留）
+      await q("update email_codes set created_at = now() - interval '4 days'");
+      const purged = await purgeOldCodes(q, { days: 3 });
+      assert.equal(purged, 1);
+    } finally {
+      await srv.close();
+    }
+  } finally {
+    await store.close();
+    smtp.close();
   }
 });

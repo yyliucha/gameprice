@@ -93,6 +93,7 @@ node src/cli.js serve --port 8090
 - `GET /api/admin/views` → 浏览排行（90 天前自动清理）
 - `POST /api/admin/users` → `{ username, password, role }` 建号
 - `GET /api/admin/visitors?page&pageSize&ip&path` → 访问记录分页 + 今日汇总（访问数/独立 IP/黑名单数/高频 IP）
+- `GET /api/admin/emails` → 验证码邮件记录（含 `subject`/`body`：用户收不到邮件时直接看验证码）
 - `GET /api/admin/blacklist` → 黑名单列表；`POST /api/admin/blacklist` → `{ ip, note }` 拉黑（支持 CIDR）；
   `DELETE /api/admin/blacklist/:ip` → 移出。增删后内存黑名单即时刷新
 

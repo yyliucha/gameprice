@@ -124,6 +124,8 @@ create table if not exists email_codes (
   sent_ok boolean,
   error text,
   ip text,
+  subject text,
+  body text,
   created_at timestamptz not null default now()
 );
 create index if not exists email_codes_email_idx on email_codes (email, created_at desc);
@@ -142,9 +144,18 @@ create table if not exists smtp_settings (
 
 export async function ensureEmailSchema(store) {
   await store.exec(EMAIL_SCHEMA);
+  // 老库补列：邮件内容（主题/正文）是后来加的，管理员要能直接看到验证码
+  await store.exec('alter table email_codes add column if not exists subject text');
+  await store.exec('alter table email_codes add column if not exists body text');
   await store.exec('alter table users add column if not exists email text');
   await store.exec('alter table users add column if not exists email_verified boolean not null default false');
   await store.exec('create unique index if not exists users_email_uniq on users (email) where email is not null');
+}
+
+/** 清理过期邮件记录（正文含明文验证码，定期清掉；默认保留 3 天）。 */
+export async function purgeOldCodes(q, { days = 3 } = {}) {
+  const r = await q("delete from email_codes where created_at < now() - ($1 || ' days')::interval", [String(days)]);
+  return r.rowCount ?? 0;
 }
 
 /** 取一个可用的 SMTP 配置：数据库优先，没配则回退环境变量。 */
