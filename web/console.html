@@ -92,6 +92,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <tbody id="userRows"></tbody>
           </table>
         </div>
+        <p class="muted small">角色：<strong>管理员</strong> 可登录控制台并管理用户、游戏、同步任务与系统设置；<strong>普通用户</strong> 只能在前台登录浏览，没有任何管理权限。状态「已禁用」的账号无法登录（改密码会自动恢复启用）。</p>
         <div class="card pad" style="margin-top:12px">
           <strong class="small">新增用户</strong>
           <div class="row">
@@ -494,12 +495,13 @@ async function loadUsers() {
   $('userRows').innerHTML = (d.users || []).map(function (u) {
     const name = esc(u.username);
     const disabled = u.disabled === true;
+    // 角色用中文展示，避免 admin/user 这种原始值让用户看不懂
+    const role = u.role === 'admin' ? '<span class="pill ok">管理员</span>' : '<span class="pill">普通用户</span>';
     return '<tr>' +
       '<td>' + name + '</td>' +
       '<td class="muted small">' + esc(u.display_name || '') + '</td>' +
       '<td class="small">' + (u.email ? esc(u.email) + (u.email_verified ? ' <span class="pill ok">已验证</span>' : ' <span class="pill off">未验证</span>') : '<span class="pill off">未绑定</span>') + '</td>' +
-'<td class="small">' + (u.steam_id ? esc(u.steam_id) : '<span class="pill off">未绑定</span>') + '</td>' +
-      '<td>' + esc(u.role) + '</td>' +
+      '<td>' + role + '</td>' +
       '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? '已禁用' : '正常') + '</span></td>' +
       '<td class="muted small">' + when(u.last_login_at) + '</td>' +
       '<td>' +
