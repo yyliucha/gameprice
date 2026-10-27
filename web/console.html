@@ -254,13 +254,14 @@ async function loadUsers() {
     return '<tr>' +
       '<td>' + name + '</td>' +
       '<td class="muted small">' + esc(u.display_name || '') + '</td>' +
-      '<td class="small">' + (u.email ? esc(u.email) : '<span class="pill off">未绑定</span>') + '</td>' +
+      '<td class="small">' + (u.email ? esc(u.email) + (u.email_verified ? ' <span class="pill ok">已验证</span>' : ' <span class="pill off">未验证</span>') : '<span class="pill off">未绑定</span>') + '</td>' +
       '<td>' + esc(u.role) + '</td>' +
       '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? '已禁用' : '正常') + '</span></td>' +
       '<td class="muted small">' + when(u.last_login_at) + '</td>' +
       '<td>' +
         '<button class="btn" data-act="rename" data-user="' + name + '">改名</button> ' +
         '<button class="btn" data-act="email" data-user="' + name + '">绑邮箱</button> ' +
+        (u.email && !u.email_verified ? '<button class="btn" data-act="verify" data-user="' + name + '">验证</button> ' : '') +
         '<button class="btn" data-act="pwd" data-user="' + name + '">改密码</button> ' +
         '<button class="btn ' + (disabled ? '' : 'danger') + '" data-act="toggle" data-user="' + name + '" data-disabled="' + disabled + '">' + (disabled ? '启用' : '禁用') + '</button>' +
       '</td></tr>';
@@ -299,6 +300,13 @@ $('userRows').addEventListener('click', async function (e) {
   if (!btn) return;
   const username = btn.dataset.user;
   try {
+    if (btn.dataset.act === 'verify') {
+      const r1 = await api('/api/admin/users/' + encodeURIComponent(username) + '/email/code', { method: 'POST' });
+      const code = await askText({ title: '验证邮箱', hint: (r1.hint || '验证码已发送') + '，请查收邮件后填入 6 位验证码。', placeholder: '6 位验证码' });
+      if (!code) return;
+      await api('/api/admin/users/' + encodeURIComponent(username) + '/email/verify', { method: 'POST', body: JSON.stringify({ code: code.trim() }) });
+      toast('邮箱已验证'); return loadUsers();
+    }
     if (btn.dataset.act === 'email') {
       const v = await askText({
         title: '绑定登录邮箱',

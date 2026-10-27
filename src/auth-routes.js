@@ -61,7 +61,7 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       return true;
     }
 
-    const userRow = await q('select id, username, disabled from users where email = $1', [email]);
+    const userRow = await q('select id, username, disabled, email_verified from users where email = $1', [email]);
     const target = userRow.rows[0] ?? null;
     if (!target) {
       logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'email_not_bound' });
@@ -71,6 +71,12 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
     if (target.disabled) {
       logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'user_disabled' });
       json(res, 403, { error: '账号已被禁用' });
+      return true;
+    }
+
+    if (target.email_verified !== true) {
+      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'email_unverified' });
+      json(res, 403, { error: '邮箱还没有验证，请联系管理员在后台完成验证' });
       return true;
     }
 
