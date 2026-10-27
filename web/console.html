@@ -213,6 +213,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
 
       <section data-section="stats" class="hide">
         <h2>浏览排行（90 天）</h2>
+<div class="row"><label class="small muted"><input type="checkbox" id="aggBtn"> 按游戏聚合（同一游戏的多个页面合并）</label></div>
         <div class="card"><table><thead><tr><th>游戏</th><th>页面</th><th class="num">现价</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
       </section>
     </div>
@@ -314,8 +315,8 @@ $('gameRows').addEventListener('click', async function (e) {
     }
   } catch (err) { toast('失败：' + err.message); }
 });
-$('gameRefresh').onclick = loadGameList;
-$('wishImport').onclick = async function () {
+if ($('gameRefresh')) $('gameRefresh').onclick = loadGameList;
+if ($('wishImport')) $('wishImport').onclick = async function () {
   const steamId = $('wishId').value.trim();
   if (!/^\d{17}$/.test(steamId)) { $('wishMsg').textContent = '请填 17 位 SteamID64'; return; }
   $('wishMsg').textContent = '导入中…';
@@ -325,7 +326,7 @@ $('wishImport').onclick = async function () {
     await loadGameList();
   } catch (e) { $('wishMsg').textContent = '失败：' + e.message; }
 };
-$('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
+if ($('gameKw')) $('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
 
 async function loadUsers() {
   const d = await api('/api/admin/users');
@@ -496,10 +497,10 @@ async function loadLogs() {
   }
 }
 $('logRefresh').onclick = loadLogs;
-$('allRefresh').onclick = loadAllLogs;
-$('aggBtn').addEventListener('change', renderStats);
-$('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
-$('allLevel').addEventListener('change', loadAllLogs);
+if ($('allRefresh')) $('allRefresh').onclick = loadAllLogs;
+if ($('aggBtn')) $('aggBtn').addEventListener('change', renderStats);
+if ($('allGrep')) $('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
+if ($('allLevel')) $('allLevel').addEventListener('change', loadAllLogs);
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
 setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
 setInterval(function () { if (currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 3000);
@@ -628,7 +629,14 @@ $('login').onclick = async function () {
 };
 $('logout').onclick = async function () { await api('/api/logout', { method: 'POST' }); await boot(); };
 
-boot();
+window.addEventListener('error', function (e) {
+  const m = document.getElementById('msg');
+  if (m) m.textContent = '页面脚本错误：' + (e.message || '未知');
+});
+boot().catch(function (err) {
+  const m = document.getElementById('msg');
+  if (m) m.textContent = '启动失败：' + err.message;
+});
 </script>
 </body>
 </html>
