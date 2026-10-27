@@ -583,7 +583,19 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           /* 没有 boot.log 就算了 */
         }
 
-        const filtered = grep ? entries.filter((e) => JSON.stringify(e).includes(grep)) : entries;
+        // 按模块归类：用户 / Steam 同步 / 程序；error 单独一档
+        const scopeOf = (e) => {
+          const ev = String(e.event || '');
+          const job = String(e.job || '');
+          if (/^(auth\.|api\.login|api\.logout|api\.user_|api\.me)/.test(ev)) return 'user';
+          if (/^(sync\.steamall|sync\.item_failed|import\.steamcatalog|steam\.meta|api\.sync_)/.test(ev) || /^steam/.test(job)) return 'steam';
+          return 'app';
+        };
+        const scope = String(url.searchParams.get('scope') ?? '').trim();
+        const scoped = scope
+          ? entries.filter((e) => (scope === 'error' ? String(e.level || '').toLowerCase() === 'error' : scopeOf(e) === scope))
+          : entries;
+        const filtered = grep ? scoped.filter((e) => JSON.stringify(e).includes(grep)) : scoped;
         return json(res, 200, { files: picked, count: filtered.length, entries: filtered.slice(-limit) });
       }
 

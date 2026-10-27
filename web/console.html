@@ -169,7 +169,14 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <div class="card pad">
           <div class="row">
             <button class="btn primary" id="syncAll2">立即同步全部 Steam 游戏</button>
-            <input id="logGrep" placeholder="过滤关键字，如 sync.steamall / error" style="width:280px">
+            <select id="logScope">
+              <option value="">全部日志</option>
+              <option value="user">用户模块</option>
+              <option value="steam">Steam 同步</option>
+              <option value="app">程序运行</option>
+              <option value="error">仅异常（ERROR）</option>
+            </select>
+            <input id="logGrep" placeholder="再按关键字过滤（可留空）" style="width:260px">
             <button class="btn" id="logRefresh">刷新</button>
             <label class="small muted"><input type="checkbox" id="logAuto" checked> 自动刷新（3s）</label>
             <span class="small muted" id="logMeta"></span>
@@ -504,7 +511,8 @@ $('syncAll2').onclick = function () { triggerSync('steamall'); };
 async function loadLogs() {
   const grep = $('logGrep').value.trim();
   try {
-    const d = await api('/api/admin/logs?limit=300' + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
+    const scope = ($('logScope') || {}).value || '';
+    const d = await api('/api/admin/logs?limit=300' + (scope ? '&scope=' + encodeURIComponent(scope) : '') + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
     const entries = (d.entries || []).slice().reverse();
     $('logMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
     $('logBox').innerHTML = entries.length ? entries.map(function (e) {
@@ -525,6 +533,7 @@ if ($('allRefresh')) $('allRefresh').onclick = loadAllLogs;
 if ($('aggBtn')) $('aggBtn').addEventListener('change', renderStats);
 if ($('allGrep')) $('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
 if ($('allLevel')) $('allLevel').addEventListener('change', loadAllLogs);
+if ($('logScope')) $('logScope').addEventListener('change', loadLogs);
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
 setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
 setInterval(function () { if (currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 3000);
