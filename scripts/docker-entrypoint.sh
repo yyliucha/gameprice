@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # 容器入口：
 #   带参数  → 直接当 CLI 用（docker compose run --rm app list）
 #   不带参数 → 按 RUN_MODE 跑常驻调度器（默认）
@@ -18,6 +18,11 @@ check_writable() {
 }
 check_writable /app/logs
 check_writable /app/data
+
+# 启动阶段的输出（含 entrypoint 自己与 node 的 stderr）也落盘，
+# 这样后台「日志」页能看到容器启动过程，不必再 docker logs。
+BOOT_LOG=/app/logs/boot.log
+exec > >(tee -a "$BOOT_LOG") 2>&1
 
 if [ "$#" -gt 0 ]; then
     exec node src/cli.js "$@"

@@ -395,7 +395,8 @@ async function loadLogs() {
     $('logMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
     $('logBox').innerHTML = entries.length ? entries.map(function (e) {
       const lv = String(e.level || '').toLowerCase();
-      const t = e.time ? String(e.time).slice(11, 19) : '';
+      const iso = e.ts || e.time;
+      const t = iso ? String(iso).slice(11, 19) : '';
       const ev = esc(e.event || e.msg || '');
       const rest = Object.entries(e).filter(function (kv) { return ['time', 'level', 'event', 'msg', 'runId'].indexOf(kv[0]) < 0; })
         .map(function (kv) { return kv[0] + '=' + (typeof kv[1] === 'object' ? JSON.stringify(kv[1]) : String(kv[1])); }).join(' ');
@@ -469,7 +470,8 @@ async function loadAllLogs() {
     $('allMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
     $('allBox').innerHTML = entries.length ? entries.map(function (e) {
       const lv = String(e.level || '').toLowerCase();
-      const t = e.time ? String(e.time).slice(11, 19) : '';
+      const iso = e.ts || e.time;
+      const t = iso ? String(iso).slice(11, 19) : '';
       const ev = esc(e.event || e.msg || '');
       const rest = Object.entries(e).filter(function (kv) { return ['time','level','event','msg','runId'].indexOf(kv[0]) < 0; })
         .map(function (kv) { return kv[0] + '=' + (typeof kv[1] === 'object' ? JSON.stringify(kv[1]) : String(kv[1])); }).join(' ');

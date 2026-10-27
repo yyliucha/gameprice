@@ -479,6 +479,17 @@ export function createApiServer({ query, logger = null, outDir = null }) {
             /* 单个文件读失败不影响整体 */
           }
         }
+        // 容器启动输出（entrypoint / node 崩溃栈）也一起返回
+        try {
+          const bootLines = fsMod.readFileSync(dir + '/boot.log', 'utf8').split('\n').filter(Boolean).slice(-limit);
+          for (const line of bootLines) {
+            entries.push({ ts: new Date().toISOString(), level: /错误|失败|ERROR|Error/.test(line) ? 'warn' : 'info', event: line.slice(0, 300) });
+          }
+          if (bootLines.length) picked.push("boot.log");
+        } catch {
+          /* 没有 boot.log 就算了 */
+        }
+
         const filtered = grep ? entries.filter((e) => JSON.stringify(e).includes(grep)) : entries;
         return json(res, 200, { files: picked, count: filtered.length, entries: filtered.slice(-limit) });
       }
