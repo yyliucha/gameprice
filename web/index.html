@@ -54,6 +54,19 @@ tr:hover td{background:var(--hover)}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}
 dialog{border:1px solid var(--border);border-radius:14px;padding:20px;background:var(--panel);color:var(--fg);box-shadow:var(--shadow);width:320px}
 dialog::backdrop{background:rgba(0,0,0,.35)}
+/* 详情弹窗：桌面宽版；表格不折行，窄屏横向滚动（之前 320px 太窄，表头和内容全被挤成竖排） */
+#detailDlg{width:min(860px,94vw);max-width:94vw;max-height:88vh;overflow:auto}
+#detailDlg .detailHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#detailDlg .detailHead>div{min-width:0}
+#detailDlg .detailHead .btn{flex:none;white-space:nowrap}
+#detailDlg .tableWrap{overflow-x:auto}
+#detailDlg table{min-width:520px}
+#detailDlg th,#detailDlg td{white-space:nowrap;padding:9px 10px}
+#detailDlg th.num,#detailDlg td.num{text-align:right}
+#detailDlg .detailFacts{color:var(--muted);font-size:12px;line-height:1.7}
+#detailDlg .detailFacts .pill{margin:1px 2px}
+/* 前端后台弹窗同样放宽，表格不挤 */
+#adminDlg{width:min(720px,94vw);max-width:94vw;max-height:86vh;overflow:auto}
 input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px;margin:6px 0 12px}
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
 .hide{display:none !important}
@@ -542,21 +555,21 @@ async function openDetail(appid, gid) {
     : '';
 
   const headerImg = appid
-    ? '<img src="/img/steam/' + esc(appid) + '/header" alt="" loading="lazy" style="width:100%;border-radius:10px;margin-bottom:12px;background:var(--hover)" onerror="this.style.display=\'none\'">'
+    ? '<img src="/img/steam/' + esc(appid) + '/header" alt="" loading="lazy" style="display:block;width:100%;max-width:520px;border-radius:10px;margin:0 auto 12px;background:var(--hover)" onerror="this.style.display=\'none\'">'
     : '';
 
   box.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:start;gap:12px">' +
+    '<div class="detailHead">' +
     '<div><strong style="font-size:18px">' + esc(g.name) + '</strong>' +
     (g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '') +
-    '<div class="muted small">' + facts.join(' · ') + '</div></div>' +
+    '<div class="detailFacts">' + facts.join(' · ') + '</div></div>' +
     '<button class="btn" id="closeDetail">关闭</button></div>' +
     headerImg +
     '<div class="bar"><span class="pill">现价 ' + yuan(g.current_low) + '</span>' +
     '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
     '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
     chartSvg(d.series) + admin +
-    '<div class="card" style="margin-top:12px"><table><thead><tr><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
+    '<div class="card tableWrap" style="margin-top:12px"><table><thead><tr><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
 
   document.getElementById('closeDetail').onclick = () => dlg.close();
   if (admin) {
