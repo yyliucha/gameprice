@@ -85,7 +85,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <h2>用户</h2>
         <div class="card">
           <table>
-            <thead><tr><th>用户名</th><th>显示名</th><th>登录邮箱</th><th>Steam</th><th>角色</th><th>状态</th><th>最近登录</th><th style="width:420px">操作</th></tr></thead>
+            <thead><tr><th>用户名</th><th>显示名</th><th>登录邮箱</th><th>角色</th><th>状态</th><th>最近登录</th><th style="width:420px">操作</th></tr></thead>
             <tbody id="userRows"></tbody>
           </table>
         </div>
@@ -118,12 +118,13 @@ textarea{width:100%;min-height:100px;resize:vertical}
           <div class="row">
             <input id="gameKw" placeholder="按名称或 appid 搜索" style="width:240px">
             <button class="btn" id="gameRefresh">刷新</button>
+            <label class="small muted"><input type="checkbox" id="showImgs"> 显示图片</label>
             <span class="small muted" id="gameMeta"></span>
           </div>
         </div>
         <div class="card" style="margin-top:10px">
           <table>
-            <thead><tr><th>appid</th><th>名称</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
+            <thead><tr><th>图片</th><th>appid</th><th>名称</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
             <tbody id="gameRows"></tbody>
           </table>
         </div>
@@ -337,7 +338,11 @@ async function loadGameList(page) {
     if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
     renderPager();
     $('gameRows').innerHTML = (d.games || []).map(function (g) {
+      const showImgs = ($('showImgs') || {}).checked;
       return '<tr>' +
+        '<td>' + (showImgs && g.steam_appid
+          ? '<img loading="lazy" src="/img/steam/' + g.steam_appid + '/capsule_sm_120" style="width:92px;height:43px;object-fit:cover;border-radius:6px" onerror="this.style.display=\'none\'">'
+          : '<span class="muted small">—</span>') + '</td>' +
         '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
         '<td>' + esc(g.name) + (g.name_en ? '<div class="small muted">' + esc(g.name_en) + '</div>' : '') + '</td>' +
         '<td class="num">' + (g.steam_price != null ? '¥' + (g.steam_price / 100).toFixed(2) : '<span class="muted">无</span>') + '</td>' +
@@ -349,9 +354,9 @@ async function loadGameList(page) {
           (g.steam_appid ? '<button class="btn" data-gact="edit" data-appid="' + g.steam_appid + '">编辑</button> ' : '') +
           (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button>' : '') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="8" class="muted">没有匹配的游戏</td></tr>';
+    }).join('') || '<tr><td colspan="9" class="muted">没有匹配的游戏</td></tr>';
   } catch (e) {
-    $('gameRows').innerHTML = '<tr><td colspan="8" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+    $('gameRows').innerHTML = '<tr><td colspan="9" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }
 }
 $('gameRows').addEventListener('click', async function (e) {
@@ -403,10 +408,10 @@ async function loadUsers() {
         '<button class="btn" data-act="email" data-user="' + name + '">绑邮箱</button> ' +
         (u.email && !u.email_verified ? '<button class="btn" data-act="verify" data-user="' + name + '">验证</button> ' : '') +
         '<button class="btn" data-act="pwd" data-user="' + name + '">改密码</button> ' +
-        '<button class="btn" data-act="steamlib" data-user="' + name + '">同步库</button> ' +
+
         '<button class="btn ' + (disabled ? '' : 'danger') + '" data-act="toggle" data-user="' + name + '" data-disabled="' + disabled + '">' + (disabled ? '启用' : '禁用') + '</button>' +
       '</td></tr>';
-  }).join('') || '<tr><td colspan="8" class="muted">还没有用户</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">还没有用户</td></tr>';
 }
 
 /** 统一的输入弹窗，替代浏览器原生 prompt（样式与后台一致）。 */
@@ -447,11 +452,6 @@ $('userRows').addEventListener('click', async function (e) {
       if (!code) return;
       await api('/api/admin/users/' + encodeURIComponent(username) + '/email/verify', { method: 'POST', body: JSON.stringify({ code: code.trim() }) });
       toast('邮箱已验证'); return loadUsers();
-    }
-    if (btn.dataset.act === 'steamlib') {
-      const d = await api('/api/admin/steam/library', { method: 'POST' });
-      toast('已同步 ' + d.total + ' 款游戏');
-      return;
     }
     if (btn.dataset.act === 'email') {
       const v = await askText({

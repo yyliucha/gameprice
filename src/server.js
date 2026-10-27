@@ -196,6 +196,30 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { game, offers, series });
       }
 
+      // ---- Steam 图片代理：/img/steam/<appid>/<size>（服务端经代理取 CDN，前端无需直连） ----
+      const imgMatch = path.match(/^\/img\/steam\/(\d+)\/([a-z0-9_]+)$/);
+      if (imgMatch && req.method === 'GET') {
+        const appid = imgMatch[1];
+        const size = imgMatch[2];
+        const SIZES = new Set(['header', 'capsule_231x87', 'capsule_sm_120', 'capsule_616x353', 'library_600x900', 'library_hero']);
+        if (!SIZES.has(size)) return json(res, 404, { error: 'unknown size' });
+        const { fetchBuffer } = await import('./http.js');
+        try {
+          const img = await fetchBuffer('https://cdn.cloudflare.steamstatic.com/steam/apps/' + appid + '/' + size + '.jpg', { logger, label: 'steam.img' });
+          res.writeHead(200, {
+            'content-type': img.contentType,
+            'content-length': img.bytes,
+            'cache-control': 'public, max-age=604800',
+          });
+          res.end(img.body);
+        } catch (err) {
+          logger?.debug('steam.img_miss', { appid, size });
+          res.writeHead(404);
+          res.end();
+        }
+        return;
+      }
+
       const gameMatch = path.match(/^\/api\/games\/(\d+)$/);
       if (gameMatch && req.method === 'GET') {
         const appid = Number(gameMatch[1]);
@@ -233,8 +257,11 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
-      // ---- Steam OpenID 登录 / 游戏库 ----
+      // ---- Steam OpenID 登录 / 游戏库（独立于站点用户体系）----
       const steamMod = await import('./steam-login.js');
+      await steamMod.ensureSteamSchemaOnce(q);
+      const parseCookies = (header) => Object.fromEntries(String(header ?? '').split(';').map((c) => c.trim().split('=')).filter((x) => x.length === 2));
+
       if (path === '/api/auth/steam/start' && req.method === 'GET') {
         const target = steamMod.buildLoginUrl(steamMod.baseUrl(req));
         logger?.info('steam.login_start', { host: req.headers.host });
@@ -246,32 +273,48 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       if (path.startsWith('/api/auth/steam/callback')) {
         const steamId = await steamMod.verifyCallback(url, { logger });
         if (!steamId) return json(res, 400, { error: 'Steam 校验失败，请重试' });
-        let found = await q('select id, username, role, disabled from users where steam_id = $1', [steamId]);
-        let account = found.rows[0];
-        if (!account) {
-          const username = 'steam_' + steamId.slice(-6);
-          const ins = await q("insert into users (username, password_hash, role, steam_id) values ($1, $2, 'user', $3) returning id, username, role, disabled", [username, db.hashPassword('steam-' + steamId), steamId]);
-          account = ins.rows[0];
-          logger?.info('steam.user_created', { steamId, username });
-        }
-        if (account.disabled) return json(res, 403, { error: '账号已禁用' });
-        const token = await db.createSession(q, { userId: account.id });
-        logger?.info('steam.login_ok', { steamId, username: account.username });
+        const apiKey = String(process.env.STEAM_API_KEY ?? '').trim();
+        const persona = await steamMod.fetchPersona({ apiKey, steamId, logger });
+        await q(
+          "insert into steam_accounts (steam_id, persona_name, avatar, last_login_at) values ($1, $2, $3, now()) " +
+          "on conflict (steam_id) do update set persona_name = coalesce(excluded.persona_name, steam_accounts.persona_name), avatar = coalesce(excluded.avatar, steam_accounts.avatar), last_login_at = now()",
+          [steamId, persona.personaName, persona.avatar],
+        );
+        const token = await steamMod.createSteamSession(q, steamId);
+        logger?.info('steam.login_ok', { steamId, persona: persona.personaName ?? null });
         res.writeHead(302, {
-          location: '/',
-          'set-cookie': 'gp_session=' + token + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800',
+          location: '/#steam',
+          'set-cookie': 'steam_session=' + token + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000',
         });
         res.end();
         return;
       }
 
-      if (path === '/api/admin/steam/library' && req.method === 'POST') {
-        if (!requireAdmin()) return;
+      if (path === '/api/steam/me' && req.method === 'GET') {
+        const cookies = parseCookies(req.headers.cookie);
+        const steamId = await steamMod.steamIdBySession(q, cookies.steam_session);
+        if (!steamId) return json(res, 200, { steamId: null });
+        const acc = await q(
+          'select a.steam_id, a.persona_name, a.avatar, (select count(*)::int from steam_games g where g.steam_id = a.steam_id) as games from steam_accounts a where a.steam_id = $1',
+          [steamId],
+        );
+        return json(res, 200, { ...(acc.rows[0] ?? {}), steamId });
+      }
+
+      if (path === '/api/steam/logout' && req.method === 'POST') {
+        const cookies = parseCookies(req.headers.cookie);
+        await q('delete from steam_sessions where token = $1', [cookies.steam_session ?? '']);
+        res.writeHead(302, { location: '/#steam', 'set-cookie': 'steam_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' });
+        res.end();
+        return;
+      }
+
+      if (path === '/api/steam/library/sync' && req.method === 'POST') {
+        const cookies = parseCookies(req.headers.cookie);
+        const steamId = await steamMod.steamIdBySession(q, cookies.steam_session);
+        if (!steamId) return json(res, 401, { error: '请先登录 Steam' });
         const apiKey = String(process.env.STEAM_API_KEY ?? '').trim();
         if (!apiKey) return json(res, 400, { error: '未配置 STEAM_API_KEY（Steam Web API Key）' });
-        const row = await q('select steam_id from users where username = $1', [user.username]);
-        const steamId = row.rows[0]?.steam_id;
-        if (!steamId) return json(res, 400, { error: '当前账号还没绑定 Steam，请先用「用 Steam 登录」' });
         let games = [];
         try {
           games = await steamMod.fetchOwnedGames({ apiKey, steamId, logger });
@@ -290,12 +333,12 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       if (path === '/api/steam/library' && req.method === 'GET') {
-        if (!requireUser()) return;
-        const row = await q('select steam_id from users where id = $1', [user.id]);
-        const steamId = row.rows[0]?.steam_id;
+        const cookies = parseCookies(req.headers.cookie);
+        const steamId = await steamMod.steamIdBySession(q, cookies.steam_session);
         if (!steamId) return json(res, 200, { steamId: null, games: [] });
         const games = await q(
           "select sg.appid, coalesce(g.name, sg.name) as name, sg.playtime_minutes, sg.last_played_at, " +
+          "g.steam_appid is not null as in_db, " +
           "(select min(o.price_cents) from offers o where o.game_id = g.id and o.in_stock) as low " +
           "from steam_games sg left join games g on g.steam_appid = sg.appid where sg.steam_id = $1 order by sg.playtime_minutes desc limit 500",
           [steamId],

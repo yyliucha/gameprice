@@ -209,3 +209,30 @@ export async function fetchJson(url, opts = {}) {
     throw e;
   }
 }
+
+/** 拉取原始字节（图片等二进制），走同一套代理与重试逻辑。 */
+export async function fetchBuffer(url, opts = {}) {
+  const { logger = null, label = 'img', timeoutMs = 15000, retries = 1, headers = {} } = opts;
+  const route = dispatcherFor(hostOf(url));
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await undici.fetch(url, {
+        signal: controller.signal,
+        redirect: 'follow',
+        ...(route.dispatcher ? { dispatcher: route.dispatcher } : {}),
+        headers: { 'user-agent': USER_AGENT, ...headers },
+      });
+      if (!res.ok) { const e = new Error('HTTP ' + res.status); e.status = res.status; throw e; }
+      const buf = Buffer.from(await res.arrayBuffer());
+      return { body: buf, bytes: buf.length, status: res.status, contentType: res.headers.get('content-type') ?? 'image/jpeg' };
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError ?? new Error('fetchBuffer failed');
+}

@@ -9,7 +9,7 @@
 // 两者都不配 = 全部直连（默认行为，和之前完全一致）。
 
 /** 默认走 Steam 专用代理的域名后缀。 */
-export const DEFAULT_STEAM_HOSTS = ['store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com'];
+export const DEFAULT_STEAM_HOSTS = ['store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com', 'cdn.cloudflare.steamstatic.com'];
 
 const firstDefined = (...values) => values.find((v) => typeof v === 'string' && v.trim() !== '') ?? '';
 
