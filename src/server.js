@@ -350,10 +350,11 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const auth = await import('./email-auth.js');
         const { sendMail } = await import('./notify.js');
         const body = await readBody(req);
-        const to = String(body.to ?? '').trim();
-        if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
         const cfg = await auth.smtpConfig(q);
         if (!auth.isSmtpConfigured(cfg)) return json(res, 400, { error: 'SMTP 还没配置完整（主机与发件人必填）' });
+        // 收件人留空时发给发件人自己，前端不用重复填
+        const to = String(body.to ?? '').trim() || cfg.from;
+        if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
         try {
           await sendMail(
             {
@@ -401,7 +402,11 @@ export function createApiServer({ query, logger = null, outDir = null }) {
             [email, username],
           );
           if (!r.rows.length) return json(res, 404, { error: '没有该用户' });
-          logger?.info('api.user_email_bound', { username, email: email ? auth.maskEmail(email) : null, by: user.username });
+          logger?.info('api.user_email_bound', {
+            username,
+            email: email ? String(email).replace(/^(.)(.*)(@.*)$/, '$1***$3') : null,
+            by: user.username,
+          });
           return json(res, 200, { user: r.rows[0] });
         } catch (err) {
           if (String(err.code) === '23505') return json(res, 409, { error: '这个邮箱已被其他账号绑定' });

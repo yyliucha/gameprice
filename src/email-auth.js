@@ -153,9 +153,10 @@ export async function smtpConfig(q, env = process.env) {
   const row = r.rows[0];
   if (row?.enabled && row.host) {
     let pass = null;
-    if (row.password_enc && hasSecretKey(env)) {
+    if (row.password_enc) {
       try {
-        pass = decryptSecret(row.password_enc, env.SECRET_KEY);
+        // 密钥优先环境变量，否则用自动生成的 data/secret.key
+        pass = decryptSecret(row.password_enc, loadSecretKey({ env }));
       } catch {
         pass = null;
       }
@@ -167,7 +168,8 @@ export async function smtpConfig(q, env = process.env) {
       secure: row.secure !== false,
       user: row.username ?? '',
       pass: pass ?? '',
-      from: row.from_addr ?? row.username ?? '',
+      // 发件人留空时回退到账号：注意空字符串不能用 ?? 兜底
+      from: String(row.from_addr ?? '').trim() || String(row.username ?? '').trim(),
     };
   }
   const envPass = env.SMTP_PASS ?? '';
@@ -178,7 +180,7 @@ export async function smtpConfig(q, env = process.env) {
     secure: String(env.SMTP_SECURE ?? '1') !== '0',
     user: env.SMTP_USER ?? '',
     pass: envPass,
-    from: env.SMTP_FROM ?? env.SMTP_USER ?? '',
+    from: String(env.SMTP_FROM ?? '').trim() || String(env.SMTP_USER ?? '').trim(),
   };
 }
 
