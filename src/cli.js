@@ -256,7 +256,14 @@ async function cmdSyncSteam() {
 async function cmdImportSteamCatalog() {
   const { fetchAppList } = await import('./adapters/steam-catalog.js');
   console.log("拉取 Steam 应用目录…（单次请求，可能 10MB 左右）");
-  const apps = await fetchAppList({ logger });
+  let apps = [];
+  try {
+    apps = await fetchAppList({ logger });
+  } catch (err) {
+    logger.error('import.steamcatalog.failed', { message: String(err.message).slice(0, 300) });
+    throw err;
+  }
+  logger.info('import.steamcatalog.fetched', { total: apps.length });
   console.log("拿到 " + apps.length + " 条，开始入库（批量 500）");
   let inserted = 0;
   for (let i = 0; i < apps.length; i += 500) {
@@ -272,7 +279,11 @@ async function cmdImportSteamCatalog() {
       ),
     );
     inserted += r.rowCount ?? 0;
-    if ((i / 500) % 20 === 0) console.log("  已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted);
+    if ((i / 500) % 20 === 0) {
+      const msg = "已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted;
+      console.log("  " + msg);
+      logger.info('import.steamcatalog.progress', { done: i + batch.length, total: apps.length, inserted });
+    }
   }
   logger.info("import.steamcatalog.done", { total: apps.length, inserted });
   console.log("完成：目录 " + apps.length + " 条，新增 " + inserted + " 款");
