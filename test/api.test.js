@@ -216,6 +216,56 @@ test('单款详情不受列表前 500 名限制（后台编辑不再 404）', as
   }
 });
 
+test('价格变动报表：快照带前价，涨跌榜与统计正确', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+    const offer = (await q('select o.id from offers o join games g on g.id = o.game_id where g.steam_appid = 413150')).rows[0];
+
+    // 基线快照（无前价）+ 降价快照（4800 → 3000）
+    await q("insert into price_snapshots (offer_id, price_cents, discount_pct, in_stock, raw_hash) values ($1, 4800, 0, true, 'h0')", [offer.id]);
+    await q("insert into price_snapshots (offer_id, price_cents, discount_pct, in_stock, raw_hash, prev_price_cents) values ($1, 3000, 37, true, 'h1', 4800)", [offer.id]);
+
+    const rep = (await (await fetch(`${base}/api/admin/reports/price?hours=24`, { headers: { cookie: admin.cookie } })).json()).report;
+    assert.equal(rep.changed, 1);
+    assert.equal(rep.drops, 1);
+    assert.equal(rep.rises, 0);
+    assert.equal(rep.topDrops[0].was, 4800);
+    assert.equal(rep.topDrops[0].now_price, 3000);
+    assert.equal(rep.topDrops[0].steam_appid, 413150);
+
+    assert.equal((await fetch(`${base}/api/admin/reports/price`)).status, 401, '匿名不能看价格报表');
+
+    // ingest 写快照时要带前价：再喂一次 2400
+    await ingestOffers(store, {
+      platform: { code: 'steam', name: 'Steam 国区', kind: 'official' },
+      offers: [
+        {
+          platformCode: 'steam',
+          platformProductId: '413150',
+          steamAppid: 413150,
+          title: '星露谷物语',
+          productType: 'official_direct',
+          region: 'cn',
+          currency: 'CNY',
+          priceCents: 2400,
+          originalCents: 4800,
+          discountPct: 50,
+          inStock: true,
+          buyUrl: 'https://store.steampowered.com/app/413150/',
+          meta: {},
+        },
+      ],
+    });
+    const last = (await q('select price_cents, prev_price_cents from price_snapshots where offer_id = $1 order by id desc limit 1', [offer.id])).rows[0];
+    assert.equal(last.price_cents, 2400);
+    assert.equal(last.prev_price_cents, 3000, '新快照要记住上一条的价格');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

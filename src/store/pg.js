@@ -207,6 +207,8 @@ const ALTERS = [
   // 逻辑删除：不真删数据，只打标记；前台与后台默认列表都排除，回收站里能看到并恢复
   'alter table games add column if not exists deleted boolean not null default false',
   'alter table games add column if not exists deleted_at timestamptz',
+  // 价格快照记录前价，报表直接算涨跌（老数据为 null，报表只看新数据）
+  'alter table price_snapshots add column if not exists prev_price_cents integer',
 ];
 
 export async function migrate(store) {
@@ -336,17 +338,92 @@ export async function updateOffer(q, offerId, offer) {
   );
 }
 
-export async function lastSnapshotHash(q, offerId) {
-  const r = await q('select raw_hash from price_snapshots where offer_id=$1 order by captured_at desc, id desc limit 1', [offerId]);
-  return r.rows[0]?.raw_hash ?? null;
+/** 最近一条快照：哈希用于判重，价格用于报表算涨跌。 */
+export async function lastSnapshot(q, offerId) {
+  const r = await q(
+    'select raw_hash, price_cents, in_stock from price_snapshots where offer_id=$1 order by captured_at desc, id desc limit 1',
+    [offerId],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return { hash: row.raw_hash, priceCents: row.price_cents, inStock: row.in_stock };
 }
 
-export async function insertSnapshot(q, offerId, offer, hash) {
+/** 兼容旧调用方：只要哈希。 */
+export async function lastSnapshotHash(q, offerId) {
+  const snap = await lastSnapshot(q, offerId);
+  return snap?.hash ?? null;
+}
+
+export async function insertSnapshot(q, offerId, offer, hash, prevPriceCents = null) {
   await q(
-    `insert into price_snapshots (offer_id, price_cents, original_cents, discount_pct, in_stock, raw_hash)
-     values ($1,$2,$3,$4,$5,$6)`,
-    [offerId, offer.priceCents, offer.originalCents, offer.discountPct, offer.inStock, hash],
+    `insert into price_snapshots (offer_id, price_cents, original_cents, discount_pct, in_stock, raw_hash, prev_price_cents)
+     values ($1,$2,$3,$4,$5,$6,$7)`,
+    [offerId, offer.priceCents, offer.originalCents, offer.discountPct, offer.inStock, hash, prevPriceCents],
   );
+}
+
+// ---------------------------------------------------------------- 价格变动报表
+
+/**
+ * 近 N 小时（或从某个时间点起）的价格变动：降价榜 / 涨价榜 + 汇总。
+ * 只统计带 prev_price_cents 的新快照；同一条 offer 多次变化只取最后一次，避免重复计数。
+ */
+export async function priceChanges(q, { hours = 24, sinceMs = null, limit = 10 } = {}) {
+  const spanSec = Math.max(
+    1,
+    sinceMs
+      ? Math.round((Date.now() - Number(sinceMs)) / 1000)
+      : Math.round(Math.min(Math.max(Number(hours) || 24, 1), 24 * 30) * 3600),
+  );
+  const span = String(spanSec) + ' seconds';
+  const top = Math.min(Math.max(Number(limit) || 10, 1), 100);
+  const base = `
+    with latest as (
+      select distinct on (s.offer_id)
+             s.offer_id, s.price_cents, s.prev_price_cents, s.captured_at
+        from price_snapshots s
+       where s.captured_at > now() - $1::interval
+         and s.prev_price_cents is not null
+         and s.prev_price_cents <> s.price_cents
+       order by s.offer_id, s.captured_at desc, s.id desc
+    )
+    select g.id as game_id, g.steam_appid,
+           coalesce(g.name, 'appid:' || g.steam_appid) as name,
+           p.code as platform, p.name as platform_name,
+           l.prev_price_cents as was, l.price_cents as now_price,
+           l.captured_at, (l.prev_price_cents - l.price_cents) as drop_cents
+      from latest l
+      join offers o on o.id = l.offer_id
+      join games g on g.id = o.game_id
+      join platforms p on p.code = o.platform_code
+     where not g.deleted`;
+  const drops = (await q(`${base} order by drop_cents desc limit $2`, [span, top])).rows.filter((x) => x.drop_cents > 0);
+  const rises = (await q(`${base} order by drop_cents asc limit $2`, [span, top])).rows.filter((x) => x.drop_cents < 0);
+  const counts = await q(
+    `with latest as (
+       select distinct on (s.offer_id) s.offer_id, s.price_cents, s.prev_price_cents
+         from price_snapshots s
+        where s.captured_at > now() - $1::interval
+          and s.prev_price_cents is not null
+          and s.prev_price_cents <> s.price_cents
+        order by s.offer_id, s.captured_at desc, s.id desc
+     )
+     select count(*) filter (where prev_price_cents > price_cents)::int as drops,
+            count(*) filter (where prev_price_cents < price_cents)::int as rises,
+            count(*)::int as changed
+       from latest`,
+    [span],
+  );
+  const row = counts.rows[0] ?? { drops: 0, rises: 0, changed: 0 };
+  return {
+    hours: Math.round((spanSec / 3600) * 10) / 10,
+    changed: Number(row.changed ?? 0),
+    drops: Number(row.drops ?? 0),
+    rises: Number(row.rises ?? 0),
+    topDrops: drops,
+    topRises: rises,
+  };
 }
 
 export async function upsertDaily(q, { gameId, platformCode, region, priceCents, currency }) {

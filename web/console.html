@@ -326,6 +326,14 @@ textarea{width:100%;min-height:100px;resize:vertical}
       </section>
 
       <section data-section="stats" class="hide">
+        <h2>价格变动（近 24 小时）</h2>
+        <div class="card pad">
+          <div class="row" id="priceReportSummary" style="gap:18px"><span class="muted">加载中…</span></div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <table><thead><tr><th>游戏</th><th>平台</th><th class="num">原价</th><th class="num">现价</th><th class="num">变化</th><th>时间</th></tr></thead><tbody id="priceChangeRows"></tbody></table>
+        </div>
+
         <h2>封面图缓存</h2>
         <div class="card pad"><div class="row" id="imgStats" style="gap:18px"><span class="muted">加载中…</span></div></div>
 
@@ -396,7 +404,7 @@ function showPage(page) {
   currentPage = page;
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
-  if (page === 'stats') { loadStats(); loadImgStats(); }
+  if (page === 'stats') { loadStats(); loadImgStats(); loadPriceReport(); }
   if (page === 'sync') loadLogs();
   if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'recycle') loadRecycleBin();
@@ -1087,6 +1095,35 @@ async function loadStats() {
       '<td class="muted small">' + when(v.last_at) + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="muted">还没有浏览记录</td></tr>';
   } catch (e) { /* ignore */ }
+}
+
+/** 价格变动报表：近 24 小时涨跌榜（来源：带前价的 price_snapshots）。 */
+async function loadPriceReport() {
+  const summary = $('priceReportSummary');
+  try {
+    const d = await api('/api/admin/reports/price?hours=24&limit=10');
+    const r = d.report || {};
+    if (summary) {
+      summary.innerHTML =
+        '<span>降价 <strong class="lv-error">' + (r.drops || 0) + '</strong> 条</span>' +
+        '<span>涨价 <strong>' + (r.rises || 0) + '</strong> 条</span>' +
+        '<span>共 <strong>' + (r.changed || 0) + '</strong> 条变动</span>' +
+        '<span class="small muted">只统计带前价的新快照</span>';
+    }
+    const rows = (r.topDrops || []).concat(r.topRises || []);
+    $('priceChangeRows').innerHTML = rows.map(function (x) {
+      const pct = x.was > 0 ? Math.round((Math.abs(x.drop_cents) / x.was) * 100) : 0;
+      const down = x.drop_cents > 0;
+      return '<tr><td>' + esc(x.name) + '</td>' +
+        '<td class="small">' + esc(x.platform_name) + '</td>' +
+        '<td class="num">¥' + (x.was / 100).toFixed(2) + '</td>' +
+        '<td class="num">¥' + (x.now_price / 100).toFixed(2) + '</td>' +
+        '<td class="num">' + (down ? '<span class="lv-error">-' : '<span class="lv-warn">+') + pct + '%</span></td>' +
+        '<td class="muted small">' + when(x.captured_at) + '</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">近 24 小时没有价格变动（或快照没有前价数据）</td></tr>';
+  } catch (e) {
+    if (summary) summary.innerHTML = '<span class="lv-error">读取失败：' + esc(e.message) + '</span>';
+  }
 }
 
 /** 封面图缓存：已下载到本机的张数/覆盖游戏数/体积（之后前台直接读文件，不依赖 CDN）。 */

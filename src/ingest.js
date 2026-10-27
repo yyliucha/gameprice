@@ -80,16 +80,18 @@ export async function ingestOffers(store, { platform, offers, logger = null }) {
         stats.updated += 1;
       }
 
-      const prevHash = await db.lastSnapshotHash(q, offerId);
-      if (prevHash !== hash) {
-        await db.insertSnapshot(q, offerId, offer, hash);
+      const prev = await db.lastSnapshot(q, offerId);
+      if (!prev || prev.hash !== hash) {
+        // 记下前价：报表/涨跌榜直接用它，不用再翻前一条快照
+        await db.insertSnapshot(q, offerId, offer, hash, prev?.priceCents ?? null);
         stats.snapshots += 1;
         logger?.info('ingest.price_changed', {
           game: offer.title,
           platform: plat.code,
           region: offer.region,
           price: offer.priceCents,
-          previousHash: prevHash,
+          previousPrice: prev?.priceCents ?? null,
+          previousHash: prev?.hash ?? null,
           hash,
         });
       } else {

@@ -1090,6 +1090,14 @@ export function createApiServer({
         return json(res, 200, { images: images.imageStats() });
       }
 
+      // ---- 管理员：价格变动报表（涨跌榜）----
+      if (path === '/api/admin/reports/price' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const hours = Number(url.searchParams.get('hours') ?? 24);
+        const limit = Number(url.searchParams.get('limit') ?? 10);
+        return json(res, 200, { report: await db.priceChanges(q, { hours, limit }) });
+      }
+
       // ---- 管理员：IP 黑名单 ----
       if (path === '/api/admin/blacklist' && req.method === 'GET') {
         if (!requireAdmin()) return;

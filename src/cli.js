@@ -329,6 +329,7 @@ async function cmdImportSteamCatalog() {
 
 async function cmdSyncSteamAll() {
   // 只挑"还没有 Steam 价格或说明"的游戏，按 id 顺序推进，避免重复抓同一批
+  const startedMs = Date.now();
   const limit = Number(flag('limit', '200')) || 200;
   const sleepMs = Math.max(0, Number(flag('sleep', '2')) || 0) * 1000;
   const rows = await withStore(async (store) => {
@@ -410,6 +411,33 @@ async function cmdSyncSteamAll() {
     console.log('  日志里搜 steam.meta.failed 可看到每个 appid 的失败原因');
   } else {
     console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
+  }
+
+  // 价格简报：本次同步产生的涨跌（价格快照带 prev_price_cents 后才统计得到）
+  await printSyncPriceReport(startedMs, 5);
+}
+
+/** 打印某个时间窗内的价格变动简报；失败只警告，不影响同步结果。 */
+async function printSyncPriceReport(sinceMs, limit = 5) {
+  try {
+    const rep = await withStore((store) =>
+      db.priceChanges((sql, p) => store.query(sql, p), { sinceMs, limit }),
+    );
+    if (!rep.changed) {
+      console.log('本次没有价格变动');
+      return;
+    }
+    console.log(`\n本次价格变动：降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条`);
+    for (const d of rep.topDrops) {
+      const pct = d.was > 0 ? Math.round((d.drop_cents / d.was) * 100) : 0;
+      console.log(`  ↓ ¥${(d.was / 100).toFixed(2)} → ¥${(d.now_price / 100).toFixed(2)}（-${pct}%）${d.name} · ${d.platform_name}`);
+    }
+    for (const r of rep.topRises.slice(0, limit)) {
+      console.log(`  ↑ ¥${(r.was / 100).toFixed(2)} → ¥${(r.now_price / 100).toFixed(2)}  ${r.name} · ${r.platform_name}`);
+    }
+    logger.info('sync.price_report', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises });
+  } catch (err) {
+    logger.warn('sync.price_report_failed', { message: String(err.message).slice(0, 160) });
   }
 }
 
@@ -1365,6 +1393,31 @@ async function cmdDiagnose() {
   console.log(`\n${failed.length ? `${failed.length} 项异常` : '全部通过'}，报告已写入 ${file}`);
 }
 
+async function cmdReport() {
+  const sub = String(args[1] ?? 'price');
+  if (sub !== 'price') throw new Error('用法: node src/cli.js report price [--hours 24] [--limit 10]');
+  const hours = Number(flag('hours', 24));
+  const limit = Number(flag('limit', 10));
+  const rep = await withStore((store) => db.priceChanges((sql, p) => store.query(sql, p), { hours, limit }));
+  console.log(`近 ${rep.hours} 小时价格变动：降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条（共 ${rep.changed} 条）`);
+  if (!rep.changed) {
+    console.log('（没有变动：要么价格没变，要么快照是在加入 prev_price_cents 之前写的）');
+    return;
+  }
+  const fmt = (x) => `¥${(x / 100).toFixed(2)}`;
+  const when = (t) => String(t).slice(0, 16).replace('T', ' ');
+  console.log('\n降价 Top：');
+  for (const d of rep.topDrops) {
+    const pct = d.was > 0 ? Math.round((d.drop_cents / d.was) * 100) : 0;
+    console.log(`  ${fmt(d.was)} → ${fmt(d.now_price)}  -${pct}%  ${d.name} · ${d.platform_name}  ${when(d.captured_at)}`);
+  }
+  console.log('\n涨价 Top：');
+  for (const r of rep.topRises) {
+    console.log(`  ${fmt(r.was)} → ${fmt(r.now_price)}  ${r.name} · ${r.platform_name}  ${when(r.captured_at)}`);
+  }
+  logger.info('report.price', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises });
+}
+
 const commands = {
   init: cmdInit,
   bootstrap: cmdBootstrap,
@@ -1391,6 +1444,7 @@ const commands = {
   logs: cmdLogs,
   diagnose: cmdDiagnose,
   images: cmdImages,
+  report: cmdReport,
 };
 
 /**
@@ -1557,6 +1611,7 @@ async function main() {
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）
   stats                数据量 + 采集健康度
+  report price         价格涨跌报表（--hours 24 --limit 10）
   logs                 查日志（--level error --event http --since 60 --limit 50）
   diagnose             环境/数据库/网络自检，报告落盘
 
