@@ -709,6 +709,29 @@ boot().catch(function (err) {
   const m = document.getElementById('msg');
   if (m) m.textContent = '启动失败：' + err.message;
 });
+
+// 分页：事件委托，避免重渲染丢失绑定
+(function pagerDelegate() {
+  ['pgPrev','pgNext','pgFirst','pgLast','pgGo'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.onclick = null;
+  });
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.pg) { loadGameList(Number(btn.dataset.pg)); return; }
+    if (btn.id === 'pgPrev') return loadGameList(Math.max(1, gamesPage - 1));
+    if (btn.id === 'pgNext') return loadGameList(Math.min(gamesPages, gamesPage + 1));
+    if (btn.id === 'pgFirst') return loadGameList(1);
+    if (btn.id === 'pgLast') return loadGameList(gamesPages);
+    if (btn.id === 'pgGo') {
+      const n = Number(($('pgJump') || {}).value || 1);
+      if (n > 0) loadGameList(Math.min(Math.max(n, 1), gamesPages));
+    }
+  });
+  const size = document.getElementById('pgSize');
+  if (size) size.onchange = function () { loadGameList(1); };
+})();
 </script>
 </body>
 </html>

@@ -195,7 +195,8 @@ function sorted(list) {
   const rows = [...list];
   if (state.sort === 'price') rows.sort((a, b) => (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
   else if (state.sort === 'name') rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
-  else rows.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0) || (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
+  // 稳定排序：同折扣同价时按名称，避免分页时顺序跳动
+  else rows.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0) || (a.current_low ?? Infinity) - (b.current_low ?? Infinity) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
   return rows;
 }
 
@@ -531,6 +532,37 @@ applyLocal();
     const n = Number((document.getElementById('pgJump') || {}).value || 1);
     if (n > 0) { state.page = n; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   };
+})();
+
+// 分页：事件委托，避免重渲染丢失绑定
+(function frontPagerDelegate() {
+  ['pgPrev','pgNext','pgFirst','pgLast','pgGo'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.onclick = null;
+  });
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const total = (function () {
+      const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
+      const matched = function (g) { return !kw || [g.name, g.name_en].some(function (v) { return String(v || "").toLowerCase().includes(kw); }); };
+      return sorted(state.games.filter(visible).filter(matched)).length;
+    })();
+    const size = state.pageSize || 50;
+    const pages = Math.max(1, Math.ceil(total / size));
+    const go = function (n) { state.page = Math.min(Math.max(n, 1), pages); render(); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    if (btn.dataset.pg) return go(Number(btn.dataset.pg));
+    if (btn.id === 'pgPrev') return go((state.page || 1) - 1);
+    if (btn.id === 'pgNext') return go((state.page || 1) + 1);
+    if (btn.id === 'pgFirst') return go(1);
+    if (btn.id === 'pgLast') return go(pages);
+    if (btn.id === 'pgGo') {
+      const n = Number((document.getElementById('pgJump') || {}).value || 1);
+      if (n > 0) go(n);
+    }
+  });
+  const sel = document.getElementById('pgSize');
+  if (sel) sel.onchange = function () { state.pageSize = Number(sel.value) || 50; state.page = 1; render(); };
 })();
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>
