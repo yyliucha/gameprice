@@ -120,6 +120,7 @@ class SmtpSession {
     this.lines = [];
     this.waiters = [];
     this.closed = false;
+    this.trace = [];
   }
 
   attach(socket) {
@@ -187,6 +188,7 @@ class SmtpSession {
     this.logger?.trace('smtp.cmd', { line: /^(AUTH|MAIL|RCPT)/.test(line) ? line.split(' ')[0] : line });
     this.socket.write(`${line}\r\n`);
     const reply = await this.read();
+    this.trace.push({ cmd: line.split(/[ :]/)[0], code: reply.code, text: reply.lines.join(" | ").slice(0, 160) });
     if (!expect.includes(reply.code)) {
       const err = new Error(`SMTP ${line.split(' ')[0]} 失败：${reply.code} ${reply.lines.join(' | ')}`);
       err.code = reply.code;
@@ -279,8 +281,9 @@ export async function sendMail(
     await session.cmd(`${message}\r\n.`, { expect: [250] });
     await session.cmd('QUIT', { expect: [221] });
     logger?.info('notify.email_sent', { host, to: Array.isArray(to) ? to.length : 1 });
-    return { ok: true, code: 250 };
+    return { ok: true, code: 250, steps: session.trace };
   } catch (err) {
+    err.steps = session.trace;
     logger?.error('notify.email_failed', { host, err: serializeError(err) });
     return { ok: false, error: String(err.message).slice(0, 300), code: err.code ?? null };
   } finally {

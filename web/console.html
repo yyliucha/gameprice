@@ -162,6 +162,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <span class="small muted" id="smtpMsg"></span>
           </div>
           <p class="muted small">QQ/163 需用「授权码」；密码加密存库，未配置时回退环境变量。测试邮件的收件人留空则发给上面填的账号。</p>
+          <pre id="smtpTrace" class="small muted" style="white-space:pre-wrap;margin:6px 0 0;max-height:120px;overflow:auto"></pre>
         </div>
         <h2>验证码发送记录</h2>
         <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
@@ -220,7 +221,7 @@ async function api(path, opts) {
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
   if (res.status === 401) { await boot().catch(() => {}); throw new Error('会话已失效，请重新登录'); }
-  if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
+  if (!res.ok) { const e = new Error((body && body.error) || ('HTTP ' + res.status)); e.steps = body && body.steps; throw e; }
   return body;
 }
 
@@ -454,8 +455,14 @@ $('testSmtp').onclick = async function () {
     return;
   }
   $('smtpMsg').textContent = '发送中…';
-  try { await api('/api/admin/smtp/test', { method: 'POST', body: JSON.stringify({ to: to }) }); $('smtpMsg').textContent = '测试邮件已发送'; }
-  catch (e) { $('smtpMsg').textContent = '发送失败：' + e.message; }
+  try {
+    const d = await api('/api/admin/smtp/test', { method: 'POST', body: JSON.stringify({ to: to }) });
+    $('smtpMsg').textContent = '测试邮件已发送（SMTP 返回 250）';
+    $('smtpTrace').textContent = (d.steps || []).map(function (x) { return x.cmd + ' → ' + x.code; }).join('  |  ');
+  } catch (e) {
+    $('smtpMsg').textContent = '发送失败：' + e.message;
+    $('smtpTrace').textContent = (e.steps || []).map(function (x) { return x.cmd + ' → ' + x.code + ' ' + x.text; }).join('\n');
+  }
 };
 async function loadMail() {
   try {
