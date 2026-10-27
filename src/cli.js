@@ -1164,7 +1164,55 @@ async function cmdStats() {
   }
 }
 
+/** 清理 N 天前的日志文件（jsonl / boot.log 按行截断）。 */
+async function pruneLogs(days = 7) {
+  const fsMod = await import('node:fs');
+  const pathMod = await import('node:path');
+  const dir = process.env.LOG_DIR ?? 'logs';
+  const cutoff = Date.now() - days * 24 * 3600 * 1000;
+  let removed = 0;
+  let kept = 0;
+  let entries = [];
+  try {
+    entries = fsMod.readdirSync(dir).filter((n) => n.endsWith('.jsonl'));
+  } catch {
+    entries = [];
+  }
+  for (const name of entries) {
+    const p = pathMod.join(dir, name);
+    try {
+      const st = fsMod.statSync(p);
+      if (st.mtimeMs < cutoff) {
+        fsMod.unlinkSync(p);
+        removed += 1;
+      } else {
+        kept += 1;
+      }
+    } catch {
+      /* 单个文件失败不影响整体 */
+    }
+  }
+  // boot.log 会持续追加，超过 5MB 时保留最后 2000 行
+  const boot = pathMod.join(dir, 'boot.log');
+  try {
+    const st = fsMod.statSync(boot);
+    if (st.size > 5 * 1024 * 1024) {
+      const lines = fsMod.readFileSync(boot, 'utf8').split('\n');
+      fsMod.writeFileSync(boot, lines.slice(-2000).join('\n'));
+      logger.info('logs.boot_truncated', { keptLines: 2000 });
+    }
+  } catch {
+    /* 没有 boot.log 就算了 */
+  }
+  logger.info('logs.pruned', { days, removed, kept });
+  console.log(`日志清理完成：删除 ${removed} 个文件，保留 ${kept} 个（阈值 ${days} 天）`);
+  return { removed, kept };
+}
+
 function cmdLogs() {
+  if (flag('action') === 'prune' || process.argv.includes('prune')) {
+    return pruneLogs(Number(flag('days', '7')) || 7);
+  }
   const recs = readLogs({
     dir: String(flag('log-dir', 'logs')),
     level: flag('level', null),

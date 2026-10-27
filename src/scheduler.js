@@ -74,6 +74,14 @@ export function jobsFromEnv(env = process.env) {
       enabled: env.BACKUP_ENABLED !== '0',
     },
     {
+      name: 'logs',
+      // 每 7 天清理一次日志文件，避免无限增长
+      args: ['logs', 'prune', '--days', '7'],
+      intervalMin: num(env.LOGS_PRUNE_DAYS, 7) * 1440,
+      initialDelaySec: 900,
+      enabled: env.LOGS_PRUNE_ENABLED !== '0',
+    },
+    {
       name: 'alerts',
       // 只有配了任意提醒通道才在检查后标记已通知，否则只做只读检查，避免静默吞掉提醒
       args: hasNotifier(env) ? ['alerts', '--mark'] : ['alerts'],
