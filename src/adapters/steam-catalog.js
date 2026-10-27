@@ -10,6 +10,22 @@ export const descriptor = {
   keyPage: 'https://steamcommunity.com/dev/apikey',
 };
 
+/** 递归找到第一个"看起来像应用列表"的数组，避免依赖具体字段路径。 */
+function findAppArray(node, depth = 0) {
+  if (!node || depth > 5) return null;
+  if (Array.isArray(node)) {
+    const looks = node.some((x) => x && typeof x === "object" && (x.appid != null || x.app_id != null || x.id != null));
+    return looks ? node : null;
+  }
+  if (typeof node === "object") {
+    for (const v of Object.values(node)) {
+      const r = findAppArray(v, depth + 1);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
 export function hasApiKey(env = process.env) {
   return typeof env.STEAM_API_KEY === 'string' && env.STEAM_API_KEY.trim().length > 10;
 }
@@ -38,17 +54,9 @@ export async function fetchAppList({ logger = null, env = process.env, onPage = 
     // 单页 1 万条（约 1-2MB），放宽超时并允许重试，避免大响应被代理重置
     const data = await fetchJson(url, { logger, timeoutMs: 60000, retries: 2 });
     const resp = data?.response ?? {};
-    // 结构在不同版本/账号下不一致，按候选路径依次尝试
-    const candidates = [
-      resp.applist?.apps,
-      resp.apps,
-      data?.applist?.apps,
-      data?.apps,
-      resp.applist,
-    ];
-    const list = candidates.find((x) => Array.isArray(x)) ?? [];
+    const list = findAppArray(data) ?? [];
     if (!list.length && page === 0) {
-      logger?.info('steam.catalog.shape', { keys: Object.keys(resp), sample: JSON.stringify(resp).slice(0, 400) });
+      logger?.info('steam.catalog.shape', { topKeys: Object.keys(data ?? {}), sample: JSON.stringify(data ?? {}).slice(0, 400) });
     }
     for (const a of list) {
       const appid = Number(a.appid ?? a.app_id ?? a.id);
