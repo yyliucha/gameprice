@@ -104,6 +104,15 @@ textarea{width:100%;min-height:100px;resize:vertical}
       </section>
 
       <section data-section="games" class="hide">
+        <h2>从 Steam 导入（以 Steam 为准）</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="wishId" placeholder="SteamID64（17 位数字）" style="width:260px">
+            <button class="btn primary" id="wishImport">导入愿望单</button>
+            <span class="small muted" id="wishMsg">个人资料需设为公开；导入后点「一键同步」补齐名称/说明/价格</span>
+          </div>
+        </div>
+
         <h2>同步结果</h2>
         <div class="card pad">
           <div class="row">
@@ -306,6 +315,16 @@ $('gameRows').addEventListener('click', async function (e) {
   } catch (err) { toast('失败：' + err.message); }
 });
 $('gameRefresh').onclick = loadGameList;
+$('wishImport').onclick = async function () {
+  const steamId = $('wishId').value.trim();
+  if (!/^\d{17}$/.test(steamId)) { $('wishMsg').textContent = '请填 17 位 SteamID64'; return; }
+  $('wishMsg').textContent = '导入中…';
+  try {
+    const d = await api('/api/admin/import/steam-wishlist', { method: 'POST', body: JSON.stringify({ steamId }) });
+    $('wishMsg').textContent = d.hint || ('已导入 ' + d.imported + ' / ' + d.total);
+    await loadGameList();
+  } catch (e) { $('wishMsg').textContent = '失败：' + e.message; }
+};
 $('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
 
 async function loadUsers() {
@@ -478,6 +497,7 @@ async function loadLogs() {
 }
 $('logRefresh').onclick = loadLogs;
 $('allRefresh').onclick = loadAllLogs;
+$('aggBtn').addEventListener('change', renderStats);
 $('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
 $('allLevel').addEventListener('change', loadAllLogs);
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
@@ -560,10 +580,36 @@ async function loadAllLogs() {
   }
 }
 
+let statsCache = [];
+function renderStats() {
+  const agg = $('aggBtn') && $('aggBtn').checked;
+  let rows = statsCache;
+  if (agg) {
+    const m = new Map();
+    for (const v of statsCache) {
+      const key = v.name || v.path;
+      const cur = m.get(key) || { name: v.name, path: '（多个页面）', price: v.price, views: 0, last_at: v.last_at };
+      cur.views += v.views;
+      if (v.last_at > cur.last_at) cur.last_at = v.last_at;
+      m.set(key, cur);
+    }
+    rows = Array.from(m.values()).sort(function (a, b) { return b.views - a.views; });
+  }
+  $('viewRows').innerHTML = rows.map(function (v) {
+    return '<tr><td>' + (v.name ? esc(v.name) : '<span class="muted">未知</span>') + '</td>' +
+      '<td class="muted small">' + esc(v.path) + '</td>' +
+      '<td class="num">' + (v.price != null ? '¥' + (v.price / 100).toFixed(2) : '—') + '</td>' +
+      '<td class="num">' + v.views + '</td>' +
+      '<td class="muted small">' + when(v.last_at) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">还没有浏览记录</td></tr>';
+}
+
 async function loadStats() {
   try {
     const d = await api('/api/admin/views');
-    $('viewRows').innerHTML = (d.views || []).map(function (v) {
+    statsCache = (d.views || []).slice();
+    renderStats();
+    if (false) $('viewRows').innerHTML = (d.views || []).map(function (v) {
       return '<tr><td>' + (v.name ? esc(v.name) : '<span class="muted">未知</span>') + '</td>' +
       '<td class="muted small">' + esc(v.path) + '</td>' +
       '<td class="num">' + (v.price != null ? '¥' + (v.price / 100).toFixed(2) : '—') + '</td>' +

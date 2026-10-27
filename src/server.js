@@ -251,7 +251,35 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { total: rows.rows.length, games: rows.rows });
       }
 
-      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----
+      // ---- 管理员：从 Steam 愿望单导入（以 Steam 为准的游戏来源）----
+      if (path === '/api/admin/import/steam-wishlist' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const steamId = String(body.steamId ?? '').trim();
+        if (!/^\d{17}$/.test(steamId)) return json(res, 400, { error: 'SteamID64 应为 17 位数字（个人资料页地址里的那串）' });
+        const { fetchJson } = await import('./http.js');
+        let appids = [];
+        try {
+          const data = await fetchJson('https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=' + steamId, { logger });
+          appids = (data?.response?.items ?? []).map((i) => Number(i.appid)).filter((n) => Number.isFinite(n));
+        } catch (err) {
+          logger?.warn('api.wishlist_failed', { steamId, message: String(err.message).slice(0, 160) });
+          return json(res, 502, { error: '拉取愿望单失败：' + String(err.message).slice(0, 160) });
+        }
+        if (!appids.length) return json(res, 200, { imported: 0, total: 0, hint: '愿望单为空，或资料页未设为公开' });
+        let imported = 0;
+        for (const appid of appids) {
+          const r = await q(
+            "insert into games (steam_appid, name) select $1, 'appid:' || $1 where not exists (select 1 from games where steam_appid = $1)",
+            [appid],
+          );
+          imported += r.rowCount ?? 0;
+        }
+        logger?.info('api.wishlist_imported', { steamId, total: appids.length, imported });
+        return json(res, 200, { imported, total: appids.length, hint: '已导入 ' + imported + ' 款；建议接着点「一键同步」补齐名称、说明与价格' });
+      }
+
+      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----
       const bindCode = path.match(/^\/api\/admin\/users\/([^/]+)\/email\/code$/);
       if (bindCode && req.method === 'POST') {
         if (!requireAdmin()) return;
