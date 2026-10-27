@@ -249,16 +249,66 @@ async function cmdSyncSteam() {
  * 同步库里所有 Steam 游戏：元数据（名字/开发商/分类/说明）+ Steam 自身价格。
  * 这是「以 Steam 为准」的批量入口，后台按钮与定时任务都走它。
  */
+/**
+ * 导入 Steam 全量应用目录（一次请求，20 万条）。
+ * 只写 appid 与名称，价格/说明交给 sync steamall 慢慢补。
+ */
+async function cmdImportSteamCatalog() {
+  const { fetchAppList } = await import('./adapters/steam-catalog.js');
+  console.log("拉取 Steam 应用目录…（单次请求，可能 10MB 左右）");
+  const apps = await fetchAppList({ logger });
+  console.log("拿到 " + apps.length + " 条，开始入库（批量 500）");
+  let inserted = 0;
+  for (let i = 0; i < apps.length; i += 500) {
+    const batch = apps.slice(i, i + 500);
+    const ids = batch.map((a) => a.appid);
+    const names = batch.map((a) => a.name);
+    const r = await withStore(async (store) =>
+      store.query(
+        "insert into games (steam_appid, name) " +
+          "select x.appid, x.name from unnest($1::int[], $2::text[]) as x(appid, name) " +
+          "where not exists (select 1 from games g where g.steam_appid = x.appid)",
+        [ids, names],
+      ),
+    );
+    inserted += r.rowCount ?? 0;
+    if ((i / 500) % 20 === 0) console.log("  已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted);
+  }
+  logger.info("import.steamcatalog.done", { total: apps.length, inserted });
+  console.log("完成：目录 " + apps.length + " 条，新增 " + inserted + " 款");
+  console.log("下一步：node src/cli.js sync steamall --limit 200 --sleep 2（慢慢补价格与说明）");
+}
+
 async function cmdSyncSteamAll() {
+  // 只挑"还没有 Steam 价格或说明"的游戏，按 id 顺序推进，避免重复抓同一批
+  const limit = Number(flag('limit', '200')) || 200;
+  const sleepMs = Math.max(0, Number(flag('sleep', '2')) || 0) * 1000;
   const rows = await withStore(async (store) => {
-    const r = await store.query('select steam_appid from games where steam_appid is not null order by steam_appid');
+    const r = await store.query(
+      "select g.steam_appid from games g where g.steam_appid is not null " +
+        "and (g.description is null or g.description = '' or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam')) " +
+        "order by g.id limit $1",
+      [limit],
+    );
     return r.rows;
   });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const appids = rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
   if (!appids.length) throw new Error('库里没有带 appid 的游戏：先 node src/cli.js import steam --appids ...');
 
   console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格）`);
-  const { backend, items } = await fetchMetadata(appids, { backend: String(flag('backend', 'official')), logger });
+  const backend = String(flag('backend', 'official'));
+  const items = [];
+  for (let i = 0; i < appids.length; i += 1) {
+    try {
+      const one = await fetchMetadata([appids[i]], { backend, logger });
+      if (one.items?.length) items.push(...one.items);
+    } catch (err) {
+      logger.warn('sync.item_failed', { appid: appids[i], message: String(err.message).slice(0, 160) });
+    }
+    if (sleepMs) await sleep(sleepMs);
+    if ((i + 1) % 25 === 0) console.log("  进度 " + (i + 1) + " / " + appids.length);
+  }
   console.log(`元数据来源 ${backend}，取到 ${items.length} 条`);
 
   let named = 0;
@@ -1262,12 +1312,13 @@ async function main() {
     const target = args[1];
     if (target === 'all') return cmdSyncAll();
     if (target === 'steam') return cmdSyncSteam();
-    if (target === 'steamall') return cmdSyncSteamAll(); // 元数据 + 说明 + 价格，全部 Steam 游戏
+    if (target === 'steamall') return cmdSyncSteamAll();
+    if (target === 'catalog') return cmdImportSteamCatalog(); // 全量目录，一次请求 // 元数据 + 说明 + 价格，全部 Steam 游戏
     if (target === 'sonkwo') return cmdSyncSonkwo();
     if (target === 'itad') return cmdSyncItad();
     if (target === 'gog') return cmdSyncGog();
     if (target === 'humble') return cmdSyncHumble();
-    throw new Error('用法: node src/cli.js sync all|steam|steamall|sonkwo|itad|gog|humble');
+    throw new Error('用法: node src/cli.js sync all|steam|steamall|catalog|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];
   if (!fn) {
