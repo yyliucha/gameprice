@@ -431,7 +431,9 @@ async function loadSmtp() {
     $('sSecure').value = s.secure ? '1' : '0';
     $('sUser').value = s.user || ''; $('sFrom').value = s.from || '';
     $('sPass').placeholder = s.hasPassword ? '已保存（留空表示不修改）' : '授权码/密码';
-    $('smtpMsg').textContent = (s.ready ? '已配置' : '未配置') + '（来源：' + (s.source === 'database' ? '后台' : '环境变量') + '）' + (s.hasPassword ? '，密码已保存' : '');
+    $('smtpMsg').textContent = (s.ready ? '已配置' : '未配置') + '（来源：' + (s.source === 'database' ? '后台' : '环境变量') + '）'
+      + (s.hasPassword ? '，密码已保存' : '')
+      + (s.effectiveFrom && !s.from ? '；发件人留空，将使用 ' + s.effectiveFrom : '');
   } catch (e) { $('smtpMsg').textContent = '读取失败：' + e.message; }
 }
 $('saveSmtp').onclick = async function () {

@@ -169,6 +169,7 @@ export async function smtpConfig(q, env = process.env) {
       user: row.username ?? '',
       pass: pass ?? '',
       // 发件人留空时回退到账号：注意空字符串不能用 ?? 兜底
+      fromRaw: String(row.from_addr ?? '').trim(),
       from: String(row.from_addr ?? '').trim() || String(row.username ?? '').trim(),
     };
   }
@@ -180,6 +181,7 @@ export async function smtpConfig(q, env = process.env) {
     secure: String(env.SMTP_SECURE ?? '1') !== '0',
     user: env.SMTP_USER ?? '',
     pass: envPass,
+    fromRaw: String(env.SMTP_FROM ?? '').trim(),
     from: String(env.SMTP_FROM ?? '').trim() || String(env.SMTP_USER ?? '').trim(),
   };
 }

@@ -366,6 +366,8 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         if (!requireAdmin()) return;
         const auth = await import('./email-auth.js');
         const cfg = await auth.smtpConfig(q);
+        const raw = await q("select from_addr from smtp_settings where id = 1");
+        const rawFrom = raw.rows[0] ? String(raw.rows[0].from_addr ?? '') : '';
         return json(res, 200, {
           smtp: {
             source: cfg.source,
@@ -387,7 +389,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const pass = body.pass ? auth.encryptSecret(String(body.pass), auth.loadSecretKey()) : null;
         // 发件人留空就用账号，保存时就补全，避免后续判断为"未配置"
         const mailUser = String(body.user ?? '').trim();
-        const mailFrom = String(body.from ?? '').trim() || mailUser;
+        const mailFrom = String(body.from ?? '').trim(); // 存原值；留空表示用账号，由读取时兜底
         await q(
           `insert into smtp_settings (id, host, port, secure, username, password_enc, from_addr, enabled, updated_at)
            values (1, $1, $2, $3, $4, $5, $6, $7, now())
@@ -438,7 +440,8 @@ export function createApiServer({ query, logger = null, outDir = null }) {
               secure: cfg.secure,
               user: cfg.user,
               pass: cfg.pass,
-              from: cfg.from,
+              from: cfg.fromRaw,
+            effectiveFrom: cfg.from,
               to,
               subject: 'SteamDeals 测试邮件',
               text: '这是一封测试邮件。收到说明 SMTP 配置可用。',
