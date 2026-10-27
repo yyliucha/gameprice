@@ -114,8 +114,17 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <span class="small muted">款，每款间隔</span>
             <input id="syncSleep" value="2" style="width:60px" title="每款间隔秒">
             <span class="small muted">秒</span>
-            <span class="small muted" id="syncMsg">先导入目录，再增量同步；进度看「日志」</span>
+            <span class="small muted" id="syncMsg">先导入目录，再增量同步</span>
           </div>
+          <div id="syncLive" class="hide" style="margin-top:10px">
+            <div class="small muted" id="syncLiveMeta">运行中…</div>
+            <div class="logbox" id="syncLiveBox" style="max-height:180px"></div>
+          </div>
+        </div>
+
+        <h2>同步记录</h2>
+        <div class="card">
+          <table><thead><tr><th>时间</th><th>模式</th><th>状态</th><th class="num">耗时</th><th>结果</th></tr></thead><tbody id="syncRunRows"></tbody></table>
         </div>
 
         <h2>同步结果</h2>
@@ -336,7 +345,7 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
-  if (page === 'games') loadGameList();
+  if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
@@ -657,15 +666,74 @@ if ($('vIp')) $('vIp').addEventListener('keydown', function (e) { if (e.key === 
 if ($('vPath')) $('vPath').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadVisitors(1); });
 if ($('vSize')) $('vSize').onchange = function () { loadVisitors(1); };
 
-async function triggerSync(mode) {
+// ---- 同步：不跳页、按钮禁用、运行中显示实时输出，结束后恢复 ----
+let syncPollTimer = null;
+function setSyncBusy(busy) {
+  ['syncAll', 'syncCatalog', 'syncLimit', 'syncSleep'].forEach(function (id) {
+    const el = $(id);
+    if (el) el.disabled = busy;
+  });
+}
+async function loadSyncRuns() {
   try {
-    const limit = Number(($('syncLimit') || {}).value || 200);
-    const sleep = Number(($('syncSleep') || {}).value || 2);
+    const d = await api('/api/admin/sync/runs?limit=20');
+    $('syncRunRows').innerHTML = (d.runs || []).map(function (r) {
+      const running = r.status === 'running';
+      const dur = r.finished_at && r.started_at
+        ? Math.max(1, Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000)) + ' 秒'
+        : (running ? '运行中' : '—');
+      const pill = running ? '<span class="pill">运行中</span>' : r.status === 'ok' ? '<span class="pill ok">成功</span>' : '<span class="pill off">失败</span>';
+      const tail = String(r.output || '').trim().split('\n').filter(Boolean).slice(-2).join(' · ');
+      return '<tr><td class="muted small">' + when(r.started_at) + '</td>' +
+        '<td class="small">' + esc(r.mode === 'catalog' ? '导入目录' : '增量同步') + '</td>' +
+        '<td>' + pill + (r.exit_code != null ? ' <span class="small muted">exit ' + r.exit_code + '</span>' : '') + '</td>' +
+        '<td class="num small">' + esc(dur) + '</td>' +
+        '<td class="small" title="' + esc(String(r.output || '').slice(-4000)) + '">' + (tail ? esc(tail.slice(0, 220)) : '<span class="muted">—</span>') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">还没有同步记录</td></tr>';
+  } catch (e) { /* 表未建时忽略 */ }
+}
+async function pollSyncStatus() {
+  try {
+    const d = await api('/api/admin/sync/status');
+    const live = $('syncLive'), meta = $('syncLiveMeta'), box = $('syncLiveBox');
+    if (d.running && d.run) {
+      setSyncBusy(true);
+      if (live) live.classList.remove('hide');
+      if (meta) meta.textContent = '运行中：' + (d.run.mode === 'catalog' ? '导入目录' : '增量同步') +
+        ' · 开始于 ' + when(d.run.startedAt) + ' · 实时输出';
+      if (box) { box.textContent = d.output || '（暂无输出，等待子进程…）'; box.scrollTop = box.scrollHeight; }
+      syncPollTimer = setTimeout(pollSyncStatus, 3000);
+      return;
+    }
+    // 结束了
+    setSyncBusy(false);
+    syncPollTimer = null;
+    if (d.output && box) {
+      if (live) live.classList.remove('hide');
+      if (meta) meta.textContent = '最近一次同步输出' + (d.last ? '（' + (d.last.status === 'ok' ? '成功' : '失败') + '）' : '');
+      box.textContent = d.output;
+    }
+    await loadSyncRuns();
+  } catch (e) {
+    syncPollTimer = setTimeout(pollSyncStatus, 5000);
+  }
+}
+async function triggerSync(mode) {
+  const limit = Number(($('syncLimit') || {}).value || 200);
+  const sleep = Number(($('syncSleep') || {}).value || 2);
+  const msg = $('syncMsg');
+  if (msg) msg.textContent = '正在启动…';
+  try {
     const d = await api('/api/admin/sync', { method: 'POST', body: JSON.stringify({ mode: mode || 'steamall', limit, sleep }) });
-    const msg = $('syncMsg'); if (msg) msg.textContent = d.hint || '已开始';
+    if (msg) msg.textContent = (mode === 'catalog' ? '目录导入已开始' : '增量同步已开始') + '（任务 #' + d.runId + '），完成后按钮自动恢复';
     toast(mode === 'catalog' ? '目录导入已开始' : '增量同步已开始');
-    if (currentPage !== 'sync') { location.hash = 'sync'; showPage('sync'); }
-  } catch (err) { toast('失败：' + err.message); }
+    setSyncBusy(true);
+    if (syncPollTimer) clearTimeout(syncPollTimer);
+    pollSyncStatus();
+  } catch (err) {
+    if (msg) msg.textContent = '启动失败：' + err.message;
+    toast('启动失败：' + err.message);
+  }
 }
 $('syncAll').onclick = function () { triggerSync('steamall'); };
 if ($('syncCatalog')) $('syncCatalog').onclick = function () { triggerSync('catalog'); };

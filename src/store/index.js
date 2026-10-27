@@ -120,6 +120,7 @@ export async function openStore(target, { logger } = {}) {
   let raw;
   let exec;
   let close;
+  let runTransaction;
 
   if (target.startsWith('pglite:')) {
     kind = 'pglite';
@@ -129,6 +130,12 @@ export async function openStore(target, { logger } = {}) {
     raw = new PGlite(path);
     exec = async (sql) => raw.exec(sql);
     close = async () => raw.close();
+    // PGlite 自带事务：callback 里拿到的 tx 只能在该事务内使用
+    runTransaction = (fn) =>
+      raw.transaction(async (tx) => {
+        const txQuery = makeQuery((sql, params) => tx.query(sql, params), logger);
+        return fn(txQuery);
+      });
     logger?.info('db.connect', { kind, target: path ?? ':memory:' });
   } else if (/^postgres(ql)?:\/\//i.test(target)) {
     kind = 'postgres';
@@ -142,16 +149,43 @@ export async function openStore(target, { logger } = {}) {
     raw.on('error', (err) => logger?.error('db.pool_error', { err: serializeError(err) }));
     exec = async (sql) => raw.query(sql);
     close = async () => raw.end();
+    // pg.Pool.query 每次可能拿不同连接，事务必须固定在一个 client 上
+    runTransaction = async (fn) => {
+      const client = await raw.connect();
+      try {
+        await client.query('begin');
+        const txQuery = makeQuery((sql, params) => client.query(sql, params), logger);
+        const result = await fn(txQuery);
+        await client.query('commit');
+        return result;
+      } catch (err) {
+        try {
+          await client.query('rollback');
+        } catch {
+          /* 连接已断时 rollback 也会失败，保留原始错误 */
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    };
     // 连接串里的密码由 logger 统一脱敏，这里可以放心记
     logger?.info('db.connect', { kind, target });
   } else {
     throw new Error(`无法识别的数据库地址：${target.slice(0, 20)}…（需要 postgres:// 或 pglite: 开头）`);
   }
 
-  const query = async (sql, params = []) => {
+  const query = makeQuery((sql, params) => raw.query(sql, params), logger);
+
+  return { kind, raw, query, exec, close, tx: runTransaction };
+}
+
+/** 统一的查询包装：计时 + 慢查询 + 失败日志。事务里的查询也复用它。 */
+function makeQuery(rawQuery, logger) {
+  return async (sql, params = []) => {
     const startedAt = Date.now();
     try {
-      const result = normalizeResult(await raw.query(sql, params));
+      const result = normalizeResult(await rawQuery(sql, params));
       const elapsedMs = Date.now() - startedAt;
       const fields = { sql: shorten(sql), params: params.length, rows: result.rows.length, elapsedMs };
       if (elapsedMs > SLOW_MS) logger?.warn('db.slow_query', fields);
@@ -166,8 +200,6 @@ export async function openStore(target, { logger } = {}) {
       throw err;
     }
   };
-
-  return { kind, raw, query, exec, close };
 }
 
 export async function ping(store) {

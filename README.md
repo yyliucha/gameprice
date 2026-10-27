@@ -440,6 +440,7 @@ node test/notify.test.js     # 10 项：通道发现、MIME 编码、假 SMTP �
 node test/watchlist.test.js  # 5 项：关注表 CRUD、候选查询、标记后不再提醒、级联删除
 node test/scheduler.test.js  # 11 项：调度时刻表、首轮错开、参数透传、熔断
 node test/visitors.test.js   # 5 项：IP/CIDR 校验、记录落库与过滤、黑名单 403 拦截、权限隔离
+node test/sync-runs.test.js  # 2 项：同步任务记录生命周期、重启中断标记、状态接口权限
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
@@ -490,7 +491,7 @@ gameprice/
 │   ├── visitors.js      访问记录：IP 提取、归属地解析、黑名单内存态
 │   ├── steam-login.js   Steam OpenID 登录与游戏库（独立于站点用户体系）
 │   ├── probe.js         目标可达性探针
-├── test/                24 个测试文件（212 项）+ 真实页面夹具
+├── test/                26 个测试文件（216 项）+ 真实页面夹具
 ├── data/                games.json（游戏清单）、skus.json（杉果 SKU）
 ├── docs/                ARCHITECTURE / DATA-SOURCES / DEPLOY
 ├── out/                 由 chart 生成的静态页（已 gitignore）

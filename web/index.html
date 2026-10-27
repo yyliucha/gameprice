@@ -38,6 +38,8 @@ h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
 .chip{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:999px;padding:5px 12px;font-size:13px}
 .chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+/* 分页条吸底：长列表滚动时始终可见，避免"看不到分页、以为页面没加载完" */
+.pagerbar{position:sticky;bottom:0;z-index:6;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:14px;box-shadow:0 -6px 20px -12px rgba(15,23,42,.25)}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{text-align:left;padding:11px 14px;background:color-mix(in srgb,var(--muted) 8%,transparent);color:var(--muted);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border)}
 td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}

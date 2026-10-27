@@ -93,6 +93,11 @@ export function sortGames(rows, sort = 'discount') {
  */
 export function createApiServer({ query, logger = null, outDir = null }) {
   const q = query;
+  // 手动同步的进程内状态：同一时刻只允许一个同步任务
+  let syncChild = null;
+  let syncRun = null; // { id, mode, startedAt }
+  let syncOutput = ''; // 子进程输出尾巴，供前端轮询
+  let syncSettled = true;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -579,9 +584,14 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { game: row });
       }
 
-      // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟
+      // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟。
+      // 记录到 sync_runs（开始/结束/输出尾巴），前端轮询状态显示实时输出。
       if (path === '/api/admin/sync' && req.method === 'POST') {
         if (!requireAdmin()) return;
+        if (syncChild) return json(res, 409, { error: '已有同步在运行，请等它结束', run: syncRun });
+        // 进程内没记录但库里有 running（服务重启残留）→ 先标失败，避免永远拒绝
+        const stale = await db.runningSyncRun(q).catch(() => null);
+        if (stale) await db.markStaleSyncRuns(q).catch(() => {});
         const body = await readBody(req);
         const mode = body.mode === 'catalog' ? 'catalog' : 'steamall';
         const args = ['src/cli.js', 'sync', mode];
@@ -590,20 +600,64 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           const sleep = Math.min(Math.max(Number(body.sleep ?? 2) || 2, 1), 30);
           args.push('--limit', String(limit), '--sleep', String(sleep));
         }
+        const run = await db.insertSyncRun(q, { mode, args: args.join(' ') });
         const { spawn } = await import('node:child_process');
-        // 子进程输出重定向到 logs/spawn.log，崩溃时能看到栈
         const fsMod = await import('node:fs');
-        let spawnOut = 'ignore';
-        try {
-          spawnOut = fsMod.openSync('logs/spawn.log', 'a');
-        } catch {
-          spawnOut = 'ignore';
-        }
-        const child = spawn(process.execPath, args, { stdio: ['ignore', spawnOut, spawnOut], detached: true });
-        child.unref();
-        logger?.info('api.sync_started', { mode, args: args.join(' '), by: user.username, pid: child.pid });
-        return json(res, 202, { started: true, pid: child.pid, mode, hint: mode === 'catalog' ? '正在拉取 Steam 全量目录，约 20 万条，稍后刷新列表' : '增量同步已开始，可在「日志」页看进度' });
+        const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        syncChild = child;
+        syncRun = { id: run.id, mode, args: args.join(' '), startedAt: run.startedAt };
+        syncOutput = '';
+        syncSettled = false;
+        const append = (chunk) => {
+          syncOutput = (syncOutput + chunk).slice(-8000);
+          try {
+            fsMod.appendFileSync('logs/spawn.log', chunk);
+          } catch {
+            /* 日志目录不可写时忽略，DB 里仍有输出 */
+          }
+        };
+        const finish = async (status, exitCode, note) => {
+          if (syncSettled) return;
+          syncSettled = true;
+          syncChild = null;
+          if (note) append('\n' + note);
+          try {
+            await db.finishSyncRun(q, run.id, { status, exitCode, output: syncOutput });
+          } catch {
+            /* 记录失败不影响主流程 */
+          }
+          logger?.info('api.sync_finished', { mode, runId: run.id, status, exitCode });
+        };
+        child.stdout?.on('data', (d) => append(String(d)));
+        child.stderr?.on('data', (d) => append(String(d)));
+        child.on('error', (err) => {
+          void finish('failed', null, '[spawn error] ' + String(err.message).slice(0, 300));
+        });
+        child.on('close', (code) => {
+          void finish(code === 0 ? 'ok' : 'failed', code, null);
+        });
+        logger?.info('api.sync_started', { mode, args: args.join(' '), by: user.username, pid: child.pid, runId: run.id });
+        return json(res, 202, { started: true, runId: run.id, mode, pid: child.pid });
       }
+
+      if (path === '/api/admin/sync/status' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const running = Boolean(syncChild);
+        const last = await db.listSyncRuns(q, { limit: 1 }).catch(() => []);
+        return json(res, 200, {
+          running,
+          run: running ? syncRun : null,
+          output: syncOutput.slice(-6000),
+          last: last[0] ?? null,
+        });
+      }
+
+      if (path === '/api/admin/sync/runs' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const limit = Number(url.searchParams.get('limit') ?? 20);
+        return json(res, 200, { runs: await db.listSyncRuns(q, { limit }) });
+      }
+
       // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----
       if (path === '/api/admin/smtp' && req.method === 'GET') {
         if (!requireAdmin()) return;
@@ -973,6 +1027,12 @@ export function startApiServer({ query, logger = null, outDir = null, port = 809
         await visitors.refreshBlocklist(query);
       } catch (err) {
         logger?.warn('block.init_failed', { message: String(err.message).slice(0, 120) });
+      }
+      try {
+        // 服务重启后残留的 running 记录标失败，避免同步按钮永远禁用
+        await db.markStaleSyncRuns(query);
+      } catch {
+        /* 表未建（老库）时忽略 */
       }
       const address = server.address();
       logger?.info('api.listen', { host, port: address.port, outDir: outDir ? resolve(outDir) : null });

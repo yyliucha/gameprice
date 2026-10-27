@@ -104,9 +104,7 @@ function fmtConsole(rec) {
 export function createLogger(options = {}) {
   const opt = { ...DEFAULTS, ...options };
   mkdirSync(opt.dir, { recursive: true });
-  const minLevel = LEVELS[opt.level] ?? LEVELS.info;
-
-  const state = { day: '' };
+  const state = { day: '', minLevel: LEVELS[opt.level] ?? LEVELS.info };
   // 每个日志文件独立记字节数，避免 app / error 两个文件互相干扰轮转
   const sizes = new Map();
 
@@ -143,7 +141,7 @@ export function createLogger(options = {}) {
   }
 
   function write(level, event, fields = {}) {
-    if ((LEVELS[level] ?? 99) < minLevel) return null;
+    if ((LEVELS[level] ?? 99) < state.minLevel) return null;
     const now = new Date();
     const day = now.toISOString().slice(0, 10);
     const rec = redactObject({
@@ -174,6 +172,12 @@ export function createLogger(options = {}) {
     dir: opt.dir,
     level: opt.level,
     file: () => state.file,
+    setLevel: (level) => {
+      if (LEVELS[level] == null) return false;
+      state.minLevel = LEVELS[level];
+      logger.level = level;
+      return true;
+    },
     trace: (event, fields) => write('trace', event, fields),
     debug: (event, fields) => write('debug', event, fields),
     info: (event, fields) => write('info', event, fields),

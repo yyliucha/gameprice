@@ -373,6 +373,11 @@ async function cmdSyncSteamAll() {
     const dlcCount = items.filter((i) => i.appType === 'dlc').length;
     logger.info('sync.steamall.done', { appids: appids.length, items: items.length, dlc: dlcCount, described, priced, ...stats });
     console.log(`完成：${items.length} 条元数据（其中 DLC ${dlcCount} 款；说明 ${described} 条）、${priced} 条 Steam 价格（新增 ${stats.inserted}）`);
+  } else if (!items.length) {
+    logger.warn('sync.steamall.empty', { appids: appids.length, backend });
+    console.log('完成：0 条元数据 —— 拉取全部失败。先排查网络/代理：');
+    console.log('  docker compose exec app node src/cli.js diagnose   # 看 net:steam 一行');
+    console.log('  日志里搜 steam.meta.failed 可看到每个 appid 的失败原因');
   } else {
     console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
   }
