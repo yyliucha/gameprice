@@ -33,9 +33,10 @@ export async function fetchAppList({ logger = null, env = process.env, onPage = 
     const url =
       descriptor.endpoint +
       '?key=' + encodeURIComponent(key) +
-      '&max_results=50000' +
+      '&max_results=10000' +
       (lastAppid ? '&last_appid=' + lastAppid : '');
-    const data = await fetchJson(url, { logger });
+    // 单页 1 万条（约 1-2MB），放宽超时并允许重试，避免大响应被代理重置
+    const data = await fetchJson(url, { logger, timeoutMs: 60000, retries: 2 });
     const resp = data?.response ?? {};
     const apps = resp.applist?.apps ?? [];
     for (const a of apps) {
