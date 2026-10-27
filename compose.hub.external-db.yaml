@@ -2,10 +2,10 @@ name: steamdeals
 
 # Docker Hub 部署：使用你已有的 PostgreSQL，不启动 db 容器。
 #
-#   DATABASE_URL='postgres://用户:密码@主机:5432/库名' \
-#     docker compose -f compose.hub.external-db.yaml up -d
+#   1. 改下面 environment.DATABASE_URL 为你的连接串
+#   2. docker compose -f compose.hub.external-db.yaml up -d
 #
-# 数据库地址直接写在 compose 命令的环境变量里，不需要创建/编辑 .env。
+# 数据库地址直接写在 compose 文件里，不需要创建/编辑 .env。
 # 宿主机上的 PostgreSQL 用 host.docker.internal（Linux 已映射到网关）；
 # 跨机器务必加 ?sslmode=require。
 #
@@ -19,8 +19,13 @@ services:
     ports:
       - "${WEB_PORT:-8090}:8080"
     environment:
-      # 必填：没有提供时 compose 会直接报错，避免容器起来后连不上库
-      DATABASE_URL: "${DATABASE_URL:?请通过环境变量提供 DATABASE_URL，例如 postgres://user:pass@host:5432/steamdeals}"
+      # 直接改下面这一行即可，不需要 .env，也不需要命令行传变量。
+      # 这是 Compose 的 environment 配置，和 volumes 一样属于 compose 文件内容。
+      #
+      # 注意：
+      #   · 密码里的 # ? / @ 等 URL 特殊字符需要 URL 编码（# → %23，? → %3F，/ → %2F，@ → %40）
+      #   · 真实密码不要提交到公开仓库；可以复制成 compose.hub.external-db.local.yaml（已 gitignore）
+      DATABASE_URL: "postgres://user:password@host:5432/steamdeals?sslmode=require"
       TZ: ${TZ:-Asia/Shanghai}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
     extra_hosts:

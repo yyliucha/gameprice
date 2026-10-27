@@ -154,12 +154,12 @@ test('Docker Hub 零配置 compose：镜像 + 自带 db + 命名卷 + 首次初�
   assert.ok(existsSync(new URL('../web/settings-ui.js', import.meta.url)), '设置表单渲染器必须存在');
 });
 
-test('Docker Hub 外部数据库 compose：不启动 db，DATABASE_URL 由命令传入', () => {
+test('Docker Hub 外部数据库 compose：DATABASE_URL 直接写在 compose 文件里', () => {
   const doc = parse(read('compose.hub.external-db.yaml'));
   assert.equal(doc.services.app.image, 'yyliucha/steamdeals:latest');
   assert.equal(doc.services.db, undefined, '外部库模式不能启动 db');
   const raw = doc.services.app.environment.DATABASE_URL;
-  assert.match(raw, /DATABASE_URL:\?/, '缺少 DATABASE_URL 时应由 compose 直接报错');
+  assert.equal(raw, 'postgres://user:password@host:5432/steamdeals?sslmode=require');
   assert.ok(doc.services.app.extra_hosts.includes('host.docker.internal:host-gateway'));
   assert.match(doc.services.app.ports.join(' '), /\$\{WEB_PORT:-8090\}:8080/);
 });

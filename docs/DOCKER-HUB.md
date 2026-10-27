@@ -25,23 +25,40 @@ http://服务器IP:8090
 - 用命名卷 `appdata` / `logs` / `pgdata`，不需要 `mkdir` 或 `chown`
 - 只向应用注入 `DATABASE_URL`、`TZ`、可选 `SETUP_TOKEN`，没有任何业务配置
 
-## 方式二：使用已有 PostgreSQL（数据库配置放在 compose 命令里）
+## 方式二：使用已有 PostgreSQL（数据库配置写在 compose 文件里）
 
-不启动 db 容器，数据库地址直接通过命令的环境变量传入：
+不启动 db 容器。打开 [compose.hub.external-db.yaml](../compose.hub.external-db.yaml)，把 `environment.DATABASE_URL` 改成你的库（和改 `volumes` 一样）：
 
-```bash
-DATABASE_URL='postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require' \
-  docker compose -f compose.hub.external-db.yaml up -d
+```yaml
+services:
+  app:
+    environment:
+      DATABASE_URL: "postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require"
 ```
 
-宿主机上的 PostgreSQL：
+然后启动：
 
 ```bash
-DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
-  docker compose -f compose.hub.external-db.yaml up -d
+docker compose -f compose.hub.external-db.yaml up -d
 ```
 
-> 数据库连接串必须在应用启动前就存在，无法搬进数据库本身，所以它保留为部署参数；但可以完全写在 compose 命令里，不需要创建 `.env`。业务设置（数据源、Key、代理、提醒等）才落库。
+宿主机上的 PostgreSQL 用 `host.docker.internal`：
+
+```yaml
+DATABASE_URL: "postgres://steamdeals:密码@host.docker.internal:5432/steamdeals"
+```
+
+如果不想把密码写进受版本控制的文件，也可以复制一份本地副本（已加入 `.gitignore`）：
+
+```bash
+cp compose.hub.external-db.yaml compose.hub.external-db.local.yaml
+# 编辑 compose.hub.external-db.local.yaml 里的 DATABASE_URL
+docker compose -f compose.hub.external-db.local.yaml up -d
+```
+
+> 数据库连接串必须在应用启动前就存在，无法搬进数据库本身，所以它保留为部署参数；但它现在和 `volumes` 一样直接写在 compose 文件里，不需要创建 `.env`。业务设置（数据源、Key、代理、提醒等）才落库。
+>
+> 密码里的 `#` `?` `/` `@` 需要 URL 编码；`$` 在 Compose 里写成 `$$`。真实密码不要提交到公开仓库，建议用 `compose.hub.external-db.local.yaml` 本地副本（已加入 `.gitignore`）。
 
 也可以直接用 `docker run`（同样需要外部 PostgreSQL）：
 

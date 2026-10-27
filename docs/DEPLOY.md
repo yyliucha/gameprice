@@ -14,9 +14,8 @@
 # 自带 PostgreSQL，不建 .env、不 chown
 docker compose -f compose.hub.yaml up -d
 
-# 用已有 PostgreSQL：连接串写在命令里
-DATABASE_URL='postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require' \
-  docker compose -f compose.hub.external-db.yaml up -d
+# 用已有 PostgreSQL：先改 compose.hub.external-db.yaml 里的 DATABASE_URL
+docker compose -f compose.hub.external-db.yaml up -d
 ```
 
 打开 `http://服务器IP:8090`，先进入 `/setup`：
@@ -27,7 +26,7 @@ DATABASE_URL='postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require'
 
 初始化完成前，所有页面 302 到 `/setup`，业务 API 返回 `428`；健康检查只验证数据库，容器不会因未初始化而重启。业务设置写入 PostgreSQL 的 `app_settings` / `smtp_settings`，之后在「控制台 → 系统设置」修改，调度器约 15 秒内热加载。
 
-> 数据库连接串必须在应用启动前存在，不能搬进数据库；但它可以直接写在 compose 命令的环境变量里，不需要 `.env`。可选 `SETUP_TOKEN` 用来防止公网被抢先初始化。
+> 数据库连接串必须在应用启动前存在，不能搬进数据库；但它可以直接写在 `compose.hub.external-db.yaml` 的 `environment.DATABASE_URL` 里（和 `volumes` 一样是 compose 文件内容），不需要 `.env`。可选 `SETUP_TOKEN` 用来防止公网被抢先初始化。
 
 ---
 
@@ -71,21 +70,34 @@ docker compose exec app node src/cli.js list
 
 ### Docker Hub 镜像（推荐）
 
-数据库连接串直接写在 compose 命令里，不需要 `.env`：
+直接编辑 [compose.hub.external-db.yaml](../compose.hub.external-db.yaml) 里的这一行（和改 `volumes` 一样）：
+
+```yaml
+environment:
+  DATABASE_URL: "postgres://steamdeals:密码@10.0.0.5:5432/steamdeals?sslmode=require"
+```
+
+然后启动：
 
 ```bash
-DATABASE_URL='postgres://steamdeals:密码@10.0.0.5:5432/steamdeals?sslmode=require' \
-  docker compose -f compose.hub.external-db.yaml up -d
+docker compose -f compose.hub.external-db.yaml up -d
 ```
 
 宿主机上的 PostgreSQL 用 `host.docker.internal`（Linux 已映射到网关）：
 
-```bash
-DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
-  docker compose -f compose.hub.external-db.yaml up -d
+```yaml
+DATABASE_URL: "postgres://steamdeals:密码@host.docker.internal:5432/steamdeals"
 ```
 
 已建库的用户需要有建表权限（启动时会 `create table if not exists`）。
+
+如果不想把密码写进受版本控制的文件，可以复制一份本地副本（已 gitignore）：
+
+```bash
+cp compose.hub.external-db.yaml compose.hub.external-db.local.yaml
+# 改本地副本里的 DATABASE_URL
+docker compose -f compose.hub.external-db.local.yaml up -d
+```
 
 ### 从源码构建
 

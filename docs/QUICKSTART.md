@@ -103,9 +103,10 @@ sudo -u postgres psql -c "create database steamdeals owner steamdeals"
 #    pg_hba.conf 追加: host all all 172.16.0.0/12 scram-sha-256
 sudo systemctl reload postgresql
 
-# 3) 用 Docker Hub 镜像连现有库（数据库地址写在命令里，不建 .env）
-DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
-  docker compose -f compose.hub.external-db.yaml up -d
+# 3) 用 Docker Hub 镜像连现有库：
+#    先编辑 compose.hub.external-db.yaml 的 environment.DATABASE_URL
+#    DATABASE_URL: "postgres://steamdeals:密码@host.docker.internal:5432/steamdeals"
+docker compose -f compose.hub.external-db.yaml up -d
 
 # 从源码构建时也可以用：在 .env 里写 DATABASE_URL，然后
 # docker compose up -d --no-deps app && docker compose rm -sf db

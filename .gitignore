@@ -10,6 +10,7 @@ data/*.jsonl
 data/sonkwo-discovery.json
 .env
 .env.local
+compose.hub.external-db.local.yaml
 .npm-cache/
 *.db
 *.db-wal

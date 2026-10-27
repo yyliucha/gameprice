@@ -204,11 +204,18 @@ docker compose -f compose.hub.yaml up -d
 
 完成后自动登录，调度器约 15 秒内开始采集。之后所有业务设置都在「控制台 → 系统设置」，保存后热加载，不用重启容器。
 
-**用已有 PostgreSQL**：数据库连接串直接写在命令里（不需要 `.env`）：
+**用已有 PostgreSQL**：直接改 [compose.hub.external-db.yaml](compose.hub.external-db.yaml) 里的 `DATABASE_URL`（和改 `volumes` 一样），然后：
 
 ```bash
-DATABASE_URL='postgres://user:password@host:5432/steamdeals?sslmode=require' \
-  docker compose -f compose.hub.external-db.yaml up -d
+docker compose -f compose.hub.external-db.yaml up -d
+```
+
+不想把密码写进受版本控制的文件时，复制一份本地副本（已 gitignore）：
+
+```bash
+cp compose.hub.external-db.yaml compose.hub.external-db.local.yaml
+# 改本地副本里的 DATABASE_URL
+docker compose -f compose.hub.external-db.local.yaml up -d
 ```
 
 完整说明（外部库、docker run、卷、备份、SETUP_TOKEN、排障）见 **[docs/DOCKER-HUB.md](docs/DOCKER-HUB.md)**。
