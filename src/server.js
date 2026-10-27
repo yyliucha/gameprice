@@ -295,6 +295,92 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 202, { started: true, pid: child.pid, hint: '后台同步已开始，看 logs/ 或稍后刷新列表' });
       }
 
+      // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----
+      if (path === '/api/admin/smtp' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const cfg = await auth.smtpConfig(q);
+        return json(res, 200, {
+          smtp: {
+            source: cfg.source,
+            host: cfg.host ?? '',
+            port: cfg.port ?? 465,
+            secure: cfg.secure !== false,
+            user: cfg.user ?? '',
+            from: cfg.from ?? '',
+            hasPassword: Boolean(cfg.pass),
+            ready: auth.isSmtpConfigured(cfg),
+          },
+        });
+      }
+
+      if (path === '/api/admin/smtp' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const body = await readBody(req);
+        const pass = body.pass ? auth.encryptSecret(String(body.pass), auth.loadSecretKey()) : null;
+        await q(
+          `insert into smtp_settings (id, host, port, secure, username, password_enc, from_addr, enabled, updated_at)
+           values (1, $1, $2, $3, $4, $5, $6, $7, now())
+           on conflict (id) do update set
+             host = excluded.host, port = excluded.port, secure = excluded.secure,
+             username = excluded.username,
+             password_enc = coalesce($5, smtp_settings.password_enc),
+             from_addr = excluded.from_addr, enabled = excluded.enabled, updated_at = now()`,
+          [
+            String(body.host ?? '').trim(),
+            Number(body.port ?? 465),
+            body.secure !== false,
+            String(body.user ?? '').trim(),
+            pass,
+            String(body.from ?? '').trim(),
+            body.enabled !== false,
+          ],
+        );
+        logger?.info('api.smtp_saved', { by: user.username, host: String(body.host ?? '').trim() });
+        return json(res, 200, { ok: true });
+      }
+
+      if (path === '/api/admin/smtp/test' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const { sendMail } = await import('./notify.js');
+        const body = await readBody(req);
+        const to = String(body.to ?? '').trim();
+        if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
+        const cfg = await auth.smtpConfig(q);
+        if (!auth.isSmtpConfigured(cfg)) return json(res, 400, { error: 'SMTP 还没配置完整（主机与发件人必填）' });
+        try {
+          await sendMail(
+            {
+              host: cfg.host,
+              port: cfg.port,
+              secure: cfg.secure,
+              user: cfg.user,
+              pass: cfg.pass,
+              from: cfg.from,
+              to,
+              subject: 'SteamDeals 测试邮件',
+              text: '这是一封测试邮件。收到说明 SMTP 配置可用。',
+            },
+            { logger },
+          );
+          logger?.info('api.smtp_test_ok', { to, by: user.username });
+          return json(res, 200, { ok: true });
+        } catch (err) {
+          logger?.warn('api.smtp_test_failed', { message: String(err.message).slice(0, 160) });
+          return json(res, 502, { error: String(err.message).slice(0, 200) });
+        }
+      }
+
+      if (path === '/api/admin/emails' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const rows = await q(
+          'select email, purpose, sent_ok, error, ip, created_at from email_codes order by created_at desc limit 50',
+        );
+        return json(res, 200, { records: rows.rows });
+      }
+
       if (path === '/api/admin/users' && req.method === 'GET') {
         if (!requireAdmin()) return;
         return json(res, 200, { users: await db.listUsers(q) });

@@ -111,6 +111,30 @@ textarea{width:100%;min-height:110px;resize:vertical}
         </div>
       </div>
 
+      <h2 id="mail">邮箱配置（SMTP）</h2>
+      <div class="card pad">
+        <div class="row">
+          <input id="sHost" placeholder="SMTP 主机，如 smtp.qq.com" style="width:220px">
+          <input id="sPort" placeholder="端口" value="465" style="width:90px">
+          <select id="sSecure"><option value="1">SSL(465)</option><option value="0">STARTTLS(587)</option></select>
+        </div>
+        <div class="row">
+          <input id="sUser" placeholder="账号，如 you@qq.com" style="width:220px">
+          <input id="sPass" type="password" placeholder="授权码/密码（留空表示不修改）" style="width:260px">
+          <input id="sFrom" placeholder="发件人（留空用账号）" style="width:220px">
+        </div>
+        <div class="row">
+          <button class="btn primary" id="saveSmtp">保存配置</button>
+          <input id="sTest" placeholder="测试收件邮箱" style="width:200px">
+          <button class="btn" id="testSmtp">发送测试邮件</button>
+          <span class="small muted" id="smtpMsg"></span>
+        </div>
+        <p class="muted small">密码加密存库；未配置时回退环境变量。QQ/163 邮箱需用「授权码」，不是登录密码。</p>
+      </div>
+
+      <h2>验证码发送记录</h2>
+      <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
+
       <h2 id="stats">数据统计</h2>
       <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
     </div>
@@ -265,7 +289,41 @@ $('login').onclick = async () => {
   $('msg').textContent = '';
   try {
     await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('u').value, password: $('p').value }) });
-    await boot();
+    await async function loadSmtp(){
+  try{
+    const d=await api('/api/admin/smtp');
+    const s=d.smtp;
+    $('sHost').value=s.host||''; $('sPort').value=s.port||465;
+    $('sSecure').value=s.secure?'1':'0'; $('sUser').value=s.user||''; $('sFrom').value=s.from||'';
+    $('smtpMsg').textContent=(s.ready?'已配置':'未配置')+'（来源：'+(s.source==='database'?'后台':'环境变量')+'）'+(s.hasPassword?'，密码已保存':'');
+  }catch(e){ $('smtpMsg').textContent='读取失败：'+e.message; }
+}
+$('saveSmtp').onclick=async()=>{
+  $('smtpMsg').textContent='保存中…';
+  try{
+    await api('/api/admin/smtp',{method:'POST',body:JSON.stringify({
+      host:$('sHost').value.trim(), port:Number($('sPort').value||465),
+      secure:$('sSecure').value==='1', user:$('sUser').value.trim(),
+      pass:$('sPass').value, from:$('sFrom').value.trim(), enabled:true }) });
+    $('sPass').value='';
+    await loadSmtp(); toast('SMTP 已保存');
+  }catch(e){ $('smtpMsg').textContent='保存失败：'+e.message; }
+};
+$('testSmtp').onclick=async()=>{
+  const to=$('sTest').value.trim(); if(!to){ $('smtpMsg').textContent='先填收件邮箱'; return; }
+  $('smtpMsg').textContent='发送中…';
+  try{ await api('/api/admin/smtp/test',{method:'POST',body:JSON.stringify({to})}); $('smtpMsg').textContent='测试邮件已发送'; }
+  catch(e){ $('smtpMsg').textContent='发送失败：'+e.message; }
+};
+async function loadMail(){
+  try{ const d=await api('/api/admin/emails');
+    $('mailRows').innerHTML=(d.records||[]).map(r=>
+      '<tr><td>'+esc(r.email)+'</td><td>'+esc(r.purpose)+'</td><td>'+(r.sent_ok?'成功':'失败'+(r.error?'：'+esc(r.error):''))+'</td><td class="muted small">'+when(r.created_at)+'</td></tr>').join('')
+      || '<tr><td colspan="4" class="muted">还没有发送记录</td></tr>';
+  }catch(e){ /* 表可能还没建 */ }
+}
+
+boot().then(()=>{ loadSmtp(); loadMail(); });
   } catch (err) { $('msg').textContent = err.message; }
 };
 $('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); await boot(); };

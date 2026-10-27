@@ -6,6 +6,8 @@
 //   · 同邮箱 60 秒内只能发一次；每小时最多 5 次
 //   · SMTP 密码用 AES-256-GCM 加密存储，密钥来自 SECRET_KEY 环境变量
 import { createHash, randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 export const CODE_TTL_SEC = 300; // 5 分钟
 export const CODE_MAX_ATTEMPTS = 5;
@@ -55,6 +57,28 @@ export function checkRateLimit(records, nowMs = Date.now()) {
 // ---------------------------------------------------------------- SMTP 密码加密
 
 const KEY_SALT = 'steamdeals-smtp-v1';
+
+/**
+ * 取加密密钥：优先环境变量，其次 data/secret.key（首次自动生成并持久化）。
+ * 这样后台配 SMTP 不需要用户先敲命令设 SECRET_KEY。
+ */
+export function loadSecretKey({ env = process.env, file = 'data/secret.key' } = {}) {
+  if (typeof env.SECRET_KEY === 'string' && env.SECRET_KEY.length >= 16) return env.SECRET_KEY;
+  try {
+    const existing = readFileSync(file, 'utf8').trim();
+    if (existing.length >= 16) return existing;
+  } catch {
+    /* 文件不存在，下面创建 */
+  }
+  const generated = randomBytes(32).toString('base64url');
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, generated, { mode: 0o600 });
+  } catch {
+    /* 只读环境：退回内存密钥（重启后旧密码解不开，会提示重新填写） */
+  }
+  return generated;
+}
 
 export function hasSecretKey(env = process.env) {
   return typeof env.SECRET_KEY === 'string' && env.SECRET_KEY.length >= 16;
