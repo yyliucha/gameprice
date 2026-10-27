@@ -101,6 +101,8 @@ export function buildMessage({ from, to, subject, text, date = new Date(), messa
     `Subject: ${encodeSubject(subject)}`,
     `Date: ${date.toUTCString()}`,
     `Message-ID: ${id}`,
+    `Reply-To: ${from}`,
+    'X-Mailer: SteamDeals',
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: base64',

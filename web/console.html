@@ -152,7 +152,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
           </div>
           <div class="row">
             <input id="sUser" placeholder="账号，如 you@qq.com" style="width:200px">
-            <input id="sPass" type="password" placeholder="授权码（留空表示不修改）" style="width:230px">
+            <input id="sPass" type="text" placeholder="授权码" style="width:230px">
             <input id="sFrom" placeholder="发件人（留空用账号）" style="width:200px">
           </div>
           <div class="row">
@@ -161,7 +161,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <button class="btn" id="testSmtp">发送测试邮件</button>
             <span class="small muted" id="smtpMsg"></span>
           </div>
-          <p class="muted small">QQ/163 需用「授权码」；密码加密存库，未配置时回退环境变量。测试邮件的收件人留空则发给上面填的账号。</p>
+          <p class="muted small">QQ/163 需用「授权码」；授权码加密存库，仅管理员可见（这里直接显示便于核对）。测试邮件的收件人留空则发给上面填的账号。</p>
           <pre id="smtpTrace" class="small muted" style="white-space:pre-wrap;margin:6px 0 0;max-height:120px;overflow:auto"></pre>
         </div>
         <h2>验证码发送记录</h2>
@@ -429,7 +429,7 @@ async function loadSmtp() {
     const s = d.smtp;
     $('sHost').value = s.host || ''; $('sPort').value = s.port || 465;
     $('sSecure').value = s.secure ? '1' : '0';
-    $('sUser').value = s.user || ''; $('sFrom').value = s.from || '';
+    $('sUser').value = s.user || ''; $('sFrom').value = s.from || ''; $('sPass').value = s.pass || '';
     $('sPass').placeholder = s.hasPassword ? '已保存（留空表示不修改）' : '授权码/密码';
     $('smtpMsg').textContent = (s.ready ? '已配置' : '未配置') + '（来源：' + (s.source === 'database' ? '后台' : '环境变量') + '）'
       + (s.hasPassword ? '，密码已保存' : '')
