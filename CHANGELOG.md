@@ -2,6 +2,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.17.5] - 2026-10-27
+
+封面图链路诊断细化。
+
+### 变更
+
+- `/img/steam` 兜底路径去重：三条互不重复的路（Cloudflare 代理 → Akamai 直连 → Cloudflare 强制直连）
+- `diagnose` 图片探测拆成三行 `net:img:cf-proxy` / `net:img:ak-direct` / `net:img:cf-direct`，
+  与图片路由逐条对应；`fetchText` 新增 `forceDirect`（跳过代理决策）
+
 ## [0.17.4] - 2026-10-27
 
 Steam 封面图多路兜底（线上图片 404 的修复）。

@@ -268,7 +268,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const SIZES = new Set(['header', 'capsule_231x87', 'capsule_sm_120', 'capsule_616x353', 'library_600x900', 'library_hero']);
         if (!SIZES.has(size)) return json(res, 404, { error: 'unknown size' });
         const { fetchBuffer } = await import('./http.js');
-        // 双 CDN × 双路由兜底：Cloudflare(默认走代理)/Akamai(默认直连)，再全部强制直连试一遍。
+        // 三条路兜底：Cloudflare(默认走代理) → Akamai(默认直连) → Cloudflare(强制直连)。
         // 记住上次成功的那条路；失败也记 5 分钟，避免每次都拖满超时。
         const key = appid + '/' + size;
         const missAt = imgMissCache.get(key);
@@ -280,12 +280,10 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const candidates = [];
         const hit = imgRouteCache.get(key);
         if (hit) candidates.push(hit);
-        for (const host of ['cdn.cloudflare.steamstatic.com', 'cdn.akamai.steamstatic.com']) {
-          candidates.push({ url: `https://${host}/steam/apps/${appid}/${size}.jpg` });
-        }
-        for (const host of ['cdn.cloudflare.steamstatic.com', 'cdn.akamai.steamstatic.com']) {
-          candidates.push({ url: `https://${host}/steam/apps/${appid}/${size}.jpg`, forceDirect: true });
-        }
+        // 三条互不重复的路：Cloudflare(默认=代理) / Akamai(默认=直连) / Cloudflare(强制直连)
+        candidates.push({ url: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/${size}.jpg` });
+        candidates.push({ url: `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/${size}.jpg` });
+        candidates.push({ url: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/${size}.jpg`, forceDirect: true });
         let lastError = null;
         let served = false;
         for (const cand of candidates) {

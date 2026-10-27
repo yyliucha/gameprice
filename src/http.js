@@ -66,10 +66,16 @@ export async function fetchText(url, opts = {}) {
     fetchImpl = null,
     method = 'GET',
     body,
+    forceDirect = false,
   } = opts;
 
-  // 传入 fetchImpl 时（测试/特殊场景）不干预出网通道；否则按主机决定是否走代理
-  const route = fetchImpl ? { dispatcher: null, via: 'custom', proxy: null } : dispatcherFor(hostOf(url));
+  // 传入 fetchImpl 时（测试/特殊场景）不干预出网通道；
+  // forceDirect 强制直连（诊断/兜底用）；否则按主机决定是否走代理
+  const route = fetchImpl
+    ? { dispatcher: null, via: 'custom', proxy: null }
+    : forceDirect
+      ? { dispatcher: null, via: 'direct', proxy: null }
+      : dispatcherFor(hostOf(url));
   const doFetch = fetchImpl ?? undici.fetch;
 
   let lastError;

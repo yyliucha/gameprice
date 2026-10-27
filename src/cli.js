@@ -1282,9 +1282,9 @@ async function cmdDiagnose() {
     add('database', false, '没有 DATABASE_URL，也没有 --db');
   }
 
-  const net = async (name, url) => {
+  const net = async (name, url, opts = {}) => {
     try {
-      const res = await fetchText(url, { logger, label: `diagnose.${name}`, retries: 0, timeoutMs: 12000 });
+      const res = await fetchText(url, { logger, label: `diagnose.${name}`, retries: 0, timeoutMs: 12000, ...opts });
       add(`net:${name}`, true, `HTTP ${res.status} ${(res.bytes / 1024).toFixed(0)}KB ${res.elapsedMs}ms`);
     } catch (err) {
       // 把响应体片段带上：403 的 body 常常直接写着原因（如 "Invalid or expired api key"）
@@ -1296,9 +1296,11 @@ async function cmdDiagnose() {
   await net('sonkwo', 'https://www.sonkwo.hk/sku/111454');
   await net('itad', `https://api.isthereanydeal.com/games/search/v1?title=elden&key=${process.env.ITAD_API_KEY ?? 'none'}`);
   await net('fanatical', 'https://www.fanatical.com/');
-  // 封面图链路：Cloudflare（走代理）与 Akamai（直连）分别探一次，图片 404 时看这里
-  await net('img:cloudflare', 'https://cdn.cloudflare.steamstatic.com/steam/apps/413150/capsule_sm_120.jpg');
-  await net('img:akamai', 'https://cdn.akamai.steamstatic.com/steam/apps/413150/capsule_sm_120.jpg');
+  // 封面图链路：与 /img/steam 的三条兜底路径一一对应，图片 404 时看这三行
+  const imgPath = '/steam/apps/413150/capsule_sm_120.jpg';
+  await net('img:cf-proxy', 'https://cdn.cloudflare.steamstatic.com' + imgPath);
+  await net('img:ak-direct', 'https://cdn.akamai.steamstatic.com' + imgPath);
+  await net('img:cf-direct', 'https://cdn.cloudflare.steamstatic.com' + imgPath, { forceDirect: true });
 
   const failed = checks.filter((c) => !c.ok);
   console.log('\n检查项：');
