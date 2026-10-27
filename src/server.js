@@ -412,11 +412,25 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const email = raw ? auth.normalizeEmail(raw) : null;
         if (raw && !email) return json(res, 400, { error: '邮箱格式不正确' });
         const username = decodeURIComponent(bindMatch[1]);
-        try {
-          const r = await q(
+        const doBind = () =>
+          q(
             'update users set email = $1, email_verified = false where username = $2 returning id, username, email, role, disabled',
             [email, username],
           );
+        try {
+          let r;
+          try {
+            r = await doBind();
+          } catch (err) {
+            // 旧库可能缺列：补建后重试一次，避免只报"服务器错误"
+            if (String(err.code) === '42703') {
+              await q('alter table users add column if not exists email text');
+              await q('alter table users add column if not exists email_verified boolean not null default false');
+              r = await doBind();
+            } else {
+              throw err;
+            }
+          }
           if (!r.rows.length) return json(res, 404, { error: '没有该用户' });
           logger?.info('api.user_email_bound', {
             username,
@@ -426,7 +440,13 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           return json(res, 200, { user: r.rows[0] });
         } catch (err) {
           if (String(err.code) === '23505') return json(res, 409, { error: '这个邮箱已被其他账号绑定' });
-          throw err;
+          logger?.error('api.user_email_bind_failed', {
+            username,
+            code: err.code ?? null,
+            message: String(err.message).slice(0, 200),
+            by: user.username,
+          });
+          return json(res, 500, { error: '绑定失败：' + String(err.message).slice(0, 160) });
         }
       }
 
