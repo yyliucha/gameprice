@@ -128,6 +128,14 @@ textarea{width:100%;min-height:100px;resize:vertical}
           </table>
         </div>
 
+        <div class="row" id="gamesPager" style="margin-top:10px">
+          <button class="btn" id="pgPrev">上一页</button>
+          <span class="small muted" id="pgInfo">第 1 / 1 页</span>
+          <button class="btn" id="pgNext">下一页</button>
+          <input id="pgJump" placeholder="页码" style="width:70px">
+          <button class="btn" id="pgGo">跳转</button>
+        </div>
+
         <h2>单个游戏编辑</h2>
         <div class="card pad">
           <div class="row">
@@ -233,6 +241,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
     <button class="btn primary" id="mOk" type="button">确定</button>
   </div>
 </dialog>
+<button id="toTop" class="btn" style="position:fixed;right:24px;bottom:70px;display:none;z-index:40">↑ 顶部</button>
 <div id="toast"></div>
 
 <script>
@@ -278,11 +287,18 @@ async function boot() {
   else if (d.user) $('msg').textContent = '该账号不是管理员。';
 }
 
-async function loadGameList() {
+let gamesPage = 1;
+let gamesPages = 1;
+async function loadGameList(page) {
+  if (page) gamesPage = page;
   const kw = ($('gameKw') ? $('gameKw').value.trim() : '');
   try {
-    const d = await api('/api/admin/games' + (kw ? '?q=' + encodeURIComponent(kw) : ''));
-    $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
+    const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=20' + (kw ? '&q=' + encodeURIComponent(kw) : ''));
+    gamesPage = d.page; gamesPages = d.pages;
+    if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款';
+    if ($('pgInfo')) $('pgInfo').textContent = '第 ' + d.page + ' / ' + d.pages + ' 页';
+    if ($('pgPrev')) $('pgPrev').disabled = d.page <= 1;
+    if ($('pgNext')) $('pgNext').disabled = d.page >= d.pages;
     $('gameRows').innerHTML = (d.games || []).map(function (g) {
       return '<tr>' +
         '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
@@ -301,7 +317,6 @@ async function loadGameList() {
     $('gameRows').innerHTML = '<tr><td colspan="8" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }
 }
-
 $('gameRows').addEventListener('click', async function (e) {
   const btn = e.target.closest('button[data-gact]');
   if (!btn) return;
@@ -638,6 +653,11 @@ $('login').onclick = async function () {
 };
 $('logout').onclick = async function () { await api('/api/logout', { method: 'POST' }); await boot(); };
 
+window.addEventListener('scroll', function () {
+  const b = document.getElementById('toTop');
+  if (b) b.style.display = window.scrollY > 300 ? 'block' : 'none';
+});
+(function () { const b = document.getElementById('toTop'); if (b) b.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); }; })();
 window.addEventListener('error', function (e) {
   const m = document.getElementById('msg');
   if (m) m.textContent = '页面脚本错误：' + (e.message || '未知');

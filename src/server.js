@@ -233,50 +233,28 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
-      // ---- 管理员：游戏列表（含同步状态）----
+      // ---- 管理员：游戏列表（分页 + 搜索）----
       if (path === '/api/admin/games' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const kw = String(url.searchParams.get('q') ?? '').trim();
-        const limit = Math.min(Number(url.searchParams.get('limit') ?? 300) || 300, 1000);
+        const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+        const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 20) || 20, 5), 200);
+        const offset = (page - 1) * pageSize;
+        const where =
+          "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') " +
+          "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)";
+        const cnt = await q("select count(*)::int as n from games g " + where, [kw]);
         const rows = await q(
           "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en, g.blocked, g.updated_at, " +
           "(g.description is not null and g.description <> '') as has_desc, " +
           "(select count(*) from offers o where o.game_id = g.id) as offer_count, " +
           "(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = 'steam' and o.in_stock) as steam_price " +
-          "from games g " +
-          "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1) " +
-          "order by g.updated_at desc nulls last, g.id desc limit $2",
-          [kw, limit],
+          "from games g " + where + " " +
+          "order by g.updated_at desc nulls last, g.id desc limit $2 offset $3",
+          [kw, pageSize, offset],
         );
-        return json(res, 200, { total: rows.rows.length, games: rows.rows });
-      }
-
-      // ---- 管理员：从 Steam 愿望单导入（以 Steam 为准的游戏来源）----
-      if (path === '/api/admin/import/steam-wishlist' && req.method === 'POST') {
-        if (!requireAdmin()) return;
-        const body = await readBody(req);
-        const steamId = String(body.steamId ?? '').trim();
-        if (!/^\d{17}$/.test(steamId)) return json(res, 400, { error: 'SteamID64 应为 17 位数字（个人资料页地址里的那串）' });
-        const { fetchJson } = await import('./http.js');
-        let appids = [];
-        try {
-          const data = await fetchJson('https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=' + steamId, { logger });
-          appids = (data?.response?.items ?? []).map((i) => Number(i.appid)).filter((n) => Number.isFinite(n));
-        } catch (err) {
-          logger?.warn('api.wishlist_failed', { steamId, message: String(err.message).slice(0, 160) });
-          return json(res, 502, { error: '拉取愿望单失败：' + String(err.message).slice(0, 160) });
-        }
-        if (!appids.length) return json(res, 200, { imported: 0, total: 0, hint: '愿望单为空，或资料页未设为公开' });
-        let imported = 0;
-        for (const appid of appids) {
-          const r = await q(
-            "insert into games (steam_appid, name) select $1, 'appid:' || $1 where not exists (select 1 from games where steam_appid = $1)",
-            [appid],
-          );
-          imported += r.rowCount ?? 0;
-        }
-        logger?.info('api.wishlist_imported', { steamId, total: appids.length, imported });
-        return json(res, 200, { imported, total: appids.length, hint: '已导入 ' + imported + ' 款；建议接着点「一键同步」补齐名称、说明与价格' });
+        const total = cnt.rows[0]?.n ?? 0;
+        return json(res, 200, { total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)), games: rows.rows });
       }
 
       // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----

@@ -55,6 +55,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px;margin:6px 0 12px}
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
 .hide{display:none !important}
+.toTop{position:fixed;right:20px;bottom:26px;display:none;z-index:40;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--fg);cursor:pointer;box-shadow:var(--shadow);font-family:inherit}
 </style>
 </head>
 <body>
@@ -469,6 +470,14 @@ applyLocal();
     window.__qTimer = setTimeout(render, 150);
   });
 })();
+
+(function backToTop() {
+  const b = document.getElementById('toTop');
+  if (!b) return;
+  window.addEventListener('scroll', function () { b.style.display = window.scrollY > 400 ? 'block' : 'none'; });
+  b.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+})();
 </script>
+<button id="toTop" class="toTop" title="回到顶部">↑ 顶部</button>
 </body>
 </html>
