@@ -160,6 +160,11 @@ async function api(path, opts = {}) {
   const text = await res.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  if (res.status === 401) {
+    // 会话失效（例如管理员刚改过密码会踢掉所有会话）：退回登录框，别让人对着假登录状态点
+    await boot().catch(function(){});
+    throw new Error('会话已失效，请重新登录');
+  }
   if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
   return body;
 }
