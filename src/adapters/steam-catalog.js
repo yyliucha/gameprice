@@ -26,6 +26,20 @@ function findAppArray(node, depth = 0) {
   return null;
 }
 
+/** 在任意嵌套层级找第一个匹配的标量值（用于分页字段）。 */
+function findValue(node, key, depth = 0) {
+  if (!node || depth > 5) return undefined;
+  if (Array.isArray(node)) {
+    for (const v of node) { const r = findValue(v, key, depth + 1); if (r !== undefined) return r; }
+    return undefined;
+  }
+  if (typeof node === "object") {
+    if (node[key] !== undefined && typeof node[key] !== "object") return node[key];
+    for (const v of Object.values(node)) { const r = findValue(v, key, depth + 1); if (r !== undefined) return r; }
+  }
+  return undefined;
+}
+
 export function hasApiKey(env = process.env) {
   return typeof env.STEAM_API_KEY === 'string' && env.STEAM_API_KEY.trim().length > 10;
 }
@@ -64,8 +78,11 @@ export async function fetchAppList({ logger = null, env = process.env, onPage = 
       if (Number.isFinite(appid) && appid > 0) all.push({ appid, name });
     }
     if (onPage) onPage({ page: page + 1, total: all.length });
-    if (!resp.have_more_results || !resp.last_appid) break;
-    lastAppid = resp.last_appid;
+    // 分页字段同样不依赖固定路径
+    const haveMore = findValue(data, "have_more_results");
+    const last = findValue(data, "last_appid");
+    if (!haveMore || !last) break;
+    lastAppid = Number(last);
   }
   logger?.info('steam.catalog.fetched', { total: all.length });
   return all;

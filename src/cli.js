@@ -273,25 +273,26 @@ async function cmdImportSteamCatalog() {
   logger.info('import.steamcatalog.fetched', { total: apps.length });
   console.log("拿到 " + apps.length + " 条，开始入库（批量 500）");
   let inserted = 0;
-  for (let i = 0; i < apps.length; i += 500) {
-    const batch = apps.slice(i, i + 500);
-    const ids = batch.map((a) => a.appid);
-    const names = batch.map((a) => a.name || ('appid:' + a.appid));
-    const r = await withStore(async (store) =>
-      store.query(
+  await withStore(async (store) => {
+    const q = (sql, p) => store.query(sql, p);
+    for (let i = 0; i < apps.length; i += 500) {
+      const batch = apps.slice(i, i + 500);
+      const ids = batch.map((a) => a.appid);
+      const names = batch.map((a) => a.name || ('appid:' + a.appid));
+      const r = await q(
         "insert into games (steam_appid, name) " +
           "select x.appid, x.name from unnest($1::int[], $2::text[]) as x(appid, name) " +
           "where not exists (select 1 from games g where g.steam_appid = x.appid)",
         [ids, names],
-      ),
-    );
-    inserted += r.rowCount ?? 0;
-    if ((i / 500) % 20 === 0) {
-      const msg = "已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted;
-      console.log("  " + msg);
-      logger.info('import.steamcatalog.progress', { done: i + batch.length, total: apps.length, inserted });
+      );
+      inserted += r.rowCount ?? 0;
+      if ((i / 500) % 20 === 0) {
+        const msg = "已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted;
+        console.log("  " + msg);
+        logger.info('import.steamcatalog.progress', { done: i + batch.length, total: apps.length, inserted });
+      }
     }
-  }
+  });
   logger.info("import.steamcatalog.done", { total: apps.length, inserted });
   console.log("完成：目录 " + apps.length + " 条，新增 " + inserted + " 款");
   console.log("下一步：node src/cli.js sync steamall --limit 200 --sleep 2（慢慢补价格与说明）");
