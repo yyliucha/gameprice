@@ -1262,11 +1262,12 @@ async function main() {
     const target = args[1];
     if (target === 'all') return cmdSyncAll();
     if (target === 'steam') return cmdSyncSteam();
+    if (target === 'steamall') return cmdSyncSteamAll(); // 元数据 + 说明 + 价格，全部 Steam 游戏
     if (target === 'sonkwo') return cmdSyncSonkwo();
     if (target === 'itad') return cmdSyncItad();
     if (target === 'gog') return cmdSyncGog();
     if (target === 'humble') return cmdSyncHumble();
-    throw new Error('用法: node src/cli.js sync all|steam|sonkwo|itad|gog|humble');
+    throw new Error('用法: node src/cli.js sync all|steam|steamall|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];
   if (!fn) {
