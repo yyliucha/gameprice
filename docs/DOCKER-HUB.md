@@ -30,14 +30,14 @@ http://服务器IP:8090
 不启动 db 容器，数据库地址直接通过命令的环境变量传入：
 
 ```bash
-DATABASE_URL='postgres://user:password@10.0.0.5:5432/gameprice?sslmode=require' \
+DATABASE_URL='postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
 宿主机上的 PostgreSQL：
 
 ```bash
-DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
+DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
@@ -46,12 +46,12 @@ DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
 也可以直接用 `docker run`（同样需要外部 PostgreSQL）：
 
 ```bash
-docker run -d --name gameprice \
+docker run -d --name steamdeals \
   -p 8090:8080 \
-  -e DATABASE_URL='postgres://user:password@host:5432/gameprice' \
+  -e DATABASE_URL='postgres://user:password@host:5432/steamdeals' \
   -e TZ=Asia/Shanghai \
-  -v gameprice_data:/app/data \
-  -v gameprice_logs:/app/logs \
+  -v steamdeals_data:/app/data \
+  -v steamdeals_logs:/app/logs \
   yyliucha/steamdeals:latest all
 ```
 
@@ -85,9 +85,9 @@ SETUP_TOKEN='换成一个随机长口令' docker compose -f compose.hub.yaml up 
 
 | 卷 | 内容 |
 |---|---|
-| `gameprice_pgdata` | PostgreSQL 数据 |
-| `gameprice_appdata` | `data/secret.key`、SKU 清单、备份 |
-| `gameprice_logs` | 结构化日志 |
+| `steamdeals_pgdata` | PostgreSQL 数据 |
+| `steamdeals_appdata` | `data/secret.key`、SKU 清单、备份 |
+| `steamdeals_logs` | 结构化日志 |
 
 `data/secret.key` 用来加密 SMTP 授权码等密钥。**不要删 appdata 卷**，否则已保存的密钥无法解密，需要到控制台重新填写。
 
@@ -95,7 +95,7 @@ SETUP_TOKEN='换成一个随机长口令' docker compose -f compose.hub.yaml up 
 
 ```bash
 docker compose -f compose.hub.yaml exec -T db \
-  pg_dump -U gameprice gameprice > backup-$(date +%F).sql
+  pg_dump -U steamdeals steamdeals > backup-$(date +%F).sql
 ```
 
 升级：
@@ -106,6 +106,20 @@ docker compose -f compose.hub.yaml up -d
 ```
 
 启动时会自动跑幂等迁移。
+
+## 从旧 `gameprice` 命名迁移
+
+本次把 compose 项目名、PostgreSQL 库名/用户、命名卷从 `gameprice` 改成 `steamdeals`。镜像还没有正式发布，**新装用户不受影响**；已经用旧命名跑过本地环境的，注意：
+
+- **用外部 PostgreSQL**：`DATABASE_URL` 继续指向原来的库即可，库名不用改，也不用迁数据。
+- **用自带 PostgreSQL**：新项目会创建 `steamdeals_pgdata` 空库，旧卷 `gameprice_pgdata` 不会被自动挂载。
+  需要保留数据就先停旧项目（`docker compose -p gameprice down`，保留卷），用 `pg_dump` 导出旧库再导入新库。
+- **旧 appdata 卷里的 `data/secret.key`**：如果旧库里的 SMTP 密码是用它加密的，换新卷后解不开，需要到控制台重新填写；
+  也可以复制旧卷内容：
+  ```bash
+  docker run --rm -v gameprice_appdata:/from -v steamdeals_appdata:/to alpine sh -c 'cp -a /from/. /to/'
+  ```
+- 只是本地测试、没有要保留的数据：`docker compose down -v` 后重新 `up -d` 即可。
 
 ## 部署参数（仅这些还需要环境变量）
 
@@ -118,6 +132,7 @@ docker compose -f compose.hub.yaml up -d
 | `SECRET_KEY` | 自动生成 | 可选；不设则用 `data/secret.key` |
 | `DB_WAIT_SEC` | `60` | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | `1` | 首次启动是否导入 `data/games.json` |
+| `IMG_DIR` | `data/images` | 封面图缓存目录（随 appdata 卷持久化） |
 
 数据源开关、间隔、API Key、代理、提醒、熔断等 **50 项业务设置** 都在数据库/页面里，见 [DEPLOY.md](DEPLOY.md#业务设置) 或控制台「系统设置」。
 

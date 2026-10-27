@@ -170,7 +170,7 @@ test('发布工作流：多架构构建、Docker Hub 镜像名、先跑测试与
   assert.match(wf, /linux\/amd64,linux\/arm64/);
   assert.match(wf, /docker\/build-push-action/);
   assert.match(wf, /npm test/);
-  assert.match(wf, /gameprice:ci all/, '冒烟必须真正启动 Web/API 进程');
+  assert.match(wf, /steamdeals:ci all/, '冒烟必须真正启动 Web/API 进程');
   assert.match(wf, /api\/setup\/complete/);
 });
 

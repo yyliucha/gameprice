@@ -161,7 +161,7 @@ export async function probeOfficial({ fetchImpl = globalThis.fetch, logger = nul
   try {
     const res = await fetchImpl(`${OFFICIAL_DETAILS}?appids=730&filters=basic`, {
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { 'user-agent': 'gameprice/0.1' },
+      headers: { 'user-agent': 'steamdeals/0.1' },
     });
     const ok = res.ok;
     logger?.info('steam.probe', { official: ok, status: res.status });

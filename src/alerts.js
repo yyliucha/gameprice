@@ -76,7 +76,7 @@ export function renderDigest(hits, { now = new Date() } = {}) {
 /** 机器投递用的结构。字段名保持中性，方便接任意 webhook。 */
 export function toPayload(hits, { now = new Date() } = {}) {
   return {
-    type: 'gameprice.alerts',
+    type: 'steamdeals.alerts',
     generatedAt: now.toISOString(),
     count: hits.length,
     text: renderDigest(hits, { now }),

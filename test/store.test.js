@@ -23,7 +23,7 @@ test('库名支持 URL 编码（中文/空格）', () => {
 });
 
 test('标识符转义：双引号要翻倍', () => {
-  assert.equal(quoteIdent('gameprice'), '"gameprice"');
+  assert.equal(quoteIdent('steamdeals'), '"steamdeals"');
   assert.equal(quoteIdent('we"ird'), '"we""ird"');
 });
 

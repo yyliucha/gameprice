@@ -11,7 +11,7 @@ import * as undici from 'undici';
 import { decideProxy, redactProxy } from './proxy.js';
 
 export const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 gameprice/0.2 (personal use)';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 steamdeals/0.2 (personal use)';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

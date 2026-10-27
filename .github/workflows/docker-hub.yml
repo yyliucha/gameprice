@@ -28,28 +28,28 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_DB: gameprice
-          POSTGRES_USER: gameprice
+          POSTGRES_DB: steamdeals
+          POSTGRES_USER: steamdeals
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U gameprice -d gameprice"
+          --health-cmd "pg_isready -U steamdeals -d steamdeals"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t gameprice:ci .
+        run: docker build -t steamdeals:ci .
       - name: Run container against external PostgreSQL
         run: |
-          docker run -d --name gameprice-ci -p 8090:8080 \
+          docker run -d --name steamdeals-ci -p 8090:8080 \
             --add-host=host.docker.internal:host-gateway \
-            -e DATABASE_URL='postgres://gameprice@host.docker.internal:5432/gameprice?sslmode=disable' \
+            -e DATABASE_URL='postgres://steamdeals@host.docker.internal:5432/steamdeals?sslmode=disable' \
             -e SECRET_KEY='ci-secret-key-0123456789abcdef' \
             -e SETUP_TOKEN='ci-setup-token' \
-            gameprice:ci all
+            steamdeals:ci all
       - name: Wait for /setup
         run: |
           for i in $(seq 1 60); do
@@ -59,7 +59,7 @@ jobs:
             fi
             sleep 2
           done
-          docker logs gameprice-ci
+          docker logs steamdeals-ci
           exit 1
       - name: Complete setup through API
         run: |
@@ -73,7 +73,7 @@ jobs:
           curl -fsS -b /tmp/cookies.txt http://127.0.0.1:8090/api/admin/settings >/dev/null
       - name: Container logs
         if: always()
-        run: docker logs gameprice-ci || true
+        run: docker logs steamdeals-ci || true
 
   publish:
     needs: [test, smoke]
@@ -93,7 +93,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=SteamDeals

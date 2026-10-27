@@ -15,7 +15,7 @@
 docker compose -f compose.hub.yaml up -d
 
 # 用已有 PostgreSQL：连接串写在命令里
-DATABASE_URL='postgres://user:password@10.0.0.5:5432/gameprice?sslmode=require' \
+DATABASE_URL='postgres://user:password@10.0.0.5:5432/steamdeals?sslmode=require' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
@@ -34,7 +34,7 @@ DATABASE_URL='postgres://user:password@10.0.0.5:5432/gameprice?sslmode=require' 
 ## 方式一：一体化（自带 PostgreSQL 15，零配置）
 
 ```bash
-git clone <你的仓库> gameprice && cd gameprice
+git clone <你的仓库> steamdeals && cd steamdeals
 # logs/ out/ 不在仓库里，必须自己建；容器以 uid 1000 运行，目录要归它所有
 mkdir -p logs out
 sudo chown -R 1000:1000 ./data ./logs
@@ -45,7 +45,7 @@ docker compose up -d --build
 
 | 步骤 | 谁做的 | 说明 |
 |---|---|---|
-| 建库 | postgres 容器 | `POSTGRES_DB=gameprice` 由官方镜像初始化 |
+| 建库 | postgres 容器 | `POSTGRES_DB=steamdeals` 由官方镜像初始化 |
 | 建库兜底 | 应用 `ensureDatabase` | 库不存在就 `CREATE DATABASE`（外部库场景同样生效） |
 | 建表 | `bootstrap` → `migrate` | 8 张表 + 1 视图，`create table if not exists`，可重复执行 |
 | 平台字典 | `migrate` | steam / sonkwo / itad / gog / humble / steampy |
@@ -54,7 +54,7 @@ docker compose up -d --build
 
 数据库端口**不发布到宿主机**，只在 compose 内网可达；默认 `trust` 认证，所以不需要密码。
 想启用密码：设 `POSTGRES_PASSWORD` + `POSTGRES_HOST_AUTH_METHOD=scram-sha-256`，并显式给出
-`DATABASE_URL=postgres://user:密码@db:5432/gameprice`，然后 `docker compose up -d`。
+`DATABASE_URL=postgres://user:密码@db:5432/steamdeals`，然后 `docker compose up -d`。
 
 起来之后：
 
@@ -74,14 +74,14 @@ docker compose exec app node src/cli.js list
 数据库连接串直接写在 compose 命令里，不需要 `.env`：
 
 ```bash
-DATABASE_URL='postgres://gameprice:密码@10.0.0.5:5432/gameprice?sslmode=require' \
+DATABASE_URL='postgres://steamdeals:密码@10.0.0.5:5432/steamdeals?sslmode=require' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
 宿主机上的 PostgreSQL 用 `host.docker.internal`（Linux 已映射到网关）：
 
 ```bash
-DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
+DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
@@ -275,6 +275,7 @@ docker compose run --rm app diagnose
 | `SEED_ON_START` | 1 | 首次启动是否导入 `data/games.json` |
 | `RUN_MODE` | scheduler | `scheduler` 常驻；`once` 只 bootstrap 后退出；compose 用 `all` |
 | `LOG_DIR` / `OUT_DIR` | `logs` / `out` | 日志与静态页目录 |
+| `IMG_DIR` | `data/images` | 封面图缓存目录 |
 
 ### 业务设置
 
@@ -335,12 +336,12 @@ docker compose down
 docker compose down -v
 ```
 
-日志在宿主机的 `./logs/`，数据卷 `gameprice_pgdata`。
+日志在宿主机的 `./logs/`，数据卷 `steamdeals_pgdata`。
 
 **备份**（方式一）：
 
 ```bash
-docker compose exec -T db pg_dump -U gameprice gameprice > backup-$(date +%F).sql
+docker compose exec -T db pg_dump -U steamdeals steamdeals > backup-$(date +%F).sql
 ```
 
 ---

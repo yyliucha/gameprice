@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { openStore } from '../src/store/index.js';
 import * as db from '../src/store/pg.js';
 import * as settings from '../src/settings.js';
+import { channelsFromEnv } from '../src/notify.js';
 
 const SECRET = 'test-secret-key-0123456789abcdef';
 
@@ -179,6 +180,36 @@ test('SMTP 特殊存储：写 smtp_settings，不写 app_settings', async () => 
     assert.equal(read.smtp.enabled, true);
     assert.equal(read.smtp.pass, 'auth-code');
     assert.equal(read.values['alerts.smtp.pass'], 'auth-code');
+  } finally {
+    await store.close();
+  }
+});
+
+test('SMTP 落库后水合：alerts 能识别邮件通道；停用后不再识别', async () => {
+  const { store, q } = await fresh();
+  try {
+    await settings.saveSettings(
+      q,
+      {
+        'alerts.smtp.host': 'smtp.example.com',
+        'alerts.smtp.user': 'u@example.com',
+        'alerts.smtp.pass': 'auth-code',
+        'alerts.emailTo': 'a@example.com',
+      },
+      { env: {}, secretKey: SECRET },
+    );
+    const env = {};
+    await settings.hydrateSettings({ store, env, secretKey: SECRET });
+    const channels = channelsFromEnv(env);
+    assert.equal(channels.length, 1);
+    assert.equal(channels[0].kind, 'email');
+    assert.equal(channels[0].pass, 'auth-code');
+
+    // 清空 host = 停用邮件；水合必须把 env 里的 SMTP_HOST 清掉，否则 alerts 会误判
+    await settings.saveSettings(q, { 'alerts.smtp.host': '' }, { env: {}, secretKey: SECRET });
+    await settings.hydrateSettings({ store, env, secretKey: SECRET });
+    assert.equal(channelsFromEnv(env).length, 0);
+    assert.equal(env.SMTP_HOST, '');
   } finally {
     await store.close();
   }

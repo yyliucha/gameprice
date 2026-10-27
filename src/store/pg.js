@@ -985,12 +985,20 @@ export async function setInterest(q, { steamAppid = null, gameId = null, interes
   return r.rows[0] ?? null;
 }
 
-/** 已拥有标记。已拥有默认在列表里收起，但仍照常采集与统计。 */
-export async function setOwned(q, { steamAppid, owned }) {
-  const r = await q('update games set owned = $1, updated_at = now() where steam_appid = $2 returning id, name, owned', [
-    Boolean(owned),
-    steamAppid,
-  ]);
+/** 已拥有标记。已拥有默认在列表里收起，但仍照常采集与统计。支持按 appid 或内部 id。 */
+export async function setOwned(q, { steamAppid = null, gameId = null, owned }) {
+  const params = [Boolean(owned)];
+  let where = null;
+  if (steamAppid != null) {
+    where = 'steam_appid = $2';
+    params.push(steamAppid);
+  } else if (gameId != null) {
+    where = 'id = $2';
+    params.push(gameId);
+  } else {
+    throw new Error('setOwned 需要 steamAppid 或 gameId');
+  }
+  const r = await q(`update games set owned = $1, updated_at = now() where ${where} returning id, name, owned`, params);
   return r.rows[0] ?? null;
 }
 export async function markNotified(q, { watchId, priceCents }) {

@@ -571,9 +571,10 @@ async function openDetail(appid, gid) {
     '<td>' + (o.buy_url ? '<a href="' + esc(o.buy_url) + '" target="_blank" rel="noopener noreferrer nofollow">去购买</a>' : '—') + '</td></tr>'
   ).join('') || '<tr><td colspan="5" class="muted">当前没有在售报价</td></tr>';
 
-  // 标记是全局的（games.interested / games.owned），只有管理员能改；
-  // 没有 Steam appid 的杉果游戏暂时没有对应的写接口，按钮不显示，避免点了 404
-  const admin = state.user?.role === 'admin' && appid
+  // 标记是全局的（games.interested / games.owned），只有管理员能改。
+  // 有 Steam appid 用 /api/games/<appid>/...；没有 appid（杉果等）用 /api/games/id/<内部id>/...
+  const markBase = appid ? '/api/games/' + appid : '/api/games/id/' + gid;
+  const admin = state.user?.role === 'admin' && (appid || gid)
     ? '<div class="bar"><button class="btn" id="toggleInterest">' + (g.interested === false ? '标记为感兴趣' : '标记不感兴趣') + '</button>' +
       '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
     : '';
@@ -600,7 +601,7 @@ async function openDetail(appid, gid) {
     document.getElementById('toggleInterest').onclick = async () => {
       const next = g.interested === false; // 点一下切换：当前不感兴趣 → 恢复感兴趣
       try {
-        const res = await fetch('/api/games/' + appid + '/interest', {
+        const res = await fetch(markBase + '/interest', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ interested: next }),
         });
@@ -614,7 +615,7 @@ async function openDetail(appid, gid) {
     };
     document.getElementById('toggleOwned').onclick = async () => {
       try {
-        const res = await fetch('/api/games/' + appid + '/owned', {
+        const res = await fetch(markBase + '/owned', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ owned: !g.owned }),
         });

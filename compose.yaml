@@ -1,4 +1,4 @@
-name: gameprice
+name: steamdeals
 
 # 默认带一个 PostgreSQL 15（和你线上 15.17 同大版本）。
 # 直接用外部数据库：在 .env 里填好 DATABASE_URL，然后 `docker compose up -d app`（只起 app）。
@@ -9,8 +9,8 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-gameprice}
-      POSTGRES_USER: ${POSTGRES_USER:-gameprice}
+      POSTGRES_DB: ${POSTGRES_DB:-steamdeals}
+      POSTGRES_USER: ${POSTGRES_USER:-steamdeals}
       # 默认 trust：不设密码也能起来，一步到位。数据库端口不对外暴露，
       # 只在 compose 内网可达；需要密码就设 POSTGRES_PASSWORD 并同时给 DATABASE_URL。
       POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
@@ -28,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: gameprice:latest
+    image: steamdeals:latest
     restart: unless-stopped
     # 一体化：同一个容器里跑调度器 + Web/API（前端 / ，控制台 /console）
     command: ["all"]
@@ -44,7 +44,7 @@ services:
         condition: service_healthy
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-gameprice}@db:5432/${POSTGRES_DB:-gameprice}}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-steamdeals}@db:5432/${POSTGRES_DB:-steamdeals}}
       TZ: ${TZ:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SEED_ON_START: ${SEED_ON_START:-1}

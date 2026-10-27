@@ -69,7 +69,7 @@ test('简报包含名称、价格、原因与链接', () => {
 test('投递载荷结构稳定（给 webhook 用）', () => {
   const hits = evaluateAlerts([row({ target_cents: 10000, current_cents: 9900, note: '想玩' })]);
   const payload = toPayload(hits);
-  assert.equal(payload.type, 'gameprice.alerts');
+  assert.equal(payload.type, 'steamdeals.alerts');
   assert.equal(payload.count, 1);
   assert.equal(payload.alerts[0].name, '赛博朋克 2077');
   assert.equal(payload.alerts[0].current, 9900);

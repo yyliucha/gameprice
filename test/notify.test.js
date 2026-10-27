@@ -82,10 +82,10 @@ test('中文主题按 RFC 2047 编码，ASCII 主题保持原样', () => {
 
 test('邮件正文是标准 MIME，base64 可还原且每行不超过 76 字符', () => {
   const text = '赛博朋克 2077 到价：¥99.00\n'.repeat(6);
-  const message = buildMessage({ from: 'a@x.com', to: ['b@y.com'], subject: '到价提醒', text, messageId: '<t@gameprice>' });
+  const message = buildMessage({ from: 'a@x.com', to: ['b@y.com'], subject: '到价提醒', text, messageId: '<t@steamdeals>' });
   assert.match(message, /^From: a@x\.com/);
   assert.match(message, /To: b@y\.com/);
-  assert.match(message, /Message-ID: <t@gameprice>/);
+  assert.match(message, /Message-ID: <t@steamdeals>/);
   assert.match(message, /Content-Transfer-Encoding: base64/);
 
   const [, body] = message.split('\r\n\r\n');

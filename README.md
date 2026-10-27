@@ -207,7 +207,7 @@ docker compose -f compose.hub.yaml up -d
 **用已有 PostgreSQL**：数据库连接串直接写在命令里（不需要 `.env`）：
 
 ```bash
-DATABASE_URL='postgres://user:password@host:5432/gameprice?sslmode=require' \
+DATABASE_URL='postgres://user:password@host:5432/steamdeals?sslmode=require' \
   docker compose -f compose.hub.external-db.yaml up -d
 ```
 
@@ -226,7 +226,7 @@ docker compose logs -f app    # 看到 bootstrap.done 即启动成功
 **不需要先建库、建表、改密码、填 .env。** 起来之后这条链是全自动的：
 
 ```
-postgres 容器创建库 gameprice
+postgres 容器创建库 steamdeals
   → app 启动：ensureDatabase（库不在就 CREATE DATABASE）
   → bootstrap：建表 + 平台字典 + 首次导入 data/games.json（幂等）
   → /setup：创建管理员、写业务设置
@@ -244,7 +244,7 @@ postgres 容器创建库 gameprice
 
 ```bash
 npm install
-export DATABASE_URL='postgres://user:pass@host:5432/gameprice'
+export DATABASE_URL='postgres://user:pass@host:5432/steamdeals'
 node src/cli.js init          # 建表 + 平台字典（幂等）
 node src/cli.js seed          # 导入 data/games.json
 node src/cli.js diagnose      # 环境 / 数据库 / 网络自检
@@ -367,6 +367,7 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `DB_WAIT_SEC` | `0`（容器内 60） | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | `1` | 首次启动是否自动导入游戏 |
 | `OUT_DIR` / `LOG_DIR` | `out` / `logs` | 静态页与日志目录 |
+| `IMG_DIR` | `data/images` | 封面图缓存目录（随 data 卷持久化） |
 | `RUN_MODE` | `scheduler` | 容器入口模式；compose 用 `all` |
 
 ## 数据模型
@@ -503,7 +504,7 @@ node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当�
 ## 项目结构
 
 ```
-gameprice/
+steamdeals/
 ├── src/
 │   ├── adapters/        平台适配器（steam / sonkwo / itad / gog / humble）
 │   │   └── sonkwo-discover.js  杉果 SKU 增量发现（按 id 探测）

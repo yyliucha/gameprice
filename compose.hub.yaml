@@ -1,4 +1,4 @@
-name: gameprice
+name: steamdeals
 
 # Docker Hub 零配置部署（自带 PostgreSQL）。
 #
@@ -15,15 +15,15 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: gameprice
-      POSTGRES_USER: gameprice
+      POSTGRES_DB: steamdeals
+      POSTGRES_USER: steamdeals
       # 数据库端口不发布到宿主机，只在 compose 内网可达
       POSTGRES_HOST_AUTH_METHOD: trust
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gameprice -d gameprice"]
+      test: ["CMD-SHELL", "pg_isready -U steamdeals -d steamdeals"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -36,7 +36,7 @@ services:
     ports:
       - "${WEB_PORT:-8090}:8080"
     environment:
-      DATABASE_URL: postgres://gameprice@db:5432/gameprice
+      DATABASE_URL: postgres://steamdeals@db:5432/steamdeals
       TZ: ${TZ:-Asia/Shanghai}
       # 可选：设置后初始化页要求输入口令；不设则首次访问者可初始化
       SETUP_TOKEN: ${SETUP_TOKEN:-}

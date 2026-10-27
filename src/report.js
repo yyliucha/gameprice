@@ -288,7 +288,7 @@ function page({ title, body }) {
 </head>
 <body>
 <header class="topbar"><div class="wrap">
-  <a class="brand" href="index.html"><span class="dot"></span>gameprice</a>
+  <a class="brand" href="index.html"><span class="dot"></span>SteamDeals</a>
   <span class="muted small">个人游戏比价</span>
   <span class="spacer"></span>
   ${stamp ? `<span class="stamp">${esc(stamp)}</span>` : ''}

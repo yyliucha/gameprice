@@ -440,6 +440,29 @@ export function createApiServer({
         return json(res, 200, { game: row });
       }
 
+      // ---- 管理员：按内部 id 标记（杉果等没有 Steam appid 的游戏）----
+      const byIdInterest = path.match(/^\/api\/games\/id\/(\d+)\/interest$/);
+      if (byIdInterest && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const gameId = Number(byIdInterest[1]);
+        const row = await db.setInterest(q, { gameId, interested: Boolean(body.interested) });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.interest_by_id', { gameId, interested: row.interested, by: user.username });
+        return json(res, 200, { game: row });
+      }
+
+      const byIdOwned = path.match(/^\/api\/games\/id\/(\d+)\/owned$/);
+      if (byIdOwned && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const gameId = Number(byIdOwned[1]);
+        const row = await db.setOwned(q, { gameId, owned: Boolean(body.owned) });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.owned_by_id', { gameId, owned: row.owned, by: user.username });
+        return json(res, 200, { game: row });
+      }
+
       // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
       // ---- Steam OpenID 登录 / 游戏库（独立于站点用户体系）----
       const steamMod = await import('./steam-login.js');

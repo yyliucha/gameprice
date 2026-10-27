@@ -46,7 +46,7 @@ export async function postJson(url, payload, { fetchImpl = globalThis.fetch, log
   try {
     const res = await fetchImpl(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': 'gameprice-notify/1.0' },
+      headers: { 'content-type': 'application/json', 'user-agent': 'steamdeals-notify/1.0' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -94,7 +94,7 @@ export function buildMessage({ from, to, subject, text, date = new Date(), messa
   const body = Buffer.from(String(text ?? ''), 'utf8')
     .toString('base64')
     .replace(new RegExp(`(.{${BASE64_LINE}})`, 'g'), '$1\r\n');
-  const id = messageId ?? `<${Date.now()}.${Math.random().toString(36).slice(2, 10)}@gameprice>`;
+  const id = messageId ?? `<${Date.now()}.${Math.random().toString(36).slice(2, 10)}@steamdeals>`;
   return [
     `From: ${from}`,
     `To: ${recipients}`,
@@ -247,7 +247,7 @@ export async function sendMail(
     const greeting = await session.read();
     if (greeting.code !== 220) throw new Error(`SMTP 握手失败：${greeting.code}`);
 
-    const hostname = 'gameprice.local';
+    const hostname = 'steamdeals.local';
     let ehlo = await session.cmd(`EHLO ${hostname}`);
     let caps = capabilities(ehlo);
 

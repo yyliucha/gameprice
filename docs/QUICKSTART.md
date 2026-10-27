@@ -53,7 +53,7 @@ sudo systemctl restart docker
 ```bash
 cd ~
 git clone https://github.com/yyliucha/steamdeals.git
-cd gameprice
+cd steamdeals
 ```
 
 ---
@@ -84,7 +84,7 @@ docker compose up -d --build
 第一次会构建镜像，3–5 分钟（取决于网络）。启动顺序是自动的：
 
 ```
-postgres 容器创建库 gameprice
+postgres 容器创建库 steamdeals
   → app：ensureDatabase（库不在就建）→ migrate（建表）→ bootstrap（导入 24 款游戏）
   → scheduler（按间隔采集，采集完自动重建 HTML）
 ```
@@ -95,8 +95,8 @@ postgres 容器创建库 gameprice
 
 ```bash
 # 1) 在现成的 PG 上建用户和库（库也可以不建，app 会自己 create database，但需要有 CREATEDB 权限）
-sudo -u postgres psql -c "create user gameprice with password '换成你的密码'"
-sudo -u postgres psql -c "create database gameprice owner gameprice"
+sudo -u postgres psql -c "create user steamdeals with password '换成你的密码'"
+sudo -u postgres psql -c "create database steamdeals owner steamdeals"
 
 # 2) 让 PG 接受来自 Docker 网段的连接
 #    postgresql.conf: listen_addresses = '*'
@@ -104,7 +104,7 @@ sudo -u postgres psql -c "create database gameprice owner gameprice"
 sudo systemctl reload postgresql
 
 # 3) 用 Docker Hub 镜像连现有库（数据库地址写在命令里，不建 .env）
-DATABASE_URL='postgres://gameprice:密码@host.docker.internal:5432/gameprice' \
+DATABASE_URL='postgres://steamdeals:密码@host.docker.internal:5432/steamdeals' \
   docker compose -f compose.hub.external-db.yaml up -d
 
 # 从源码构建时也可以用：在 .env 里写 DATABASE_URL，然后
@@ -232,11 +232,11 @@ docker compose up -d web
 
 ```bash
 # 页面已经在宿主机 data/out 里了，nginx 直接指过去
-# /etc/nginx/conf.d/gameprice.conf
+# /etc/nginx/conf.d/steamdeals.conf
 server {
     listen 80;
     server_name prices.example.com;
-    root /root/gameprice/data/out;
+    root /root/steamdeals/data/out;
     location / { try_files $uri $uri/ =404; }
 }
 ```
@@ -303,7 +303,7 @@ docker stats                                # 资源占用
 git pull && docker compose up -d --build    # 更新到新版本（数据不丢）
 
 # 备份数据库
-docker compose exec -T db pg_dump -U gameprice gameprice > backup-$(date +%F).sql
+docker compose exec -T db pg_dump -U steamdeals steamdeals > backup-$(date +%F).sql
 
 docker compose down                         # 停服务（数据保留在 pgdata 卷 + ./data）
 ```
@@ -316,7 +316,7 @@ docker compose down                         # 停服务（数据保留在 pgdata
 |---|---|---|
 | app 反复重启，日志有 `错误：/app/logs 不可写` | 目录属主不对 | `sudo chown -R 1000:1000 ./data ./logs` |
 | app 报 `connect ECONNREFUSED db:5432` | db 没起或还在初始化 | `docker compose ps`、`docker compose logs db`，等 healthy |
-| `bootstrap` 报 `database "gameprice" does not exist` | 极少见（会自动建库） | `docker compose exec db psql -U gameprice -c 'create database gameprice'` |
+| `bootstrap` 报 `database "steamdeals" does not exist` | 极少见（会自动建库） | `docker compose exec db psql -U steamdeals -c 'create database steamdeals'` |
 | `net:steam` 超时 | 境内直连被阻断 | 正常，配 ITAD key 或 `STEAM_PROXY` |
 | 页面不更新 | `CHART_ON_SYNC=0` 或 chart 失败 | `docker compose logs app \| grep report`；手动 `chart` |
 | 提醒收不到 | 通道没配或容器没重建 | `notify-test` 自检；日志搜 `notify.` |

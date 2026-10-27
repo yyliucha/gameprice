@@ -144,6 +144,31 @@ test('登录才能存偏好；普通用户不能改游戏标记；管理员可�
     assert.equal(ok.status, 200);
     const row = (await q('select interested from games where steam_appid = 413150')).rows[0];
     assert.equal(row.interested, false, '管理员改完要落库');
+
+    // 没有 Steam appid 的游戏（杉果）：按内部 id 标记，前台详情弹窗用这条接口
+    const gid = (await q("insert into games (name) values ('杉果专属游戏') returning id")).rows[0].id;
+    const anonById = await fetch(`${base}/api/games/id/${gid}/interest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ interested: false }),
+    });
+    assert.equal(anonById.status, 401, '匿名不能按 id 标记');
+
+    const byId = await fetch(`${base}/api/games/id/${gid}/interest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ interested: false }),
+    });
+    assert.equal(byId.status, 200);
+    assert.equal((await q('select interested from games where id = $1', [gid])).rows[0].interested, false, '按内部 id 也要落库');
+
+    const byIdOwned = await fetch(`${base}/api/games/id/${gid}/owned`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ owned: true }),
+    });
+    assert.equal(byIdOwned.status, 200);
+    assert.equal((await q('select owned from games where id = $1', [gid])).rows[0].owned, true);
   } finally {
     await srv.close();
     await store.close();

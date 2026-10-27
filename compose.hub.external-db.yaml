@@ -1,4 +1,4 @@
-name: gameprice
+name: steamdeals
 
 # Docker Hub 部署：使用你已有的 PostgreSQL，不启动 db 容器。
 #
@@ -20,7 +20,7 @@ services:
       - "${WEB_PORT:-8090}:8080"
     environment:
       # 必填：没有提供时 compose 会直接报错，避免容器起来后连不上库
-      DATABASE_URL: "${DATABASE_URL:?请通过环境变量提供 DATABASE_URL，例如 postgres://user:pass@host:5432/gameprice}"
+      DATABASE_URL: "${DATABASE_URL:?请通过环境变量提供 DATABASE_URL，例如 postgres://user:pass@host:5432/steamdeals}"
       TZ: ${TZ:-Asia/Shanghai}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
     extra_hosts:

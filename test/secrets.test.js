@@ -41,8 +41,8 @@ test('示例与占位符不会误报（这是能不能日常使用它的关键�
   const dir = fixture({
     'README.md': [
       "export DATABASE_URL='postgres://user:pass@host:5432/db'",
-      'postgres://user:password@10.0.0.5:5432/gameprice',
-      'DATABASE_URL: ${POSTGRES_PASSWORD:-gameprice}@db:5432/x',
+      'postgres://user:password@10.0.0.5:5432/steamdeals',
+      'DATABASE_URL: ${POSTGRES_PASSWORD:-steamdeals}@db:5432/x',
       '把 POSTGRES_PASSWORD=改成你自己的强密码',
     ].join('\n'),
     '.env.example': '# DATABASE_URL=postgres://user:password@example.com:5432/db\nDATABASE_URL=\n',

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 极简本地出网代理：支持 HTTP 代理（absolute-form）与 HTTPS 隧道（CONNECT）。
-// 用途：验证 gameprice 的代理出口是否真的把请求转发出去，不依赖任何第三方库。
+// 用途：验证 steamdeals 的代理出口是否真的把请求转发出去，不依赖任何第三方库。
 //
 // 用法：node scripts/local-proxy.js --port 8899 [--log data/pages/proxy.log]
 import http from 'node:http';

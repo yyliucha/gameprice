@@ -602,15 +602,15 @@ async function cmdNotifyTest() {
     return;
   }
   const text = [
-    'gameprice 测试消息',
+    'SteamDeals 测试消息',
     `时间：${new Date().toISOString()}`,
     `通道：${channels.map((c) => c.name).join(', ')}`,
     '收到这条说明提醒链路已打通。',
   ].join('\n');
   const result = await deliver(channels, {
     text,
-    payload: { type: 'gameprice.test', text },
-    subject: 'gameprice 测试邮件',
+    payload: { type: 'steamdeals.test', text },
+    subject: 'SteamDeals 测试邮件',
     logger,
   });
   for (const r of result.results) {

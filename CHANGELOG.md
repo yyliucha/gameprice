@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.18.5] - 2026-10-27
+
+无 Steam appid 的游戏（杉果等）也能标记不感兴趣/已拥有。
+
+### 修复
+
+- 上一版把「标记不感兴趣 / 标记已拥有」按钮限定为有 Steam appid 的游戏，
+  导致杉果专属游戏详情里没有这两个按钮。现在补上按**内部 id** 的接口：
+  `POST /api/games/id/:id/interest` 与 `POST /api/games/id/:id/owned`（管理员），详情弹窗自动选择用哪条
+- `setOwned` 支持 `gameId`，与 `setInterest` 对齐
+
+### 测试
+
+- `api.test.js` 增加无 appid 游戏按内部 id 标记的断言（匿名 401 / 管理员落库）
+
 ## [0.18.4] - 2026-10-27
 
 前台偏好双写（数据库 + 浏览器缓存）；「全部」过滤已拥有与不感兴趣。
@@ -16,6 +31,8 @@
 
 ### 变更
 
+- **Docker 命名统一为 `steamdeals`**：compose 项目名、PostgreSQL 库名/用户、命名卷、源码镜像 tag、
+  文档示例全部从 `gameprice` 切换；Docker Hub 镜像仍是 `yyliucha/steamdeals`
 - **「全部」页签过滤掉「不感兴趣」与「已拥有」**（之前只隐藏已拥有）；
   已拥有只在「已拥有」里出现，不感兴趣只在「不感兴趣」里出现
 - 旧 `hide_uninterested` 字段保留兼容：`tab=on` 时自动置 true
