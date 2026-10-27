@@ -276,7 +276,7 @@ async function cmdImportSteamCatalog() {
   for (let i = 0; i < apps.length; i += 500) {
     const batch = apps.slice(i, i + 500);
     const ids = batch.map((a) => a.appid);
-    const names = batch.map((a) => a.name);
+    const names = batch.map((a) => a.name || ('appid:' + a.appid));
     const r = await withStore(async (store) =>
       store.query(
         "insert into games (steam_appid, name) " +

@@ -38,11 +38,22 @@ export async function fetchAppList({ logger = null, env = process.env, onPage = 
     // 单页 1 万条（约 1-2MB），放宽超时并允许重试，避免大响应被代理重置
     const data = await fetchJson(url, { logger, timeoutMs: 60000, retries: 2 });
     const resp = data?.response ?? {};
-    const apps = resp.applist?.apps ?? [];
-    for (const a of apps) {
-      const appid = Number(a.appid);
-      const name = String(a.name ?? '').trim();
-      if (Number.isFinite(appid) && appid > 0 && name) all.push({ appid, name });
+    // 结构在不同版本/账号下不一致，按候选路径依次尝试
+    const candidates = [
+      resp.applist?.apps,
+      resp.apps,
+      data?.applist?.apps,
+      data?.apps,
+      resp.applist,
+    ];
+    const list = candidates.find((x) => Array.isArray(x)) ?? [];
+    if (!list.length && page === 0) {
+      logger?.info('steam.catalog.shape', { keys: Object.keys(resp), sample: JSON.stringify(resp).slice(0, 400) });
+    }
+    for (const a of list) {
+      const appid = Number(a.appid ?? a.app_id ?? a.id);
+      const name = String(a.name ?? a.localized_name ?? a.app_name ?? '').trim();
+      if (Number.isFinite(appid) && appid > 0) all.push({ appid, name });
     }
     if (onPage) onPage({ page: page + 1, total: all.length });
     if (!resp.have_more_results || !resp.last_appid) break;
