@@ -397,16 +397,20 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟
       if (path === '/api/admin/sync' && req.method === 'POST') {
         if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const mode = body.mode === 'catalog' ? 'catalog' : 'steamall';
+        const args = ['src/cli.js', 'sync', mode];
+        if (mode === 'steamall') {
+          const limit = Math.min(Math.max(Number(body.limit ?? 200) || 200, 1), 2000);
+          const sleep = Math.min(Math.max(Number(body.sleep ?? 2) || 2, 1), 30);
+          args.push('--limit', String(limit), '--sleep', String(sleep));
+        }
         const { spawn } = await import('node:child_process');
-        const child = spawn(process.execPath, ['src/cli.js', 'sync', 'steamall'], {
-          stdio: 'ignore',
-          detached: true,
-        });
+        const child = spawn(process.execPath, args, { stdio: 'ignore', detached: true });
         child.unref();
-        logger?.info('api.sync_steam_started', { by: user.username, pid: child.pid });
-        return json(res, 202, { started: true, pid: child.pid, hint: '后台同步已开始，看 logs/ 或稍后刷新列表' });
+        logger?.info('api.sync_started', { mode, args: args.join(' '), by: user.username, pid: child.pid });
+        return json(res, 202, { started: true, pid: child.pid, mode, hint: mode === 'catalog' ? '正在拉取 Steam 全量目录，约 20 万条，稍后刷新列表' : '增量同步已开始，可在「日志」页看进度' });
       }
-
       // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----
       if (path === '/api/admin/smtp' && req.method === 'GET') {
         if (!requireAdmin()) return;

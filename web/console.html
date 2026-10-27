@@ -145,8 +145,13 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <div class="card pad" style="margin-top:12px">
           <strong class="small">同步 Steam</strong>
           <div class="row">
-            <button class="btn primary" id="syncAll">一键同步全部 Steam 游戏</button>
-            <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；到「日志」看实时输出</span>
+            <button class="btn primary" id="syncCatalog">① 导入 Steam 全量目录</button>
+            <button class="btn primary" id="syncAll">② 增量同步（补价格/说明）</button>
+            <input id="syncLimit" value="200" style="width:80px" title="每轮款数">
+            <span class="small muted">款，每款间隔</span>
+            <input id="syncSleep" value="2" style="width:60px" title="每款间隔秒">
+            <span class="small muted">秒</span>
+            <span class="small muted" id="syncMsg">先导入目录，再增量同步；进度看「日志」</span>
           </div>
         </div>
       </section>
@@ -467,15 +472,19 @@ $('saveDesc').onclick = async function () {
   } catch (err) { toast('失败：' + err.message); }
 };
 
-async function triggerSync() {
+async function triggerSync(mode) {
   try {
-    await api('/api/admin/sync', { method: 'POST' });
-    toast('同步已开始');
+    const limit = Number(($('syncLimit') || {}).value || 200);
+    const sleep = Number(($('syncSleep') || {}).value || 2);
+    const d = await api('/api/admin/sync', { method: 'POST', body: JSON.stringify({ mode: mode || 'steamall', limit, sleep }) });
+    const msg = $('syncMsg'); if (msg) msg.textContent = d.hint || '已开始';
+    toast(mode === 'catalog' ? '目录导入已开始' : '增量同步已开始');
     if (currentPage !== 'sync') { location.hash = 'sync'; showPage('sync'); }
   } catch (err) { toast('失败：' + err.message); }
 }
-$('syncAll').onclick = triggerSync;
-$('syncAll2').onclick = triggerSync;
+$('syncAll').onclick = function () { triggerSync('steamall'); };
+if ($('syncCatalog')) $('syncCatalog').onclick = function () { triggerSync('catalog'); };
+$('syncAll2').onclick = function () { triggerSync('steamall'); };
 
 async function loadLogs() {
   const grep = $('logGrep').value.trim();
