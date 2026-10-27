@@ -384,7 +384,15 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           args.push('--limit', String(limit), '--sleep', String(sleep));
         }
         const { spawn } = await import('node:child_process');
-        const child = spawn(process.execPath, args, { stdio: 'ignore', detached: true });
+        // 子进程输出重定向到 logs/spawn.log，崩溃时能看到栈
+        const fsMod = await import('node:fs');
+        let spawnOut = 'ignore';
+        try {
+          spawnOut = fsMod.openSync('logs/spawn.log', 'a');
+        } catch {
+          spawnOut = 'ignore';
+        }
+        const child = spawn(process.execPath, args, { stdio: ['ignore', spawnOut, spawnOut], detached: true });
         child.unref();
         logger?.info('api.sync_started', { mode, args: args.join(' '), by: user.username, pid: child.pid });
         return json(res, 202, { started: true, pid: child.pid, mode, hint: mode === 'catalog' ? '正在拉取 Steam 全量目录，约 20 万条，稍后刷新列表' : '增量同步已开始，可在「日志」页看进度' });
