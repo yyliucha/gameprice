@@ -26,19 +26,19 @@
 - **逻辑删除**：games.deleted / deleted_at；后台游戏列表每行新增「删除」按钮（二次确认），
   数据与报价全部保留，只是不再展示
 - **回收站页面**：控制台新「回收站」页列出已删除游戏（含平台、报价数、删除时间），可一键恢复；
-  接口 GET /api/admin/games/deleted`n- **平台列**：后台游戏列表新增「平台」列（Steam/杉果/GOG/Humble… 多个则多个标签），
+  接口 GET /api/admin/games/deleted
+- **平台列**：后台游戏列表新增「平台」列（Steam/杉果/GOG/Humble… 多个则多个标签），
   并支持按平台筛选（GET /api/admin/games?platform=steam）
 - 新接口：POST /api/games/:appid/deleted 与 POST /api/games/id/:id/deleted（管理员，{deleted:true|false}）
 
 ### 变更
 
 - 前台列表与详情排除已删除游戏；后台列表默认排除（deleted=only 查回收站、include 两边都看）
-- 增量同步不再同步已删除的游戏（sync steamall 选择条件加 
-ot g.deleted）
+- 增量同步不再同步已删除的游戏（sync steamall 选择条件加 not g.deleted）
 
 ### 测试
 
-- pi.test.js 新增：平台列下发、逻辑删除前后台排除、回收站可见、恢复后恢复展示、报价数据未真删
+- api.test.js 新增：平台列下发、逻辑删除前后台排除、回收站可见、恢复后恢复展示、报价数据未真删
 
 ## [0.18.6] - 2026-10-27
 
