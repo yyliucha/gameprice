@@ -240,7 +240,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const auth = await import('./email-auth.js');
         const { sendMail } = await import('./notify.js');
         const username = decodeURIComponent(bindCode[1]);
-        const urow = await q('select id, username, email, email_verified from users where username = $1', [username]);
+        const urow = await q('select id, username, email from users where username = $1', [username]);
         const target = urow.rows[0];
         if (!target) return json(res, 404, { error: '没有该用户' });
         if (!target.email) return json(res, 400, { error: '该用户还没有绑定邮箱' });
@@ -254,7 +254,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         try {
           await sendMail(
             { host: cfg.host, port: cfg.port, secure: cfg.secure, user: cfg.user, pass: cfg.pass, from: cfg.from, to: target.email,
-              subject: 'SteamDeals 邮箱验证码', text: '验证码：' + code + '\n有效期 5 分钟，用于验证该邮箱属于 ' + target.username + '。' },
+              subject: 'SteamDeals 邮箱验证码', text: '验证码：' + code + '\n有效期 5 分钟。' },
             { logger },
           );
           await q('update email_codes set sent_ok = true where id = $1', [ins.rows[0].id]);
@@ -293,6 +293,267 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         await q('update users set email_verified = true where id = $1', [target.id]);
         logger?.info('api.user_email_verified', { username, by: user.username });
         return json(res, 200, { ok: true });
+      }
+
+      const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (userMatch && req.method === 'PATCH') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const username = decodeURIComponent(userMatch[1]);
+        const row = await db.updateUser(q, {
+          username,
+          displayName: body.display_name,
+          role: body.role,
+          disabled: body.disabled,
+        });
+        if (!row) return json(res, 404, { error: '没有该用户或没有要改的字段' });
+        logger?.info('api.user_updated', { username, by: user.username, ...body });
+        return json(res, 200, { user: row });
+      }
+
+      const pwdMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+      if (pwdMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const password = String(body.password ?? '');
+        if (password.length < 6) return json(res, 400, { error: '密码至少 6 位' });
+        const row = await db.setUserPassword(q, { username: decodeURIComponent(pwdMatch[1]), password });
+        if (!row) return json(res, 404, { error: '没有该用户' });
+        logger?.info('api.user_password_reset', { username: decodeURIComponent(pwdMatch[1]), by: user.username });
+        return json(res, 200, { ok: true });
+      }
+
+      // ---- 管理员：禁用游戏 / 编辑说明 / 触发 Steam 同步 ----
+      const blockMatch = path.match(/^\/api\/games\/(\d+)\/blocked$/);
+      if (blockMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const row = await db.setGameBlocked(q, { steamAppid: Number(blockMatch[1]), blocked: Boolean(body.blocked) });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.game_blocked', { appid: Number(blockMatch[1]), blocked: row.blocked, by: user.username });
+        return json(res, 200, { game: row });
+      }
+
+      const descMatch = path.match(/^\/api\/games\/(\d+)\/description$/);
+      if (descMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const row = await db.setGameDescription(q, {
+          steamAppid: Number(descMatch[1]),
+          description: String(body.description ?? ''),
+          overwrite: Boolean(body.overwrite),
+        });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.game_description', { appid: Number(descMatch[1]), by: user.username });
+        return json(res, 200, { game: row });
+      }
+
+      // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟
+      if (path === '/api/admin/sync' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const { spawn } = await import('node:child_process');
+        const child = spawn(process.execPath, ['src/cli.js', 'sync', 'steamall'], {
+          stdio: 'ignore',
+          detached: true,
+        });
+        child.unref();
+        logger?.info('api.sync_steam_started', { by: user.username, pid: child.pid });
+        return json(res, 202, { started: true, pid: child.pid, hint: '后台同步已开始，看 logs/ 或稍后刷新列表' });
+      }
+
+      // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----
+      if (path === '/api/admin/smtp' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const cfg = await auth.smtpConfig(q);
+        return json(res, 200, {
+          smtp: {
+            source: cfg.source,
+            host: cfg.host ?? '',
+            port: cfg.port ?? 465,
+            secure: cfg.secure !== false,
+            user: cfg.user ?? '',
+            from: cfg.from ?? '',
+            hasPassword: Boolean(cfg.pass),
+            ready: auth.isSmtpConfigured(cfg),
+          },
+        });
+      }
+
+      if (path === '/api/admin/smtp' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const body = await readBody(req);
+        const pass = body.pass ? auth.encryptSecret(String(body.pass), auth.loadSecretKey()) : null;
+        // 发件人留空就用账号，保存时就补全，避免后续判断为"未配置"
+        const mailUser = String(body.user ?? '').trim();
+        const mailFrom = String(body.from ?? '').trim() || mailUser;
+        await q(
+          `insert into smtp_settings (id, host, port, secure, username, password_enc, from_addr, enabled, updated_at)
+           values (1, $1, $2, $3, $4, $5, $6, $7, now())
+           on conflict (id) do update set
+             host = excluded.host, port = excluded.port, secure = excluded.secure,
+             username = excluded.username,
+             password_enc = coalesce($5, smtp_settings.password_enc),
+             from_addr = excluded.from_addr, enabled = excluded.enabled, updated_at = now()`,
+          [
+            String(body.host ?? '').trim(),
+            Number(body.port ?? 465),
+            body.secure !== false,
+            mailUser,
+            pass,
+            mailFrom,
+            body.enabled !== false,
+          ],
+        );
+        logger?.info('api.smtp_saved', { by: user.username, host: String(body.host ?? '').trim() });
+        return json(res, 200, { ok: true });
+      }
+
+      if (path === '/api/admin/smtp/test' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const auth = await import('./email-auth.js');
+        const { sendMail } = await import('./notify.js');
+        const body = await readBody(req);
+        const cfg = await auth.smtpConfig(q);
+        if (!auth.isSmtpConfigured(cfg)) {
+          const missing = [];
+          if (!cfg.host) missing.push('主机');
+          if (!cfg.from) missing.push('发件人（留空时应回填账号，请再保存一次）');
+          logger?.warn('api.smtp_incomplete', { missing, by: user.username });
+          return json(res, 400, { error: 'SMTP 配置不完整：缺少 ' + missing.join('、') });
+        }
+        // 收件人留空时发给发件人自己，前端不用重复填
+        const to = String(body.to ?? '').trim() || cfg.from;
+        if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
+        const record = await q(
+          "insert into email_codes (email, purpose, code_hash, expires_at, sent_ok) values ($1, 'test', '-', now(), null) returning id",
+          [to],
+        );
+        try {
+          await sendMail(
+            {
+              host: cfg.host,
+              port: cfg.port,
+              secure: cfg.secure,
+              user: cfg.user,
+              pass: cfg.pass,
+              from: cfg.from,
+              to,
+              subject: 'SteamDeals 测试邮件',
+              text: '这是一封测试邮件。收到说明 SMTP 配置可用。',
+            },
+            { logger },
+          );
+          await q('update email_codes set sent_ok = true where id = $1', [record.rows[0].id]);
+          logger?.info('api.smtp_test_ok', { to, by: user.username });
+          return json(res, 200, { ok: true });
+        } catch (err) {
+          const message = String(err.message).slice(0, 200);
+          await q('update email_codes set sent_ok = false, error = $1 where id = $2', [message, record.rows[0].id]);
+          logger?.warn('api.smtp_test_failed', { message, to });
+          return json(res, 502, { error: message });
+        }
+      }
+
+      if (path === '/api/admin/emails' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const rows = await q(
+          'select email, purpose, sent_ok, error, ip, created_at from email_codes order by created_at desc limit 50',
+        );
+        return json(res, 200, { records: rows.rows });
+      }
+
+      // ---- 管理员：给用户绑定/解绑登录邮箱 ----
+      const bindMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/email$/);
+      if (bindMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const auth = await import('./email-auth.js');
+        const raw = String(body.email ?? '').trim();
+        const email = raw ? auth.normalizeEmail(raw) : null;
+        if (raw && !email) return json(res, 400, { error: '邮箱格式不正确' });
+        const username = decodeURIComponent(bindMatch[1]);
+        const doBind = () =>
+          q(
+            'update users set email = $1, email_verified = false where username = $2 returning id, username, email, role, disabled',
+            [email, username],
+          );
+        try {
+          let r;
+          try {
+            r = await doBind();
+          } catch (err) {
+            // 旧库可能缺列：补建后重试一次，避免只报"服务器错误"
+            if (String(err.code) === '42703') {
+              await q('alter table users add column if not exists email text');
+              await q('alter table users add column if not exists email_verified boolean not null default false');
+              r = await doBind();
+            } else {
+              throw err;
+            }
+          }
+          if (!r.rows.length) return json(res, 404, { error: '没有该用户' });
+          logger?.info('api.user_email_bound', {
+            username,
+            email: email ? String(email).replace(/^(.)(.*)(@.*)$/, '$1***$3') : null,
+            by: user.username,
+          });
+          return json(res, 200, { user: r.rows[0] });
+        } catch (err) {
+          if (String(err.code) === '23505') return json(res, 409, { error: '这个邮箱已被其他账号绑定' });
+          logger?.error('api.user_email_bind_failed', {
+            username,
+            code: err.code ?? null,
+            message: String(err.message).slice(0, 200),
+            by: user.username,
+          });
+          return json(res, 500, { error: '绑定失败：' + String(err.message).slice(0, 160) });
+        }
+      }
+
+      // ---- 管理员：最近日志（排障用；日志层已做脱敏）----
+      if (path === '/api/admin/logs' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const fsMod = await import('node:fs');
+        const dir = process.env.LOG_DIR ?? 'logs';
+        const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 1000);
+        const grep = String(url.searchParams.get('grep') ?? '').trim();
+        let files = [];
+        try {
+          files = fsMod.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort();
+        } catch {
+          files = [];
+        }
+        const picked = files.slice(-5);
+        const entries = [];
+        for (const f of picked) {
+          try {
+            const lines = fsMod.readFileSync(dir + '/' + f, 'utf8').split('\n').filter(Boolean);
+            for (const line of lines.slice(-limit)) {
+              try {
+                entries.push(JSON.parse(line));
+              } catch {
+                entries.push({ msg: line });
+              }
+            }
+          } catch {
+            /* 单个文件读失败不影响整体 */
+          }
+        }
+        // 容器启动输出（entrypoint / node 崩溃栈）也一起返回
+        try {
+          const bootLines = fsMod.readFileSync(dir + '/boot.log', 'utf8').split('\n').filter(Boolean).slice(-limit);
+          for (const line of bootLines) {
+            entries.push({ ts: new Date().toISOString(), level: /错误|失败|ERROR|Error/.test(line) ? 'warn' : 'info', event: line.slice(0, 300) });
+          }
+          if (bootLines.length) picked.push("boot.log");
+        } catch {
+          /* 没有 boot.log 就算了 */
+        }
+
+        const filtered = grep ? entries.filter((e) => JSON.stringify(e).includes(grep)) : entries;
+        return json(res, 200, { files: picked, count: filtered.length, entries: filtered.slice(-limit) });
       }
 
       if (path === '/api/admin/users' && req.method === 'GET') {
