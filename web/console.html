@@ -168,8 +168,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <h2>日志（当前容器全部输出）</h2>
         <div class="card pad">
           <div class="row">
-            <button class="btn primary" id="syncAll2">立即同步全部 Steam 游戏</button>
-            <select id="logScope">
+                        <select id="logScope">
               <option value="">全部日志</option>
               <option value="user">用户模块</option>
               <option value="steam">Steam 同步</option>
@@ -178,6 +177,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
             </select>
             <input id="logGrep" placeholder="再按关键字过滤（可留空）" style="width:260px">
             <button class="btn" id="logRefresh">刷新</button>
+            <button class="btn" id="logClear">清空显示</button>
             <label class="small muted"><input type="checkbox" id="logAuto" checked> 自动刷新（3s）</label>
             <span class="small muted" id="logMeta"></span>
           </div>
@@ -506,7 +506,6 @@ async function triggerSync(mode) {
 }
 $('syncAll').onclick = function () { triggerSync('steamall'); };
 if ($('syncCatalog')) $('syncCatalog').onclick = function () { triggerSync('catalog'); };
-$('syncAll2').onclick = function () { triggerSync('steamall'); };
 
 async function loadLogs() {
   const grep = $('logGrep').value.trim();
@@ -534,6 +533,11 @@ if ($('aggBtn')) $('aggBtn').addEventListener('change', renderStats);
 if ($('allGrep')) $('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
 if ($('allLevel')) $('allLevel').addEventListener('change', loadAllLogs);
 if ($('logScope')) $('logScope').addEventListener('change', loadLogs);
+if ($('logClear')) $('logClear').onclick = function () {
+  $('logBox').innerHTML = '<div class="muted">显示已清空（不影响服务器日志，重新点「刷新」即可加载）</div>';
+  $('logMeta').textContent = '显示已清空';
+  if ($('logAuto')) $('logAuto').checked = false;
+};
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
 setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
 setInterval(function () { if (currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 3000);
