@@ -54,6 +54,7 @@ dialog{border:1px solid var(--border);border-radius:14px;padding:20px;background
 dialog::backdrop{background:rgba(0,0,0,.35)}
 input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px;margin:6px 0 12px}
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
+.hide{display:none !important}
 </style>
 </head>
 <body>
@@ -301,21 +302,29 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 });
 let loginMode = 'pwd';
 let resetMode = false;
-function setMode(mode){
-  loginMode = mode;
-  document.querySelectorAll('[data-lmode]').forEach(function(b){ b.classList.toggle('on', b.dataset.lmode===mode); });
-  document.getElementById('pwdPane').classList.toggle('hide', mode!=='pwd');
-  document.getElementById('codePane').classList.toggle('hide', mode!=='code');
-  document.getElementById('forgotLink').classList.toggle('hide', mode!=='pwd');
+function syncLoginUI(){
+  const pwd = document.getElementById('pwdPane');
+  const code = document.getElementById('codePane');
+  const np = document.getElementById('lnewp');
+  const title = document.getElementById('loginTitle');
+  const btn = document.getElementById('doLogin');
+  const forgot = document.getElementById('forgotLink');
+  const isPwd = loginMode === 'pwd';
+  pwd.classList.toggle('hide', !isPwd);
+  code.classList.toggle('hide', isPwd);
+  np.classList.toggle('hide', !resetMode);
+  title.textContent = resetMode ? '重置密码' : (isPwd ? '登录' : '邮箱验证码登录');
+  btn.textContent = resetMode ? '重置密码' : '登录';
+  forgot.classList.toggle('hide', resetMode || !isPwd);
+  document.querySelectorAll('[data-lmode]').forEach(function(b){ b.classList.toggle('on', b.dataset.lmode===loginMode); });
+  document.getElementById('msg').textContent='';
 }
-document.querySelectorAll('[data-lmode]').forEach(function(b){ b.addEventListener('click',function(){ resetMode=false; setMode(b.dataset.lmode); }); });
+document.querySelectorAll('[data-lmode]').forEach(function(b){ b.addEventListener('click',function(){ resetMode=false; loginMode=b.dataset.lmode; syncLoginUI(); }); });
 document.getElementById('cancelLogin').onclick=function(){ document.getElementById('loginDlg').close(); };
 document.getElementById('forgotLink').onclick=function(ev){
-  ev.preventDefault(); resetMode=true; setMode('code');
-  document.getElementById('lnewp').classList.remove('hide');
-  document.getElementById('loginTitle').textContent='重置密码';
-  document.getElementById('doLogin').textContent='重置';
+  ev.preventDefault(); resetMode=true; loginMode='code'; syncLoginUI();
 };
+document.getElementById('loginBtn').addEventListener('click',function(){ resetMode=false; loginMode='pwd'; syncLoginUI(); });
 document.getElementById('sendCode').onclick=async function(){
   const msg=document.getElementById('msg'); msg.textContent='发送中…';
   try{
