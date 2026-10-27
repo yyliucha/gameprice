@@ -151,11 +151,11 @@ textarea{width:100%;min-height:100px;resize:vertical}
           </div>
           <div class="row">
             <button class="btn primary" id="saveSmtp">保存配置</button>
-            <input id="sTest" placeholder="测试收件邮箱" style="width:200px">
+            <input id="sTest" placeholder="收件邮箱（留空发给自己账号）" style="width:230px">
             <button class="btn" id="testSmtp">发送测试邮件</button>
             <span class="small muted" id="smtpMsg"></span>
           </div>
-          <p class="muted small">QQ/163 需用「授权码」；密码加密存库，未配置时回退环境变量。</p>
+          <p class="muted small">QQ/163 需用「授权码」；密码加密存库，未配置时回退环境变量。测试邮件的收件人留空则发给上面填的账号。</p>
         </div>
         <h2>验证码发送记录</h2>
         <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
@@ -361,8 +361,13 @@ $('saveSmtp').onclick = async function () {
   } catch (e) { $('smtpMsg').textContent = '保存失败：' + e.message; }
 };
 $('testSmtp').onclick = async function () {
-  const to = $('sTest').value.trim();
-  if (!to) { $('smtpMsg').textContent = '先填收件邮箱'; return; }
+  // 留空时默认发给配置里的账号，避免把说明文字填进邮箱框
+  const typed = $('sTest').value.trim();
+  const to = typed || $('sUser').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    $('smtpMsg').textContent = '收件邮箱不合法：请填完整邮箱，如 you@qq.com';
+    return;
+  }
   $('smtpMsg').textContent = '发送中…';
   try { await api('/api/admin/smtp/test', { method: 'POST', body: JSON.stringify({ to: to }) }); $('smtpMsg').textContent = '测试邮件已发送'; }
   catch (e) { $('smtpMsg').textContent = '发送失败：' + e.message; }
