@@ -102,6 +102,10 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       const user = token ? await db.userBySession(q, token) : null;
+
+      // 邮箱验证码路由（发送 / 校验），逻辑在 auth-routes.js
+      const authRoutes = await import('./auth-routes.js');
+      if (await authRoutes.handleEmailAuth({ path, req, res, q, logger, json, readBody })) return;
       const requireUser = () => {
         if (!user) {
           json(res, 401, { error: '需要登录' });

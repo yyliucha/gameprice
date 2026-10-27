@@ -93,16 +93,31 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 </main>
 
 <dialog id="loginDlg">
-  <form method="dialog" id="loginForm">
-    <strong>登录</strong>
-    <input name="username" placeholder="用户名" autocomplete="username" required>
-    <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn" value="cancel">取消</button>
-      <button class="btn primary" value="ok">登录</button>
+  <div>
+    <strong id="loginTitle">登录</strong>
+    <div class="bar" style="margin:8px 0">
+      <button class="chip on" data-lmode="pwd" type="button">密码登录</button>
+      <button class="chip" data-lmode="code" type="button">邮箱验证码</button>
     </div>
-    <div id="msg"></div>
-  </form>
+    <div id="pwdPane">
+      <input id="lu" placeholder="用户名" autocomplete="username">
+      <input id="lp" type="password" placeholder="密码" autocomplete="current-password">
+    </div>
+    <div id="codePane" class="hide">
+      <input id="le" type="email" placeholder="账号绑定的邮箱">
+      <div class="bar" style="margin:4px 0">
+        <input id="lc" placeholder="6 位验证码" style="width:130px">
+        <button class="btn" id="sendCode" type="button">发送验证码</button>
+      </div>
+      <input id="lnewp" type="password" placeholder="新密码（忘记密码时填）" class="hide">
+    </div>
+    <div class="bar" style="justify-content:flex-end;margin-top:8px">
+      <button class="btn" id="cancelLogin" type="button">取消</button>
+      <button class="btn primary" id="doLogin" type="button">登录</button>
+    </div>
+    <div id="msg" class="small" style="color:var(--warn);min-height:18px"></div>
+    <div class="small muted"><a href="#" id="forgotLink">忘记密码？</a></div>
+  </div>
 </dialog>
 
 <dialog id="detailDlg">
@@ -284,21 +299,51 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' });
   await me();
 });
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-  if (e.submitter && e.submitter.value === 'cancel') return;
-  e.preventDefault();
-  const form = e.target;
-  const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: form.username.value, password: form.password.value }),
-  });
-  const body = await res.json();
-  const msg = document.getElementById('msg');
-  if (!res.ok) { msg.textContent = body.error ?? '登录失败'; return; }
-  msg.textContent = '';
-  dlg.close();
-  await me();
+let loginMode = 'pwd';
+let resetMode = false;
+function setMode(mode){
+  loginMode = mode;
+  document.querySelectorAll('[data-lmode]').forEach(function(b){ b.classList.toggle('on', b.dataset.lmode===mode); });
+  document.getElementById('pwdPane').classList.toggle('hide', mode!=='pwd');
+  document.getElementById('codePane').classList.toggle('hide', mode!=='code');
+  document.getElementById('forgotLink').classList.toggle('hide', mode!=='pwd');
+}
+document.querySelectorAll('[data-lmode]').forEach(function(b){ b.addEventListener('click',function(){ resetMode=false; setMode(b.dataset.lmode); }); });
+document.getElementById('cancelLogin').onclick=function(){ document.getElementById('loginDlg').close(); };
+document.getElementById('forgotLink').onclick=function(ev){
+  ev.preventDefault(); resetMode=true; setMode('code');
+  document.getElementById('lnewp').classList.remove('hide');
+  document.getElementById('loginTitle').textContent='重置密码';
+  document.getElementById('doLogin').textContent='重置';
+};
+document.getElementById('sendCode').onclick=async function(){
+  const msg=document.getElementById('msg'); msg.textContent='发送中…';
+  try{
+    const res=await fetch('/api/auth/email/request',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({ email:document.getElementById('le').value.trim(), purpose: resetMode?'reset':'login' })});
+    const b=await res.json();
+    msg.textContent = res.ok ? (b.hint||'验证码已发送') : (b.error||'发送失败');
+  }catch(e){ msg.textContent='发送失败：'+e.message; }
+};
+document.getElementById('doLogin').onclick=async function(){
+  const msg=document.getElementById('msg'); msg.textContent='';
+  try{
+    if(loginMode==='pwd'){
+      const res=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({ username:document.getElementById('lu').value.trim(), password:document.getElementById('lp').value })});
+      const b=await res.json();
+      if(!res.ok){ msg.textContent=b.error||'登录失败'; return; }
+      document.getElementById('loginDlg').close(); await me(); return;
+    }
+    const payload={ email:document.getElementById('le').value.trim(), code:document.getElementById('lc').value.trim(), purpose: resetMode?'reset':'login' };
+    if(resetMode) payload.password=document.getElementById('lnewp').value;
+    const res=await fetch('/api/auth/email/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+    const b=await res.json();
+    if(!res.ok){ msg.textContent=b.error||'验证失败'; return; }
+    msg.textContent=b.message||'';
+    if(!resetMode){ document.getElementById('loginDlg').close(); await me(); }
+  }catch(e){ msg.textContent='失败：'+e.message; }
+};
 });
 
 // ---------------- 详情页 ----------------

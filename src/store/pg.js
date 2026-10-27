@@ -664,10 +664,12 @@ export async function updateUser(q, { username, displayName = undefined, role = 
 }
 
 /** 改密码：同时踢掉该用户所有会话，旧 cookie 立即失效。 */
-export async function setUserPassword(q, { username, password }) {
-  const r = await q('update users set password_hash = $1, disabled = false where username = $2 returning id', [
+export async function setUserPassword(q, { username = null, userId = null, password }) {
+  const where = userId != null ? 'id = $2' : 'username = $2';
+  const key = userId != null ? userId : username;
+  const r = await q(`update users set password_hash = $1, disabled = false where ${where} returning id`, [
     hashPassword(password),
-    username,
+    key,
   ]);
   if (!r.rows.length) return null;
   await q('delete from sessions where user_id = $1', [r.rows[0].id]);

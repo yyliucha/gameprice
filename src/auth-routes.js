@@ -1,0 +1,201 @@
+// 邮箱验证码相关路由：发送验证码、校验登录/重置密码。
+// 单独成模块，避免把 server.js 的主 handler 越堆越长。
+//
+// 日志策略（用户要求"部署后靠日志定位"）：
+//   auth.otp_requested  发码请求（邮箱脱敏、用途、结果）
+//   auth.otp_failed     发码失败（原因：smtp 未配置 / 发送异常 / 频率限制）
+//   auth.otp_verified   校验成功（登录或改密）
+//   auth.otp_rejected   校验失败（过期/未找到/次数超限/码错误）
+import {
+  generateCode,
+  hashCode,
+  verifyCodeHash,
+  normalizeEmail,
+  checkRateLimit,
+  smtpConfig,
+  isSmtpConfigured,
+  CODE_TTL_SEC,
+  CODE_MAX_ATTEMPTS,
+} from './email-auth.js';
+import { sendMail } from './notify.js';
+
+export function maskEmail(email) {
+  const v = String(email ?? '');
+  const at = v.indexOf('@');
+  if (at <= 0) return '***';
+  const name = v.slice(0, at);
+  const keep = name.length <= 2 ? 1 : 2;
+  return `${name.slice(0, keep)}***${v.slice(at)}`;
+}
+
+/** 返回 true 表示这个请求已被本模块处理。 */
+export async function handleEmailAuth({ path, req, res, q, logger, json, readBody }) {
+  if (req.method !== 'POST') return false;
+
+  // ---------------- 发送验证码 ----------------
+  if (path === '/api/auth/email/request') {
+    const body = await readBody(req);
+    const email = normalizeEmail(body.email);
+    const purpose = body.purpose === 'reset' ? 'reset' : 'login';
+    if (!email) {
+      json(res, 400, { error: '邮箱格式不正确' });
+      return true;
+    }
+
+    const recent = await q(
+      'select created_at, sent_ok from email_codes where email = $1 order by created_at desc limit 20',
+      [email],
+    );
+    const limit = checkRateLimit(recent.rows);
+    if (!limit.ok) {
+      logger?.warn('auth.otp_failed', {
+        email: maskEmail(email),
+        purpose,
+        reason: limit.reason,
+        retryAfterSec: limit.retryAfterSec,
+      });
+      json(res, 429, {
+        error: limit.reason === 'cooldown' ? `请 ${limit.retryAfterSec} 秒后再试` : '发送过于频繁，请稍后再试',
+        retryAfterSec: limit.retryAfterSec,
+      });
+      return true;
+    }
+
+    const userRow = await q('select id, username, disabled from users where email = $1', [email]);
+    const target = userRow.rows[0] ?? null;
+    if (!target) {
+      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'email_not_bound' });
+      json(res, 404, { error: '该邮箱还没有绑定账号，请让管理员在后台绑定' });
+      return true;
+    }
+    if (target.disabled) {
+      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'user_disabled' });
+      json(res, 403, { error: '账号已被禁用' });
+      return true;
+    }
+
+    const cfg = await smtpConfig(q);
+    if (!isSmtpConfigured(cfg)) {
+      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'smtp_not_configured' });
+      json(res, 503, { error: '系统还没有配置发信邮箱，请联系管理员在后台配置 SMTP' });
+      return true;
+    }
+
+    const code = generateCode();
+    const inserted = await q(
+      `insert into email_codes (email, user_id, purpose, code_hash, expires_at)
+       values ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval)
+       returning id`,
+      [email, target.id, purpose, hashCode(email, code), String(CODE_TTL_SEC)],
+    );
+    const id = inserted.rows[0].id;
+
+    try {
+      await sendMail(
+        {
+          host: cfg.host,
+          port: cfg.port,
+          secure: cfg.secure,
+          user: cfg.user,
+          pass: cfg.pass,
+          from: cfg.from,
+          to: email,
+          subject: purpose === 'reset' ? 'SteamDeals 重置密码验证码' : 'SteamDeals 登录验证码',
+          text:
+            `你的验证码是：${code}\n` +
+            `用途：${purpose === 'reset' ? '重置密码' : '登录'}\n` +
+            `有效期：${Math.round(CODE_TTL_SEC / 60)} 分钟，用完即失效。\n` +
+            '如果不是你本人操作，请忽略这封邮件。',
+        },
+        { logger },
+      );
+      await q('update email_codes set sent_ok = true where id = $1', [id]);
+      logger?.info('auth.otp_requested', { email: maskEmail(email), purpose, sent: true });
+      json(res, 200, { ok: true, expiresIn: CODE_TTL_SEC, hint: '验证码已发送，请查收邮件（含垃圾箱）' });
+    } catch (err) {
+      const message = String(err.message).slice(0, 200);
+      await q('update email_codes set sent_ok = false, error = $1 where id = $2', [message, id]);
+      logger?.error('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'send_error', message });
+      json(res, 502, { error: `验证码发送失败：${message}` });
+    }
+    return true;
+  }
+
+  // ---------------- 校验验证码 ----------------
+  if (path === '/api/auth/email/verify') {
+    const body = await readBody(req);
+    const email = normalizeEmail(body.email);
+    const code = String(body.code ?? '').trim();
+    const purpose = body.purpose === 'reset' ? 'reset' : 'login';
+    if (!email || !/^\d{6}$/.test(code)) {
+      json(res, 400, { error: '邮箱或验证码格式不正确' });
+      return true;
+    }
+
+    const found = await q(
+      `select id, user_id, code_hash, attempts, expires_at, used_at
+         from email_codes
+        where email = $1 and purpose = $2 and used_at is null
+        order by created_at desc limit 1`,
+      [email, purpose],
+    );
+    const row = found.rows[0];
+    if (!row) {
+      logger?.warn('auth.otp_rejected', { email: maskEmail(email), purpose, reason: 'no_code' });
+      json(res, 400, { error: '没有可用的验证码，请重新获取' });
+      return true;
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      logger?.warn('auth.otp_rejected', { email: maskEmail(email), purpose, reason: 'expired' });
+      json(res, 400, { error: '验证码已过期，请重新获取' });
+      return true;
+    }
+    if (row.attempts >= CODE_MAX_ATTEMPTS) {
+      logger?.warn('auth.otp_rejected', { email: maskEmail(email), purpose, reason: 'too_many_attempts' });
+      json(res, 429, { error: '尝试次数过多，请重新获取验证码' });
+      return true;
+    }
+    if (!verifyCodeHash(email, code, row.code_hash)) {
+      await q('update email_codes set attempts = attempts + 1 where id = $1', [row.id]);
+      logger?.warn('auth.otp_rejected', { email: maskEmail(email), purpose, reason: 'wrong_code', attempts: row.attempts + 1 });
+      json(res, 400, { error: '验证码不正确' });
+      return true;
+    }
+
+    // 校验通过：立刻作废，防止重放
+    await q('update email_codes set used_at = now() where id = $1', [row.id]);
+
+    if (purpose === 'reset') {
+      const password = String(body.password ?? '');
+      if (password.length < 6) {
+        json(res, 400, { error: '新密码至少 6 位' });
+        return true;
+      }
+      const { setUserPassword } = await import('./store/pg.js');
+      const updated = await setUserPassword(q, { username: null, userId: row.user_id, password });
+      logger?.info('auth.otp_verified', { email: maskEmail(email), purpose: 'reset', ok: Boolean(updated) });
+      json(res, 200, { ok: true, message: '密码已重置，请用新密码登录' });
+      return true;
+    }
+
+    const userRow = await q('select id, username, role, disabled from users where id = $1', [row.user_id]);
+    const account = userRow.rows[0];
+    if (!account || account.disabled) {
+      logger?.warn('auth.otp_rejected', { email: maskEmail(email), purpose, reason: 'account_unavailable' });
+      json(res, 403, { error: '账号不可用' });
+      return true;
+    }
+    const { createSession } = await import('./store/pg.js');
+    const token = await createSession(q, { userId: account.id });
+    logger?.info('auth.otp_verified', { email: maskEmail(email), purpose: 'login', username: account.username });
+    json(
+      res,
+      200,
+      { user: { id: account.id, username: account.username, role: account.role } },
+      { 'set-cookie': `gp_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800` },
+    );
+    return true;
+  }
+
+  return false;
+}
