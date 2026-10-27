@@ -166,3 +166,14 @@ test('未知分类 id 原样保留，不瞎猜名字', () => {
   const item = normalizeSteamcmd(1, { common: { name: 'X', genres: { 0: '999' } } });
   assert.deepEqual(item.genres, ['genre:999']);
 });
+
+test('release date: 本地化日期转 ISO（Steam 中文区）', async () => {
+  const { parseReleaseDate } = await import('../src/adapters/steam-meta.js');
+  assert.equal(parseReleaseDate('2017 年 9 月 15 日'), '2017-09-15');
+  assert.equal(parseReleaseDate('2023 年 12 月'), '2023-12-01');
+  assert.equal(parseReleaseDate('2015-06-01'), '2015-06-01');
+  assert.equal(parseReleaseDate('6/1/2015'), '2015-06-01');
+  assert.equal(parseReleaseDate('Coming soon'), null);
+  assert.equal(parseReleaseDate('即将推出'), null);
+  assert.equal(parseReleaseDate(null), null);
+});

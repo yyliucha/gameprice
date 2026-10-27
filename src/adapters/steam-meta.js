@@ -23,6 +23,32 @@ export const GENRES = {
   28: '模拟',
 };
 
+/**
+ * Steam 商店按语言返回本地化日期（中文区是 "2017 年 9 月 15 日"），
+ * 数据库 release_date 是 date 类型，必须先转成 YYYY-MM-DD，解析不了就存 null。
+ */
+export function parseReleaseDate(raw) {
+  if (!raw) return null;
+  const text = String(raw).trim();
+  if (!text || /coming soon|即将推出|待定|tba/i.test(text)) return null;
+  const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (iso) return iso[0];
+  const cn = /(\d{4})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日)?/.exec(text);
+  if (cn) {
+    const y = cn[1];
+    const m = String(cn[2]).padStart(2, '0');
+    const d = String(cn[3] ?? '1').padStart(2, '0');
+    return y + '-' + m + '-' + d;
+  }
+  const us = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text);
+  if (us) {
+    const m = String(us[1]).padStart(2, '0');
+    const d = String(us[2]).padStart(2, '0');
+    return us[3] + '-' + m + '-' + d;
+  }
+  return null;
+}
+
 export function genreName(id) {
   return GENRES[Number(id)] ?? `genre:${id}`;
 }
@@ -56,7 +82,7 @@ export function normalizeOfficial(appid, data) {
     appType: data.type ?? null,
     isFree: data.is_free ?? null,
     headerImage: data.header_image ?? null,
-    releaseDate: data.release_date?.date && !/coming soon/i.test(data.release_date.date) ? data.release_date.date : null,
+    releaseDate: parseReleaseDate(data.release_date?.date ?? null),
     developers: data.developers ?? null,
     publishers: data.publishers ?? null,
     genres: Array.isArray(data.genres) ? data.genres.map((g) => g.description).filter(Boolean) : null,
@@ -112,7 +138,7 @@ export function normalizeSteamcmd(appid, app) {
     appType: common.type ?? null,
     isFree: null, // PICS 数据里没有可靠的免费标记
     headerImage: headerFile ? `${CDN}${appid}/${headerFile}` : null,
-    releaseDate: toDate(common.steam_release_date),
+    releaseDate: parseReleaseDate(toDate(common.steam_release_date)),
     developers: devs.length ? [...new Set(devs)] : null,
     publishers: pubs.length ? [...new Set(pubs)] : null,
     genres,
