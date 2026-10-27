@@ -128,12 +128,22 @@ textarea{width:100%;min-height:100px;resize:vertical}
           </table>
         </div>
 
-        <div class="row" id="gamesPager" style="margin-top:10px">
-          <button class="btn" id="pgPrev">上一页</button>
-          <span class="small muted" id="pgInfo">第 1 / 1 页</span>
-          <button class="btn" id="pgNext">下一页</button>
-          <input id="pgJump" placeholder="页码" style="width:70px">
-          <button class="btn" id="pgGo">跳转</button>
+        <div class="row" id="gamesPager" style="margin-top:10px;justify-content:space-between;align-items:center">
+          <span class="small muted" id="pgSummary">共 0 条</span>
+          <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="pgFirst" title="首页">«</button>
+            <button class="btn" id="pgPrev">‹ 上一页</button>
+            <span id="pgNums" style="display:flex;gap:4px"></span>
+            <button class="btn" id="pgNext">下一页 ›</button>
+            <button class="btn" id="pgLast" title="末页">»</button>
+            <select id="pgSize" style="padding:4px 6px">
+              <option value="20">20 条/页</option>
+              <option value="50">50 条/页</option>
+              <option value="100">100 条/页</option>
+            </select>
+            <input id="pgJump" placeholder="页码" style="width:62px">
+            <button class="btn" id="pgGo">跳转</button>
+          </span>
         </div>
 
         <h2>单个游戏编辑</h2>
@@ -296,16 +306,36 @@ async function boot() {
 
 let gamesPage = 1;
 let gamesPages = 1;
+let gamesTotal = 0;
+let gamesPageSize = 20;
+function renderPager() {
+  if ($('pgSummary')) $('pgSummary').textContent = '共 ' + gamesTotal + ' 条 · 第 ' + gamesPage + ' / ' + gamesPages + ' 页 · 每页 ' + gamesPageSize + ' 条';
+  const box = $('pgNums');
+  if (box) {
+    const nums = [];
+    const from = Math.max(1, gamesPage - 3);
+    const to = Math.min(gamesPages, from + 6);
+    for (let i = from; i <= to; i += 1) nums.push(i);
+    box.innerHTML = nums.map(function (n) {
+      const on = n === gamesPage ? ' style="background:var(--brand);border-color:var(--brand);color:#fff"' : '';
+      return '<button class="btn" data-pg="' + n + '"' + on + '>' + n + '</button>';
+    }).join('');
+    box.querySelectorAll('button[data-pg]').forEach(function (b) { b.onclick = function () { loadGameList(Number(b.dataset.pg)); }; });
+  }
+  if ($('pgPrev')) $('pgPrev').disabled = gamesPage <= 1;
+  if ($('pgFirst')) $('pgFirst').disabled = gamesPage <= 1;
+  if ($('pgNext')) $('pgNext').disabled = gamesPage >= gamesPages;
+  if ($('pgLast')) $('pgLast').disabled = gamesPage >= gamesPages;
+}
 async function loadGameList(page) {
   if (page) gamesPage = page;
+  gamesPageSize = Number(($('pgSize') || {}).value || 20);
   const kw = ($('gameKw') ? $('gameKw').value.trim() : '');
   try {
-    const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=20' + (kw ? '&q=' + encodeURIComponent(kw) : ''));
-    gamesPage = d.page; gamesPages = d.pages;
-    if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款';
-    if ($('pgInfo')) $('pgInfo').textContent = '第 ' + d.page + ' / ' + d.pages + ' 页';
-    if ($('pgPrev')) $('pgPrev').disabled = d.page <= 1;
-    if ($('pgNext')) $('pgNext').disabled = d.page >= d.pages;
+    const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=' + gamesPageSize + (kw ? '&q=' + encodeURIComponent(kw) : ''));
+    gamesPage = d.page; gamesPages = d.pages; gamesTotal = d.total;
+    if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
+    renderPager();
     $('gameRows').innerHTML = (d.games || []).map(function (g) {
       return '<tr>' +
         '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
@@ -319,7 +349,7 @@ async function loadGameList(page) {
           (g.steam_appid ? '<button class="btn" data-gact="edit" data-appid="' + g.steam_appid + '">编辑</button> ' : '') +
           (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button>' : '') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="8" class="muted">还没有游戏数据</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">没有匹配的游戏</td></tr>';
   } catch (e) {
     $('gameRows').innerHTML = '<tr><td colspan="8" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }

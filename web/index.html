@@ -92,12 +92,20 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
       </tr></thead>
       <tbody id="rows"><tr><td colspan="5" class="muted">加载中…</td></tr></tbody>
     </table>
-  <div class="pager" id="pager" style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">
-    <button class="chip" id="pgPrev">上一页</button>
+  <div class="pager" id="pager" style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border)">
     <span class="small muted" id="pgInfo"></span>
-    <button class="chip" id="pgNext">下一页</button>
-    <input id="pgJump" placeholder="页码" style="width:64px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">
-    <button class="chip" id="pgGo">跳转</button>
+    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <button class="chip" id="pgFirst" title="首页">«</button>
+      <button class="chip" id="pgPrev">‹ 上一页</button>
+      <span id="pgNums" style="display:flex;gap:4px"></span>
+      <button class="chip" id="pgNext">下一页 ›</button>
+      <button class="chip" id="pgLast" title="末页">»</button>
+      <select id="pgSize" style="padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">
+        <option value="50">50 条/页</option>
+        <option value="100">100 条/页</option>
+        <option value="20">20 条/页</option>
+      </select>
+    </span>
   </div>
   </div>
 </main>
@@ -140,6 +148,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 
 <script>
 const state = {
+  pageSize: 50,
   page: 1, games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
 
 // 访客偏好存在浏览器本地：不涉及账号、不上传服务端。
@@ -194,15 +203,32 @@ function render() {
   const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
   const matched = (g) => !kw || [g.name, g.name_en].some((v) => String(v || '').toLowerCase().includes(kw));
   const filtered = sorted(state.games.filter(visible).filter(matched));
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = state.pageSize || 50;
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (!state.page || state.page > totalPages) state.page = totalPages;
   if (state.page < 1) state.page = 1;
   const start = (state.page - 1) * PAGE_SIZE;
   const list = filtered.slice(start, start + PAGE_SIZE);
-  if (document.getElementById('pgInfo')) document.getElementById('pgInfo').textContent = '共 ' + filtered.length + ' 款 · 第 ' + state.page + ' / ' + totalPages + ' 页';
+  const info = document.getElementById('pgInfo');
+  if (info) info.textContent = '共 ' + filtered.length + ' 款 · 第 ' + state.page + ' / ' + totalPages + ' 页 · 本页 ' + list.length + ' 条';
+  const nums = document.getElementById('pgNums');
+  if (nums) {
+    const from = Math.max(1, state.page - 3);
+    const to = Math.min(totalPages, from + 6);
+    let html = '';
+    for (let i = from; i <= to; i += 1) {
+      const on = i === state.page ? ' style="background:var(--brand);border-color:var(--brand);color:#fff"' : '';
+      html += '<button class="chip" data-pg="' + i + '"' + on + '>' + i + '</button>';
+    }
+    nums.innerHTML = html;
+    nums.querySelectorAll('button[data-pg]').forEach(function (btn) {
+      btn.onclick = function () { state.page = Number(btn.dataset.pg); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    });
+  }
   if (document.getElementById('pgPrev')) document.getElementById('pgPrev').disabled = state.page <= 1;
+  if (document.getElementById('pgFirst')) document.getElementById('pgFirst').disabled = state.page <= 1;
   if (document.getElementById('pgNext')) document.getElementById('pgNext').disabled = state.page >= totalPages;
+  if (document.getElementById('pgLast')) document.getElementById('pgLast').disabled = state.page >= totalPages;
   const tbody = document.getElementById('rows');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="muted">这个分类下没有游戏</td></tr>';
