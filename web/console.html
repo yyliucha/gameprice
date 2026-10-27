@@ -62,6 +62,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
       <button data-page="games">游戏管理</button>
       <button data-page="sync">采集同步</button>
       <button data-page="mail">邮箱配置</button>
+      <button data-page="logs">系统日志</button>
       <button data-page="stats">数据统计</button>
     </nav>
     <div style="margin-top:18px" class="small muted" id="who"></div>
@@ -167,6 +168,25 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
       </section>
 
+      <section data-section="logs" class="hide">
+        <h2>系统日志</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="allGrep" placeholder="过滤关键字（留空显示全部）" style="width:300px">
+            <select id="allLevel">
+              <option value="">全部级别</option>
+              <option value="error">只看 ERROR</option>
+              <option value="warn">只看 WARN</option>
+              <option value="info">只看 INFO</option>
+            </select>
+            <button class="btn" id="allRefresh">刷新</button>
+            <label class="small muted"><input type="checkbox" id="allAuto" checked> 自动刷新（3s）</label>
+            <span class="small muted" id="allMeta"></span>
+          </div>
+          <div class="logbox" id="allBox"><div class="muted">加载中…</div></div>
+        </div>
+      </section>
+
       <section data-section="stats" class="hide">
         <h2>浏览排行（90 天）</h2>
         <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
@@ -212,6 +232,7 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
+  if (page === 'logs') loadAllLogs();
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
@@ -387,8 +408,12 @@ async function loadLogs() {
   }
 }
 $('logRefresh').onclick = loadLogs;
+$('allRefresh').onclick = loadAllLogs;
+$('allGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAllLogs(); });
+$('allLevel').addEventListener('change', loadAllLogs);
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
 setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
+setInterval(function () { if (currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 3000);
 
 async function loadSmtp() {
   try {
@@ -434,6 +459,27 @@ async function loadMail() {
         '</td><td class="muted small">' + when(r.created_at) + '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="muted">还没有发送记录</td></tr>';
   } catch (e) { /* 表可能未建 */ }
+}
+
+async function loadAllLogs() {
+  const grep = $('allGrep').value.trim();
+  const level = $('allLevel').value;
+  try {
+    const d = await api('/api/admin/logs?limit=300' + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
+    let entries = (d.entries || []).slice().reverse();
+    if (level) entries = entries.filter(function (e) { return String(e.level || "").toLowerCase() === level; });
+    $('allMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
+    $('allBox').innerHTML = entries.length ? entries.map(function (e) {
+      const lv = String(e.level || '').toLowerCase();
+      const t = e.time ? String(e.time).slice(11, 19) : '';
+      const ev = esc(e.event || e.msg || '');
+      const rest = Object.entries(e).filter(function (kv) { return ['time','level','event','msg','runId'].indexOf(kv[0]) < 0; })
+        .map(function (kv) { return kv[0] + '=' + (typeof kv[1] === 'object' ? JSON.stringify(kv[1]) : String(kv[1])); }).join(' ');
+      return '<div class="logline lv-' + esc(lv) + '">' + esc(t) + '  ' + esc(lv.toUpperCase()) + ' ' + ev + '  <span class="muted">' + esc(rest) + '</span></div>';
+    }).join('') : '<div class="muted">没有匹配的日志</div>';
+  } catch (err) {
+    $('allBox').innerHTML = '<div class="lv-error">读取日志失败：' + esc(err.message) + '</div>';
+  }
 }
 
 async function loadStats() {

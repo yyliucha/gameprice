@@ -364,6 +364,10 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         // 收件人留空时发给发件人自己，前端不用重复填
         const to = String(body.to ?? '').trim() || cfg.from;
         if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
+        const record = await q(
+          "insert into email_codes (email, purpose, code_hash, expires_at, sent_ok) values ($1, 'test', '-', now(), null) returning id",
+          [to],
+        );
         try {
           await sendMail(
             {
@@ -379,11 +383,14 @@ export function createApiServer({ query, logger = null, outDir = null }) {
             },
             { logger },
           );
+          await q('update email_codes set sent_ok = true where id = $1', [record.rows[0].id]);
           logger?.info('api.smtp_test_ok', { to, by: user.username });
           return json(res, 200, { ok: true });
         } catch (err) {
-          logger?.warn('api.smtp_test_failed', { message: String(err.message).slice(0, 160) });
-          return json(res, 502, { error: String(err.message).slice(0, 200) });
+          const message = String(err.message).slice(0, 200);
+          await q('update email_codes set sent_ok = false, error = $1 where id = $2', [message, record.rows[0].id]);
+          logger?.warn('api.smtp_test_failed', { message, to });
+          return json(res, 502, { error: message });
         }
       }
 
