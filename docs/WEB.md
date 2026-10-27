@@ -71,6 +71,10 @@ node src/cli.js serve --port 8090
 
 返回 `{ games: [...], total, sort, owned }`。每行带 `all_offers`（各平台当前价，升序），前端直接渲染成平台标签。
 
+### `GET /api/games/count`
+
+返回 `{ catalog, priced }`：库内游戏总数、已有价格数据的游戏数（前台顶部的实时数量来源，列表最多 500 条）。
+
 ### `GET /api/games/:appid`
 
 返回 `{ game, offers, series }`。登录用户访问会记录一条 `page_views`（管理员可在后台看到排行）。

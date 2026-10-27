@@ -304,10 +304,18 @@ function render() {
 
 let lastGamesSig = '';
 let lastLoadAt = 0;
+let lastCount = null;
 async function load(background) {
   const res = await fetch('/api/games?limit=500&owned=include');
   const data = await res.json();
   state.games = data.games ?? [];
+  // 真实数量（库内 / 有价格）：列表最多 500 条，数量要靠 count 接口
+  try {
+    const c = await fetch('/api/games/count');
+    if (c.ok) lastCount = await c.json();
+  } catch {
+    /* 拿不到数量不影响列表 */
+  }
   // 签名包含数量与每款的价格/名称，任何变化都会触发重渲染
   const sig = state.games.map(function (g) {
     return [g.id, g.current_low, g.steam_price, g.name, g.blocked ? 1 : 0].join(':');
@@ -316,11 +324,16 @@ async function load(background) {
   const meta = document.getElementById('meta');
   if (meta) {
     const t = new Date(lastLoadAt).toLocaleTimeString('zh-CN', { hour12: false });
-    meta.textContent = '共 ' + state.games.length + ' 款 · 更新于 ' + t + (background ? '（自动刷新）' : '');
+    const count = lastCount
+      ? '库内 ' + lastCount.catalog + ' 款 · 有价格 ' + lastCount.priced + ' 款'
+      : '共 ' + state.games.length + ' 款';
+    meta.textContent = count + ' · 更新于 ' + t + (background ? '（自动刷新）' : '');
   }
   if (sig !== lastGamesSig) {
     lastGamesSig = sig;
     render();
+  } else if (state.tab === 'steam') {
+    loadSteam();
   }
 }
 
@@ -506,12 +519,17 @@ async function openDetail(appid, gid) {
       '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
     : '';
 
+  const headerImg = appid
+    ? '<img src="/img/steam/' + esc(appid) + '/header" alt="" loading="lazy" style="width:100%;border-radius:10px;margin-bottom:12px;background:var(--hover)" onerror="this.style.display=\'none\'">'
+    : '';
+
   box.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:start;gap:12px">' +
     '<div><strong style="font-size:18px">' + esc(g.name) + '</strong>' +
     (g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '') +
     '<div class="muted small">' + facts.join(' · ') + '</div></div>' +
     '<button class="btn" id="closeDetail">关闭</button></div>' +
+    headerImg +
     '<div class="bar"><span class="pill">现价 ' + yuan(g.current_low) + '</span>' +
     '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
     '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
@@ -661,12 +679,16 @@ async function loadSteam() {
   };
 }
 
-// 前台实时更新：每 60 秒与后端比对一次，后台同步的新价格/新游戏会自动出现
-const REFRESH_MS = 60 * 1000;
+// 前台实时更新：每 10 秒与后端比对一次，后台同步的新价格/新游戏会自动出现；
+// 页面切回可见时立即刷一次，避免后台挂着错过更新。
+const REFRESH_MS = 10 * 1000;
 setInterval(function () {
   if (document.hidden) return;
   load(true).catch(function () { /* 网络抖动忽略 */ });
 }, REFRESH_MS);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) load(true).catch(function () { /* 忽略 */ });
+});
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>
 </body>

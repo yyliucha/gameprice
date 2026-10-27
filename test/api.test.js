@@ -61,6 +61,11 @@ test('匿名可看列表与详情，但不带用户信息', async () => {
     assert.ok(body.games.some((g) => g.steam_appid === 413150), "应包含目标游戏");
     assert.equal(body.games[0].steam_appid, 413150);
 
+    // 数量接口：库内 / 有价格，前台实时数量靠它
+    const count = await (await fetch(`${base}/api/games/count`)).json();
+    assert.equal(count.catalog, 1);
+    assert.equal(count.priced, 1);
+
     const detail = await fetch(`${base}/api/games/413150`);
     assert.equal(detail.status, 200);
     const d = await detail.json();

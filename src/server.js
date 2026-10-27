@@ -215,6 +215,13 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { prefs });
       }
 
+      // ---- 游戏数量（匿名可读）：库内总数 + 已有价格数，前台"实时数量"靠它 ----
+      if (path === '/api/games/count' && req.method === 'GET') {
+        const priced = await q('select count(*)::int as n from (select distinct game_id from daily_prices) x');
+        const catalog = await q('select count(*)::int as n from games');
+        return json(res, 200, { priced: priced.rows[0]?.n ?? 0, catalog: catalog.rows[0]?.n ?? 0 });
+      }
+
       // ---- 游戏列表（匿名可读）----
       if (path === '/api/games' && req.method === 'GET') {
         const interest = url.searchParams.get('interest') ?? 'all';
