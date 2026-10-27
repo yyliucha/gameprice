@@ -126,6 +126,20 @@ node src/cli.js diagnose
 
 日志里每个请求会带 `via=direct|proxy|steam-proxy`，排障时一眼能看出走了哪条路。
 
+**封面图是另一个域名**：`cdn.cloudflare.steamstatic.com` / `cdn.akamai.steamstatic.com`。
+页面"只有名字没有图"时，先看三行图片探测：
+
+```bash
+node src/cli.js diagnose
+# ✔ net:img:cf-proxy   Cloudflare 经 STEAM_PROXY（/img/steam 第一条路）
+# ✔ net:img:ak-direct  Akamai 直连
+# ✔ net:img:cf-direct  Cloudflare 强制直连
+```
+
+三行全红说明服务器到 Steam CDN 的路都不通：给代理放行 `cdn.cloudflare.steamstatic.com`
+与 `cdn.akamai.steamstatic.com`（自建代理常常只白名单了 api/store/community，图片域名会被拒）。
+`/img/steam` 本身已按「Cloudflare 代理 → Akamai 直连 → Cloudflare 直连」自动兜底。
+
 > 合规提醒：代理的用途与合法性取决于你的网络环境与当地法规，请自行确认。
 
 ### 方案 C：双机分流（自用最稳）
