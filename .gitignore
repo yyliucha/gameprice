@@ -13,3 +13,4 @@ data/sonkwo-discovery.json
 *.db
 *.db-wal
 *.db-shm
+data/secret.key
