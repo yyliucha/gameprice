@@ -42,6 +42,12 @@ textarea{width:100%;min-height:100px;resize:vertical}
 .logbox{max-height:420px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--bg);padding:10px 12px}
 .logline{white-space:pre-wrap;word-break:break-all;padding:1px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent)}
 .lv-warn{color:var(--warn)}.lv-error{color:var(--danger)}
+#modal{border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--fg);padding:20px;width:380px;box-shadow:var(--shadow)}
+#modal::backdrop{background:rgba(0,0,0,.45)}
+#modal h3{margin:0 0 4px;font-size:16px}
+#modal .hint{color:var(--muted);font-size:12px;margin:0 0 10px}
+#modal input{width:100%}
+#modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
@@ -168,6 +174,15 @@ textarea{width:100%;min-height:100px;resize:vertical}
     </div>
   </main>
 </div>
+<dialog id="modal">
+  <h3 id="mTitle">提示</h3>
+  <p class="hint" id="mHint"></p>
+  <input id="mInput" autocomplete="off">
+  <div class="actions">
+    <button class="btn" id="mCancel" type="button">取消</button>
+    <button class="btn primary" id="mOk" type="button">确定</button>
+  </div>
+</dialog>
 <div id="toast"></div>
 
 <script>
@@ -233,26 +248,61 @@ async function loadUsers() {
   }).join('') || '<tr><td colspan="7" class="muted">还没有用户</td></tr>';
 }
 
+/** 统一的输入弹窗，替代浏览器原生 prompt（样式与后台一致）。 */
+function askText(opts) {
+  const dlg = $('modal');
+  $('mTitle').textContent = opts.title || '输入';
+  $('mHint').textContent = opts.hint || '';
+  const input = $('mInput');
+  input.type = opts.type || 'text';
+  input.value = opts.value || '';
+  input.placeholder = opts.placeholder || '';
+  dlg.showModal();
+  setTimeout(function () { input.focus(); input.select(); }, 30);
+  return new Promise(function (resolve) {
+    function done(v) {
+      $('mOk').onclick = null; $('mCancel').onclick = null;
+      input.onkeydown = null; dlg.onclose = null;
+      if (dlg.open) dlg.close();
+      resolve(v);
+    }
+    $('mOk').onclick = function () { done(input.value); };
+    $('mCancel').onclick = function () { done(null); };
+    input.onkeydown = function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); done(input.value); }
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+    };
+    dlg.onclose = function () { resolve(null); };
+  });
+}
 $('userRows').addEventListener('click', async function (e) {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const username = btn.dataset.user;
   try {
     if (btn.dataset.act === 'email') {
-      const v = prompt('绑定登录邮箱（留空表示解绑）：', '');
+      const v = await askText({
+        title: '绑定登录邮箱',
+        hint: '留空表示解绑。绑定后可用邮箱验证码登录、也可自助重置密码。',
+        placeholder: 'you@example.com',
+      });
       if (v === null) return;
       await api('/api/admin/users/' + encodeURIComponent(username) + '/email', { method: 'POST', body: JSON.stringify({ email: v.trim() }) });
       toast(v.trim() ? '已绑定邮箱' : '已解绑');
       return loadUsers();
     }
     if (btn.dataset.act === 'rename') {
-      const v = prompt('新的显示名（留空清除）：', '');
+      const v = await askText({ title: '修改显示名', hint: '留空表示清除显示名。', value: '' });
       if (v === null) return;
       await api('/api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', body: JSON.stringify({ display_name: v }) });
       toast('已更新'); return loadUsers();
     }
     if (btn.dataset.act === 'pwd') {
-      const v = prompt('新密码（≥6 位，保存后该用户被强制重新登录）：', '');
+      const v = await askText({
+        title: '重置密码',
+        hint: '至少 6 位；保存后该用户所有会话失效，需要重新登录。',
+        type: 'password',
+      });
       if (!v) return;
       await api('/api/admin/users/' + encodeURIComponent(username) + '/password', { method: 'POST', body: JSON.stringify({ password: v }) });
       toast('密码已重置'); return;
