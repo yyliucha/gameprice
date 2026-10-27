@@ -177,7 +177,8 @@ create table if not exists user_prefs (
   user_id integer primary key references users(id) on delete cascade,
   hide_uninterested boolean not null default true,
   only_discount boolean not null default false,
-  sort text not null default 'discount'
+  sort text not null default 'discount',
+  tab text not null default 'all'
 );
 create table if not exists page_views (
   id bigserial primary key,
@@ -202,6 +203,7 @@ const ALTERS = [
   'alter table games add column if not exists publishers text[]',
   'alter table games add column if not exists genres text[]',
   'alter table games add column if not exists tags text[]',
+  'alter table user_prefs add column if not exists tab text not null default \'all\'',
 ];
 
 export async function migrate(store) {
@@ -765,19 +767,35 @@ export async function deleteSession(q, token) {
   await q('delete from sessions where token = $1', [token]);
 }
 
-export async function getPrefs(q, userId) {
-  const r = await q('select hide_uninterested, only_discount, sort from user_prefs where user_id = $1', [userId]);
-  return r.rows[0] ?? { hide_uninterested: true, only_discount: false, sort: 'discount' };
+export const PREF_TABS = ['all', 'on', 'off', 'owned'];
+export const PREF_SORTS = ['discount', 'price', 'name'];
+
+/** 页签/排序的合法值归一化，非法值回落默认。 */
+export function normalizePrefs(prefs = {}) {
+  const tab = PREF_TABS.includes(String(prefs.tab ?? '')) ? String(prefs.tab) : 'all';
+  const sort = PREF_SORTS.includes(String(prefs.sort ?? '')) ? String(prefs.sort) : 'discount';
+  return { tab, sort };
 }
 
-export async function savePrefs(q, userId, prefs) {
+export async function getPrefs(q, userId) {
+  const r = await q('select hide_uninterested, only_discount, sort, tab from user_prefs where user_id = $1', [userId]);
+  const row = r.rows[0];
+  if (!row) return { hide_uninterested: false, only_discount: false, sort: 'discount', tab: 'all' };
+  const { tab, sort } = normalizePrefs({ tab: row.tab, sort: row.sort });
+  return { hide_uninterested: row.hide_uninterested === true, only_discount: row.only_discount === true, sort, tab };
+}
+
+export async function savePrefs(q, userId, prefs = {}) {
+  const { tab, sort } = normalizePrefs(prefs);
   await q(
-    `insert into user_prefs (user_id, hide_uninterested, only_discount, sort) values ($1, $2, $3, $4)
+    `insert into user_prefs (user_id, hide_uninterested, only_discount, sort, tab) values ($1, $2, $3, $4, $5)
      on conflict (user_id) do update set
        hide_uninterested = excluded.hide_uninterested,
        only_discount = excluded.only_discount,
-       sort = excluded.sort`,
-    [userId, Boolean(prefs.hide_uninterested), Boolean(prefs.only_discount), String(prefs.sort ?? 'discount')],
+       sort = excluded.sort,
+       tab = excluded.tab`,
+    // hide_uninterested 是旧字段：tab=on 等价于"隐藏不感兴趣"，保留兼容老客户端
+    [userId, tab === 'on', Boolean(prefs.only_discount), sort, tab],
   );
   return getPrefs(q, userId);
 }

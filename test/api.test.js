@@ -112,6 +112,29 @@ test('登录才能存偏好；普通用户不能改游戏标记；管理员可�
     assert.equal(saved.only_discount, true);
     assert.equal(saved.sort, 'price');
 
+    // 页签偏好也落库：登录用户下次按自己的习惯加载
+    const prefs2 = await fetch(`${base}/api/prefs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ tab: 'off', sort: 'name' }),
+    });
+    const saved2 = (await prefs2.json()).prefs;
+    assert.equal(saved2.tab, 'off');
+    assert.equal(saved2.sort, 'name');
+    assert.equal((await q('select tab from user_prefs where user_id = (select id from users where username = $1)', ['alice'])).rows[0].tab, 'off', '页签要写进 user_prefs');
+    const meBody = await (await fetch(`${base}/api/me`, { headers: { cookie: alice.cookie } })).json();
+    assert.equal(meBody.prefs.tab, 'off', '/api/me 要把页签带回来');
+
+    // 非法值归一化
+    const prefs3 = await fetch(`${base}/api/prefs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ tab: 'steam', sort: 'weird' }),
+    });
+    const saved3 = (await prefs3.json()).prefs;
+    assert.equal(saved3.tab, 'all');
+    assert.equal(saved3.sort, 'discount');
+
     const admin = await login(base, 'admin', 'admin123456');
     const ok = await fetch(`${base}/api/games/413150/interest`, {
       method: 'POST',

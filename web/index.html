@@ -190,17 +190,41 @@ function saveLocal() {
     /* 隐私模式下可能不可写，忽略 */
   }
 }
-function applyLocal() {
-  const saved = readLocal();
-  if (!saved) return false;
-  // Steam 页签已移到后台控制台；旧本地偏好里的 steam 回落到「全部」
+
+/** 把偏好套用到界面（页签/排序高亮）；mirror=true 时同时镜像到浏览器缓存。 */
+function applyPrefs(prefs, { mirror = false } = {}) {
   const tabs = ['all', 'on', 'off', 'owned'];
-  if (saved.tab && tabs.includes(saved.tab)) state.tab = saved.tab;
-  else state.tab = 'all';
-  if (saved.sort) state.sort = saved.sort;
+  const sorts = ['discount', 'price', 'name'];
+  state.tab = tabs.includes(prefs?.tab) ? prefs.tab : 'all';
+  state.sort = sorts.includes(prefs?.sort) ? prefs.sort : 'discount';
   document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.tab));
   document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
-  return true;
+  if (mirror) saveLocal();
+}
+
+/** 未登录：从浏览器缓存恢复（Steam 页签已移到后台，旧值回落到「全部」）。 */
+function applyLocal() {
+  const saved = readLocal();
+  applyPrefs({ tab: saved?.tab, sort: saved?.sort });
+  return Boolean(saved);
+}
+
+/**
+ * 用户切换页签/排序后：写浏览器缓存；已登录时再同步到数据库（user_prefs）。
+ * 登录用户下次登录按数据库里的习惯加载，未登录按本地缓存加载。
+ */
+async function persistPrefs() {
+  saveLocal();
+  if (!state.user) return;
+  try {
+    await fetch('/api/prefs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tab: state.tab, sort: state.sort, only_discount: false }),
+    });
+  } catch (e) {
+    /* 服务端失败时本地缓存仍然生效，不打断浏览 */
+  }
 }
 
 const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
@@ -225,11 +249,12 @@ const TYPE_LABELS = {
 const typeLabelOf = (raw) => TYPE_LABELS[String(raw ?? '').toLowerCase()] ?? (raw ? String(raw) : null);
 
 function visible(game) {
-  if (state.tab === 'owned') return game.owned === true;
-  if (game.owned === true) return false;          // 已拥有默认收起
-  if (state.tab === 'on') return game.interested !== false;
-  if (state.tab === 'off') return game.interested === false;
-  return true;
+  if (state.tab === 'owned') return game.owned === true;          // 「已拥有」只看已拥有
+  if (game.owned === true) return false;                           // 其余页签不展示已拥有
+  if (state.tab === 'off') return game.interested === false;       // 「不感兴趣」只看不感兴趣
+  if (state.tab === 'on') return game.interested !== false;        // 「感兴趣」排除不感兴趣
+  // 「全部」= 过滤掉不感兴趣与已拥有（按用户要求）
+  return game.interested !== false;
 }
 
 function sorted(list) {
@@ -381,17 +406,16 @@ async function me() {
     who.textContent = data.user.username + (data.user.role === 'admin' ? '（管理员）' : '');
     loginBtn.hidden = true;
     logoutBtn.hidden = false;
-    // 登录用户的偏好直接影响默认视图
-    if (data.prefs?.hide_uninterested) {
-      state.tab = 'on';
-      document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'on'));
-    }
-    if (data.prefs?.only_discount) state.sort = 'discount';
+    // 登录：以数据库里的个人偏好为准（同时镜像到浏览器缓存）
+    applyPrefs({ tab: data.prefs?.tab, sort: data.prefs?.sort }, { mirror: true });
   } else {
     who.textContent = '未登录（浏览不受影响）';
     loginBtn.hidden = false;
     logoutBtn.hidden = true;
+    // 未登录：按浏览器缓存恢复
+    applyLocal();
   }
+  if (state.games && state.games.length) render();
 }
 
 /** 后台：用户列表 + 浏览统计。仅管理员可见。 */
@@ -429,13 +453,13 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   if (tab) {
     state.tab = tab;
     [...document.querySelectorAll('[data-tab]')].forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    saveLocal();
+    persistPrefs();
     render();
   }
   if (sort) {
     state.sort = sort;
     [...document.querySelectorAll('[data-sort]')].forEach((b) => b.classList.toggle('on', b.dataset.sort === sort));
-    saveLocal();
+    persistPrefs();
     render();
   }
 });
@@ -612,9 +636,10 @@ document.getElementById('rows').addEventListener('click', (e) => {
   openDetail(a.dataset.appid || null, a.dataset.gid);
 });
 
-me().then(load);
-// 访客先恢复本地偏好；登录用户以服务端偏好为准（me() 里已覆盖）
+// 启动顺序：me() 决定偏好来源（登录→数据库，未登录→浏览器缓存），随后拉列表
+// 先按本地缓存把界面点亮，避免首屏闪烁；登录用户会由 me() 覆盖成数据库偏好
 applyLocal();
+me().then(load);
 
 (function bindSearch() {
   const box = document.getElementById('q');
