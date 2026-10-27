@@ -1,6 +1,6 @@
 // Steam OpenID 登录 + 游戏库同步（独立于站点用户体系）。
 // 登录不需要 API Key；游戏库需要 STEAM_API_KEY，且账号的"游戏详情"必须公开。
-import { fetchText, fetchJson } from '../http.js';
+import { fetchText, fetchJson } from './http.js';
 import { randomBytes } from 'node:crypto';
 
 const OPENID_ENDPOINT = 'https://steamcommunity.com/openid/login';

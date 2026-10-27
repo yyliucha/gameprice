@@ -60,6 +60,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
     <nav>
       <button data-page="users" class="on">用户管理</button>
       <button data-page="games">游戏管理</button>
+      <button data-page="visitors">访问记录</button>
       <button data-page="sync">日志</button>
       <button data-page="mail">邮箱配置</button>
       <button data-page="stats">数据统计</button>
@@ -104,12 +105,16 @@ textarea{width:100%;min-height:100px;resize:vertical}
       </section>
 
       <section data-section="games" class="hide">
-        <h2>从 Steam 导入（以 Steam 为准）</h2>
+        <h2>同步 Steam</h2>
         <div class="card pad">
           <div class="row">
-            <input id="wishId" placeholder="SteamID64（17 位数字）" style="width:260px">
-            <button class="btn primary" id="wishImport">导入愿望单</button>
-            <span class="small muted" id="wishMsg">个人资料需设为公开；全量目录需先在 .env 配置 STEAM_API_KEY（免费）</span>
+            <button class="btn primary" id="syncCatalog">① 导入 Steam 全量目录</button>
+            <button class="btn primary" id="syncAll">② 增量同步（补价格/说明）</button>
+            <input id="syncLimit" value="200" style="width:80px" title="每轮款数">
+            <span class="small muted">款，每款间隔</span>
+            <input id="syncSleep" value="2" style="width:60px" title="每款间隔秒">
+            <span class="small muted">秒</span>
+            <span class="small muted" id="syncMsg">先导入目录，再增量同步；进度看「日志」</span>
           </div>
         </div>
 
@@ -146,32 +151,52 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <button class="btn" id="pgGo">跳转</button>
           </span>
         </div>
+      </section>
 
-        <h2>单个游戏编辑</h2>
+      <section data-section="visitors" class="hide">
+        <h2>访问统计</h2>
+        <div class="card pad">
+          <div class="row" id="visitorSummary" style="gap:18px">
+            <span class="muted">加载中…</span>
+          </div>
+          <h2 style="margin-top:10px">近 24 小时高频 IP</h2>
+          <div class="card" style="margin-top:6px"><table><thead><tr><th>IP</th><th>归属地</th><th class="num">次数</th><th>最近</th><th style="width:90px">操作</th></tr></thead><tbody id="topIpRows"></tbody></table></div>
+        </div>
+
+        <h2>IP 黑名单（命中即整站 403）</h2>
         <div class="card pad">
           <div class="row">
-            <input id="gappid" placeholder="Steam appid，如 413150" style="width:200px">
-            <button class="btn" id="loadGame">载入</button>
-            <button class="btn" id="toggleBlock" disabled>禁用/启用</button>
-            <span id="gMsg" class="small muted"></span>
+            <input id="blIp" placeholder="IP，如 1.2.3.4 或 1.2.3.0/24" style="width:240px">
+            <input id="blNote" placeholder="备注（可选）" style="width:220px">
+            <button class="btn danger" id="blAdd">加入黑名单</button>
+            <span class="small muted" id="blMsg"></span>
           </div>
-          <div id="gBox" class="hide">
-            <div class="small muted" id="gName" style="margin:6px 0"></div>
-            <textarea id="gdesc" placeholder="游戏说明（Steam 同步只在为空时填，人工编辑会保留）"></textarea>
-            <div class="row"><button class="btn primary" id="saveDesc">保存说明</button></div>
+          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th>备注</th><th>加入时间</th><th style="width:90px">操作</th></tr></thead><tbody id="blRows"></tbody></table></div>
+        </div>
+
+        <h2>访问记录</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="vIp" placeholder="按 IP 过滤" style="width:170px">
+            <input id="vPath" placeholder="按路径过滤" style="width:200px">
+            <button class="btn" id="vRefresh">刷新</button>
+            <span class="small muted" id="vMeta"></span>
           </div>
         </div>
-        <div class="card pad" style="margin-top:12px">
-          <strong class="small">同步 Steam</strong>
-          <div class="row">
-            <button class="btn primary" id="syncCatalog">① 导入 Steam 全量目录</button>
-            <button class="btn primary" id="syncAll">② 增量同步（补价格/说明）</button>
-            <input id="syncLimit" value="200" style="width:80px" title="每轮款数">
-            <span class="small muted">款，每款间隔</span>
-            <input id="syncSleep" value="2" style="width:60px" title="每款间隔秒">
-            <span class="small muted">秒</span>
-            <span class="small muted" id="syncMsg">先导入目录，再增量同步；进度看「日志」</span>
-          </div>
+        <div class="card" style="margin-top:10px">
+          <table><thead><tr><th>IP</th><th>归属地</th><th>路径</th><th class="num">状态</th><th>时间</th><th style="width:90px">操作</th></tr></thead><tbody id="vRows"></tbody></table>
+        </div>
+        <div class="row" style="margin-top:10px;justify-content:space-between;align-items:center">
+          <span class="small muted" id="vSummary"></span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <button class="btn" id="vPrev">‹ 上一页</button>
+            <button class="btn" id="vNext">下一页 ›</button>
+            <select id="vSize" style="padding:4px 6px">
+              <option value="50">50 条/页</option>
+              <option value="100">100 条/页</option>
+              <option value="200">200 条/页</option>
+            </select>
+          </span>
         </div>
       </section>
 
@@ -259,6 +284,19 @@ textarea{width:100%;min-height:100px;resize:vertical}
     <button class="btn primary" id="mOk" type="button">确定</button>
   </div>
 </dialog>
+<dialog id="gameModal" style="border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--fg);padding:20px;width:480px;box-shadow:var(--shadow)">
+  <h3 id="gmTitle" style="margin:0 0 4px;font-size:16px">编辑游戏</h3>
+  <p class="hint" id="gmHint" style="color:var(--muted);font-size:12px;margin:0 0 10px"></p>
+  <label class="small muted">说明</label>
+  <textarea id="gmDesc" placeholder="游戏说明（Steam 同步只在为空时填，人工编辑会保留）"></textarea>
+  <div class="row" style="margin-top:10px">
+    <label class="small"><input type="checkbox" id="gmBlocked"> 禁用该游戏（前台列表不再展示，采集照常）</label>
+  </div>
+  <div class="actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+    <button class="btn" id="gmCancel" type="button">取消</button>
+    <button class="btn primary" id="gmSave" type="button">保存</button>
+  </div>
+</dialog>
 <button id="toTop" class="btn" style="position:fixed;right:24px;bottom:70px;display:none;z-index:40">↑ 顶部</button>
 <div id="toast"></div>
 
@@ -290,6 +328,7 @@ function showPage(page) {
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
   if (page === 'games') loadGameList();
+  if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
@@ -365,9 +404,7 @@ $('gameRows').addEventListener('click', async function (e) {
   const appid = btn.dataset.appid;
   try {
     if (btn.dataset.gact === 'edit') {
-      $('gappid').value = appid;
-      $('loadGame').click();
-      return;
+      return openGameModal(appid);
     }
     if (btn.dataset.gact === 'block') {
       const next = btn.dataset.blocked !== '1';
@@ -378,17 +415,31 @@ $('gameRows').addEventListener('click', async function (e) {
   } catch (err) { toast('失败：' + err.message); }
 });
 if ($('gameRefresh')) $('gameRefresh').onclick = loadGameList;
-if ($('wishImport')) $('wishImport').onclick = async function () {
-  const steamId = $('wishId').value.trim();
-  if (!/^\d{17}$/.test(steamId)) { $('wishMsg').textContent = '请填 17 位 SteamID64'; return; }
-  $('wishMsg').textContent = '导入中…';
-  try {
-    const d = await api('/api/admin/import/steam-wishlist', { method: 'POST', body: JSON.stringify({ steamId }) });
-    $('wishMsg').textContent = d.hint || ('已导入 ' + d.imported + ' / ' + d.total);
-    await loadGameList();
-  } catch (e) { $('wishMsg').textContent = '失败：' + e.message; }
-};
 if ($('gameKw')) $('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
+
+// ---- 弹窗编辑游戏（说明 / 禁用）----
+let editingAppid = null;
+function openGameModal(appid) {
+  api('/api/games/' + appid).then(function (d) {
+    editingAppid = Number(appid);
+    $('gmTitle').textContent = '编辑：' + (d.game.name || appid);
+    $('gmHint').textContent = 'appid ' + appid + ' · 修改后立即生效';
+    $('gmDesc').value = d.game.description || '';
+    $('gmBlocked').checked = d.game.blocked === true;
+    $('gameModal').showModal();
+  }).catch(function (e) { toast('载入失败：' + e.message); });
+}
+if ($('gmCancel')) $('gmCancel').onclick = function () { editingAppid = null; $('gameModal').close(); };
+if ($('gmSave')) $('gmSave').onclick = async function () {
+  if (editingAppid == null) return;
+  try {
+    await api('/api/games/' + editingAppid + '/description', { method: 'POST', body: JSON.stringify({ description: $('gmDesc').value, overwrite: true }) });
+    await api('/api/games/' + editingAppid + '/blocked', { method: 'POST', body: JSON.stringify({ blocked: $('gmBlocked').checked }) });
+    $('gameModal').close();
+    toast('已保存');
+    await loadGameList();
+  } catch (e) { toast('保存失败：' + e.message); }
+};
 
 async function loadUsers() {
   const d = await api('/api/admin/users');
@@ -500,36 +551,99 @@ $('addUser').onclick = async function () {
   } catch (err) { $('addMsg').textContent = '失败：' + err.message; }
 };
 
-let currentGame = null;
-$('loadGame').onclick = async function () {
-  const appid = $('gappid').value.trim();
-  if (!/^\d+$/.test(appid)) { $('gMsg').textContent = '请填数字 appid'; return; }
+// ---- 访问记录页 ----
+let vPage = 1;
+let vPages = 1;
+let vTotal = 0;
+async function loadVisitors(page) {
+  if (page) vPage = page;
+  const pageSize = Number(($('vSize') || {}).value || 50);
+  const ip = ($('vIp') ? $('vIp').value.trim() : '');
+  const path = ($('vPath') ? $('vPath').value.trim() : '');
   try {
-    const d = await api('/api/games/' + appid);
-    currentGame = d.game;
-    $('gBox').classList.remove('hide');
-    $('toggleBlock').disabled = false;
-    $('gName').textContent = (currentGame.name || appid) + (currentGame.blocked ? '（已禁用）' : '');
-    $('gdesc').value = currentGame.description || '';
-    $('gMsg').textContent = '';
-  } catch (err) { $('gMsg').textContent = '载入失败：' + err.message; }
-};
-$('toggleBlock').onclick = async function () {
-  if (!currentGame) return;
+    const d = await api('/api/admin/visitors?page=' + vPage + '&pageSize=' + pageSize +
+      (ip ? '&ip=' + encodeURIComponent(ip) : '') + (path ? '&path=' + encodeURIComponent(path) : ''));
+    vPages = d.pages || 1; vTotal = d.total || 0;
+    $('vMeta').textContent = '共 ' + d.total + ' 条';
+    $('vSummary').textContent = '第 ' + vPage + ' / ' + vPages + ' 页 · 每页 ' + pageSize + ' 条';
+    $('vPrev').disabled = vPage <= 1;
+    $('vNext').disabled = vPage >= vPages;
+    if (d.summary) {
+      $('visitorSummary').innerHTML =
+        '<span>今日访问 <strong>' + d.summary.today_visits + '</strong></span>' +
+        '<span>今日独立 IP <strong>' + d.summary.today_ips + '</strong></span>' +
+        '<span>黑名单 <strong class="lv-error">' + d.summary.blocked_count + '</strong> 条</span>';
+      $('topIpRows').innerHTML = (d.summary.topIps || []).map(function (r) {
+        return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="small">' + esc(r.region || '未知') + '</td>' +
+          '<td class="num">' + r.n + '</td><td class="muted small">' + when(r.last_at) + '</td>' +
+          '<td><button class="btn danger" data-ban="' + esc(r.ip) + '">拉黑</button></td></tr>';
+      }).join('') || '<tr><td colspan="5" class="muted">暂无数据</td></tr>';
+    }
+    $('vRows').innerHTML = (d.rows || []).map(function (r) {
+      const ipText = esc(r.ip) + (r.remote_ip && r.remote_ip !== r.ip ? '<div class="small muted">直连 ' + esc(r.remote_ip) + '</div>' : '');
+      const status = r.status == null ? '—' : String(r.status);
+      return '<tr><td class="mono small">' + ipText + '</td>' +
+        '<td class="small">' + esc(r.region || '<span class="muted">未知</span>') + '</td>' +
+        '<td class="small">' + esc(r.path) + '</td>' +
+        '<td class="num">' + (Number(status) >= 400 ? '<span class="lv-error">' + status + '</span>' : status) + '</td>' +
+        '<td class="muted small">' + when(r.created_at) + '</td>' +
+        '<td><button class="btn danger" data-ban="' + esc(r.ip) + '">拉黑</button></td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">还没有访问记录</td></tr>';
+  } catch (e) {
+    $('vRows').innerHTML = '<tr><td colspan="6" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+async function loadBlacklist() {
   try {
-    await api('/api/games/' + currentGame.steam_appid + '/blocked', { method: 'POST', body: JSON.stringify({ blocked: !currentGame.blocked }) });
-    currentGame.blocked = !currentGame.blocked;
-    $('gName').textContent = (currentGame.name || '') + (currentGame.blocked ? '（已禁用）' : '');
-    toast(currentGame.blocked ? '已禁用' : '已恢复');
-  } catch (err) { toast('失败：' + err.message); }
-};
-$('saveDesc').onclick = async function () {
-  if (!currentGame) return;
+    const d = await api('/api/admin/blacklist');
+    $('blRows').innerHTML = (d.ips || []).map(function (r) {
+      return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="small">' + esc(r.note || '') + '</td>' +
+        '<td class="muted small">' + when(r.created_at) + '</td>' +
+        '<td><button class="btn" data-unban="' + esc(r.ip) + '">移出</button></td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">黑名单为空</td></tr>';
+  } catch (e) { $('blMsg').textContent = '读取失败：' + e.message; }
+}
+async function banIp(ip) {
+  const note = await askText({ title: '拉黑 ' + ip, hint: '备注可留空。拉黑后该 IP 访问整站都会被拒绝（403）。', placeholder: '备注（可选）' });
+  if (note === null) return;
   try {
-    await api('/api/games/' + currentGame.steam_appid + '/description', { method: 'POST', body: JSON.stringify({ description: $('gdesc').value, overwrite: true }) });
-    toast('说明已保存');
-  } catch (err) { toast('失败：' + err.message); }
+    await api('/api/admin/blacklist', { method: 'POST', body: JSON.stringify({ ip: ip, note: note.trim() }) });
+    toast('已拉黑 ' + ip);
+    await loadBlacklist();
+  } catch (e) { toast('拉黑失败：' + e.message); }
+}
+if ($('blAdd')) $('blAdd').onclick = async function () {
+  const ip = $('blIp').value.trim();
+  if (!ip) { $('blMsg').textContent = '请填 IP'; return; }
+  $('blMsg').textContent = '';
+  try {
+    await api('/api/admin/blacklist', { method: 'POST', body: JSON.stringify({ ip: ip, note: $('blNote').value.trim() }) });
+    toast('已拉黑 ' + ip);
+    $('blIp').value = ''; $('blNote').value = '';
+    await loadBlacklist();
+  } catch (e) { $('blMsg').textContent = '失败：' + e.message; }
 };
+document.addEventListener('click', async function (e) {
+  const ban = e.target.closest('button[data-ban]');
+  if (ban) { banIp(ban.dataset.ban); return; }
+  const unban = e.target.closest('button[data-unban]');
+  if (unban) {
+    try {
+      await api('/api/admin/blacklist/' + encodeURIComponent(unban.dataset.unban), { method: 'DELETE' });
+      toast('已移出黑名单');
+      await loadBlacklist();
+    } catch (err) { toast('失败：' + err.message); }
+    return;
+  }
+  const prev = e.target.closest('#vPrev');
+  if (prev) { loadVisitors(Math.max(1, vPage - 1)); return; }
+  const next = e.target.closest('#vNext');
+  if (next) { loadVisitors(Math.min(vPages, vPage + 1)); return; }
+});
+if ($('vRefresh')) $('vRefresh').onclick = function () { loadVisitors(1); };
+if ($('vIp')) $('vIp').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadVisitors(1); });
+if ($('vPath')) $('vPath').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadVisitors(1); });
+if ($('vSize')) $('vSize').onchange = function () { loadVisitors(1); };
 
 async function triggerSync(mode) {
   try {

@@ -12,6 +12,7 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, extname, resolve, sep } from 'node:path';
 import * as db from './store/pg.js';
+import * as visitors from './visitors.js';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -96,6 +97,58 @@ export function createApiServer({ query, logger = null, outDir = null }) {
     const token = cookies[COOKIE] ?? null;
 
     try {
+      // ---- 访问者 IP + 黑名单（整站拦截，静态资源也一样拦）----
+      const ip = visitors.clientIp(req);
+
+      // 管理员放行：避免把自己拉黑后连控制台都进不去
+      let adminBypass = false;
+      if (token) {
+        try {
+          const u = await db.userBySession(q, token);
+          adminBypass = u?.role === 'admin';
+        } catch {
+          adminBypass = false;
+        }
+      }
+      const hit = ip && !adminBypass ? visitors.blockedBy(ip) : null;
+      if (hit) {
+        logger?.warn('block.ip_denied', { ip, path, rule: hit });
+        res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        res.end('访问被拒绝');
+        db.insertVisitorLog(q, {
+          ip,
+          remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
+          region: visitors.cachedRegion(ip),
+          path,
+          method: req.method ?? 'GET',
+          userAgent: req.headers['user-agent'],
+          status: 403,
+        }).catch(() => {});
+        return;
+      }
+
+      // ---- 访问记录：静态资源不记，页面与 API 必记（状态码在 finish 时补）----
+      const logVisit = () => {
+        if (!isLoggablePath(path)) return;
+        const region = visitors.cachedRegion(ip);
+        res.once('finish', () => {
+          db.insertVisitorLog(q, {
+            ip,
+            remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
+            region,
+            path,
+            method: req.method ?? 'GET',
+            userAgent: req.headers['user-agent'],
+            status: res.statusCode,
+          })
+            .then((id) => {
+              if (!region && ip) visitors.enrichRegion(q, ip, id).catch(() => {});
+            })
+            .catch(() => {});
+        });
+      };
+      logVisit();
+
       // 静态资源（页面本身仍由 chart 生成，这里只发文件）
       if (!path.startsWith('/api/')) {
         return serveStatic(res, outDir, path);
@@ -772,6 +825,45 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 201, { user: created });
       }
 
+      // ---- 管理员：访问记录（分页 + 过滤 + 今日汇总）----
+      if (path === '/api/admin/visitors' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+        const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 50) || 50, 5), 200);
+        const ip = String(url.searchParams.get('ip') ?? '').trim();
+        const p = String(url.searchParams.get('path') ?? '').trim();
+        const list = await db.listVisitorLogs(q, { page, pageSize, ip: ip || null, path: p || null });
+        const summary = await db.visitorSummary(q);
+        return json(res, 200, { ...list, page, pageSize, pages: Math.max(1, Math.ceil(list.total / pageSize)), summary });
+      }
+
+      // ---- 管理员：IP 黑名单 ----
+      if (path === '/api/admin/blacklist' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { ips: await db.listBlockedIps(q) });
+      }
+
+      if (path === '/api/admin/blacklist' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const ip = visitors.normalizeBanInput(body.ip);
+        if (!ip) return json(res, 400, { error: 'IP 格式不正确（支持 1.2.3.4 单个 IP 或 1.2.3.0/24 网段）' });
+        const row = await db.addBlockedIp(q, { ip, note: String(body.note ?? '').trim().slice(0, 200) || null });
+        await visitors.refreshBlocklist(q).catch(() => {});
+        logger?.info('api.ip_blocked', { ip, by: user.username });
+        return json(res, 200, { ip: row });
+      }
+
+      const unbanMatch = path.match(/^\/api\/admin\/blacklist\/([^/]+)$/);
+      if (unbanMatch && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const target = decodeURIComponent(unbanMatch[1]);
+        const removed = await db.removeBlockedIp(q, target);
+        await visitors.refreshBlocklist(q).catch(() => {});
+        logger?.info('api.ip_unblocked', { ip: target, removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
       return json(res, 404, { error: 'not found' });
     } catch (err) {
       logger?.error('api.error', { path, message: String(err.message).slice(0, 200) });
@@ -780,6 +872,14 @@ export function createApiServer({ query, logger = null, outDir = null }) {
   });
 
   return server;
+}
+
+/** 访问记录过滤：静态资源与图片代理不记，页面与 API 必记。 */
+function isLoggablePath(path) {
+  if (path === '/favicon.ico') return false;
+  if (/\.(png|jpe?g|gif|webp|svg|ico|css|js|map|woff2?|ttf|otf|eot|json|xml|txt|md)$/i.test(path)) return false;
+  if (path.startsWith('/img/')) return false;
+  return true;
 }
 
 function serveStatic(res, outDir, pathname) {
@@ -817,13 +917,31 @@ function serveStatic(res, outDir, pathname) {
 
 export function startApiServer({ query, logger = null, outDir = null, port = 8090, host = '0.0.0.0' }) {
   const server = createApiServer({ query, logger, outDir });
+  // 黑名单定时刷新（管理端增删后也会即时刷新；unref 不阻止进程退出）
+  const blockTimer = setInterval(() => {
+    visitors.refreshBlocklist(query).catch(() => {});
+  }, 60_000);
+  blockTimer.unref?.();
   return new Promise((done, fail) => {
     server.once('error', fail);
-    server.listen(port, host, () => {
+    server.listen(port, host, async () => {
       server.removeListener('error', fail);
+      try {
+        await visitors.refreshBlocklist(query);
+      } catch (err) {
+        logger?.warn('block.init_failed', { message: String(err.message).slice(0, 120) });
+      }
       const address = server.address();
       logger?.info('api.listen', { host, port: address.port, outDir: outDir ? resolve(outDir) : null });
-      done({ server, port: address.port, host, close: () => new Promise((r) => server.close(r)) });
+      done({
+        server,
+        port: address.port,
+        host,
+        close: () => new Promise((r) => {
+          clearInterval(blockTimer);
+          server.close(r);
+        }),
+      });
     });
   });
 }

@@ -53,7 +53,7 @@ test('Dockerfile 关键约束：非 root、tini、健康检查、生产依赖', 
 
 test('入口脚本存在且逻辑完整', () => {
   const sh = read('scripts/docker-entrypoint.sh');
-  assert.match(sh, /^#!\/bin\/sh/, '需要 shebang');
+  assert.match(sh, /^#!\/bin\/bash/, '需要 shebang（bash，tee 进程替换依赖）');
   assert.match(sh, /exec node src\/cli\.js "\$@"/, '带参数时应当透传为 CLI');
   assert.match(sh, /bootstrap/, '启动前要建表');
   assert.match(sh, /scheduler/, '默认要跑调度器');

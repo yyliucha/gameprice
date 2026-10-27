@@ -110,6 +110,7 @@
 | Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
 | **Web 前端 + 用户系统** | ✅ | `web/` 单页应用 + JSON API；匿名可读、登录个性化、管理员后台 |
+| 访问记录与 IP 黑名单 | ✅ | 页面/API 访问落库（IP+归属地），后台可查；拉黑 IP/CIDR 即整站 403 |
 | 内置静态页服务 | ✅ | `serve` 命令 / compose 的 `web` 服务，直接 `IP:端口` 访问，不依赖 nginx |
 | 曲线页自动重建 | ✅ | 采集成功后由调度器自动刷新 `out/`（`CHART_ON_SYNC=0` 可关） |
 | 关注列表与降价提醒 | ✅ | 目标价 / 史低两种触发，同价位去重 |
@@ -438,6 +439,7 @@ node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报�
 node test/notify.test.js     # 10 项：通道发现、MIME 编码、假 SMTP 协议对话、企业微信 errcode
 node test/watchlist.test.js  # 5 项：关注表 CRUD、候选查询、标记后不再提醒、级联删除
 node test/scheduler.test.js  # 11 项：调度时刻表、首轮错开、参数透传、熔断
+node test/visitors.test.js   # 5 项：IP/CIDR 校验、记录落库与过滤、黑名单 403 拦截、权限隔离
 node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
@@ -485,8 +487,10 @@ gameprice/
 │   ├── log.js           结构化日志
 │   ├── http.js          唯一出网点（超时/重试/脱敏/代理分流/观测）
 │   ├── proxy.js         出网代理决策（按主机分流 + NO_PROXY + 密码脱敏）
-│   └── probe.js         目标可达性探针
-├── test/                53 项断言 + 真实页面夹具
+│   ├── visitors.js      访问记录：IP 提取、归属地解析、黑名单内存态
+│   ├── steam-login.js   Steam OpenID 登录与游戏库（独立于站点用户体系）
+│   ├── probe.js         目标可达性探针
+├── test/                24 个测试文件（212 项）+ 真实页面夹具
 ├── data/                games.json（游戏清单）、skus.json（杉果 SKU）
 ├── docs/                ARCHITECTURE / DATA-SOURCES / DEPLOY
 ├── out/                 由 chart 生成的静态页（已 gitignore）

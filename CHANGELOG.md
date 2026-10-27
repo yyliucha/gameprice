@@ -2,6 +2,30 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.17.0] - 2026-10-27
+
+访问者记录与 IP 黑名单；控制台游戏管理页重构。
+
+### 新增
+
+- **访问记录**：每次页面/API 请求落库 `visitor_logs`（IP + 归属地 + 路径 + 状态码），
+  静态资源不记；IP 归属地异步解析（ip-api.com → ipwho.is 兜底，24h 内存缓存，内网地址不查）
+- **后台「访问记录」页**：今日访问/独立 IP/黑名单数汇总、近 24h 高频 IP、分页记录（可按 IP/路径过滤）
+- **IP 黑名单**：后台增删（支持单个 IP 与 IPv4 CIDR），命中即整站 403（server 层拦截、常驻内存零查询），
+  管理员会话自动放行避免自我锁死
+- **游戏管理页重构**：删除「愿望单导入」卡片与「单个游戏编辑」区块；
+  列表「编辑」改为弹窗（说明/禁用）；「同步 Steam」卡片置顶
+
+### 修复
+
+- `src/steam-login.js` 误用 `../http.js` 导入：Steam 登录及所有位于其后的后台路由全部 500（`70cab61` 引入）
+- 全新库上 `/api/admin/users` 报 `column "email" does not exist`：users 表的 email/steam_id 列补进迁移
+- `deploy.test.js` 的 shebang 断言跟随入口脚本改为 `#!/bin/bash`
+
+### 测试
+
+- `test/visitors.test.js` 5 项（IP/CIDR 校验与匹配、记录落库与过滤、黑名单拦截与管理员放行、权限隔离）并纳入 `npm test`
+
 ## [0.16.0] - 2026-10-26
 
 前后端分离落地：有了真正的 Web 前端与用户系统。
