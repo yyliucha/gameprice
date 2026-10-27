@@ -2,6 +2,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.17.4] - 2026-10-27
+
+Steam 封面图多路兜底（线上图片 404 的修复）。
+
+### 修复
+
+- `/img/steam/<appid>/<size>` 原来只走 Cloudflare CDN 且必须经代理，代理不通就 404。
+  现在按 **Cloudflare(代理) → Akamai(直连) → Cloudflare(直连) → Akamai(代理)** 依次兜底，
+  每条路 8 秒超时；成功过的路按 appid 记忆复用，失败也缓存 5 分钟避免每次拖满超时
+- 图片失败日志从 debug 提到 **warn**（`steam.img_miss` 带失败原因），INFO 级别日志也能看到为什么没图
+- `fetchBuffer` 新增 `forceDirect` 参数（跳过代理决策）
+
+### 变更
+
+- `diagnose` 新增两条封面图链路探测：`net:img:cloudflare` / `net:img:akamai`，
+  图片打不开时跑 `docker compose exec app node src/cli.js diagnose` 一眼定位是哪条路不通
+
 ## [0.17.3] - 2026-10-27
 
 游戏类型（游戏 / DLC）在前台体现；开发商/发行商同步补强。

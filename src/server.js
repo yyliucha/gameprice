@@ -26,6 +26,10 @@ const TYPES = {
 
 const COOKIE = 'gp_session';
 
+// Steam 图片路由的路径记忆：成功过的那条路（CDN/直连组合）优先复用，失败也记 5 分钟
+const imgRouteCache = new Map(); // appid/size -> { url, forceDirect }
+const imgMissCache = new Map(); // appid/size -> ts
+
 function parseCookies(header) {
   const out = {};
   for (const part of String(header ?? '').split(';')) {
@@ -264,16 +268,47 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const SIZES = new Set(['header', 'capsule_231x87', 'capsule_sm_120', 'capsule_616x353', 'library_600x900', 'library_hero']);
         if (!SIZES.has(size)) return json(res, 404, { error: 'unknown size' });
         const { fetchBuffer } = await import('./http.js');
-        try {
-          const img = await fetchBuffer('https://cdn.cloudflare.steamstatic.com/steam/apps/' + appid + '/' + size + '.jpg', { logger, label: 'steam.img' });
-          res.writeHead(200, {
-            'content-type': img.contentType,
-            'content-length': img.bytes,
-            'cache-control': 'public, max-age=604800',
-          });
-          res.end(img.body);
-        } catch (err) {
-          logger?.debug('steam.img_miss', { appid, size });
+        // 双 CDN × 双路由兜底：Cloudflare(默认走代理)/Akamai(默认直连)，再全部强制直连试一遍。
+        // 记住上次成功的那条路；失败也记 5 分钟，避免每次都拖满超时。
+        const key = appid + '/' + size;
+        const missAt = imgMissCache.get(key);
+        if (missAt && Date.now() - missAt < 5 * 60 * 1000) {
+          res.writeHead(404);
+          res.end();
+          return;
+        }
+        const candidates = [];
+        const hit = imgRouteCache.get(key);
+        if (hit) candidates.push(hit);
+        for (const host of ['cdn.cloudflare.steamstatic.com', 'cdn.akamai.steamstatic.com']) {
+          candidates.push({ url: `https://${host}/steam/apps/${appid}/${size}.jpg` });
+        }
+        for (const host of ['cdn.cloudflare.steamstatic.com', 'cdn.akamai.steamstatic.com']) {
+          candidates.push({ url: `https://${host}/steam/apps/${appid}/${size}.jpg`, forceDirect: true });
+        }
+        let lastError = null;
+        let served = false;
+        for (const cand of candidates) {
+          try {
+            const img = await fetchBuffer(cand.url, { logger: null, label: 'steam.img', timeoutMs: 8000, retries: 0, forceDirect: cand.forceDirect === true });
+            imgRouteCache.set(key, { url: cand.url, forceDirect: cand.forceDirect === true });
+            if (imgRouteCache.size > 2000) imgRouteCache.delete(imgRouteCache.keys().next().value);
+            res.writeHead(200, {
+              'content-type': img.contentType,
+              'content-length': img.bytes,
+              'cache-control': 'public, max-age=604800',
+            });
+            res.end(img.body);
+            served = true;
+            break;
+          } catch (err) {
+            lastError = err;
+          }
+        }
+        if (!served) {
+          imgMissCache.set(key, Date.now());
+          if (imgMissCache.size > 2000) imgMissCache.delete(imgMissCache.keys().next().value);
+          logger?.warn('steam.img_miss', { appid, size, message: String(lastError?.message ?? '').slice(0, 160) });
           res.writeHead(404);
           res.end();
         }

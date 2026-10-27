@@ -1296,6 +1296,9 @@ async function cmdDiagnose() {
   await net('sonkwo', 'https://www.sonkwo.hk/sku/111454');
   await net('itad', `https://api.isthereanydeal.com/games/search/v1?title=elden&key=${process.env.ITAD_API_KEY ?? 'none'}`);
   await net('fanatical', 'https://www.fanatical.com/');
+  // 封面图链路：Cloudflare（走代理）与 Akamai（直连）分别探一次，图片 404 时看这里
+  await net('img:cloudflare', 'https://cdn.cloudflare.steamstatic.com/steam/apps/413150/capsule_sm_120.jpg');
+  await net('img:akamai', 'https://cdn.akamai.steamstatic.com/steam/apps/413150/capsule_sm_120.jpg');
 
   const failed = checks.filter((c) => !c.ok);
   console.log('\n检查项：');

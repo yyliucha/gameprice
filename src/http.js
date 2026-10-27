@@ -212,8 +212,8 @@ export async function fetchJson(url, opts = {}) {
 
 /** 拉取原始字节（图片等二进制），走同一套代理与重试逻辑。 */
 export async function fetchBuffer(url, opts = {}) {
-  const { logger = null, label = 'img', timeoutMs = 15000, retries = 1, headers = {} } = opts;
-  const route = dispatcherFor(hostOf(url));
+  const { logger = null, label = 'img', timeoutMs = 15000, retries = 1, headers = {}, forceDirect = false } = opts;
+  const route = forceDirect ? { dispatcher: null, via: 'direct', proxy: null } : dispatcherFor(hostOf(url));
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const controller = new AbortController();
