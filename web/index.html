@@ -58,6 +58,8 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
 .hide{display:none !important}
 .toTop{position:fixed;right:20px;bottom:88px;z-index:40;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--fg);cursor:pointer;box-shadow:var(--shadow);font-family:inherit;opacity:.92}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:60;pointer-events:none}
+#toast.on{opacity:.95}
 .gameImg{width:92px;height:43px;object-fit:cover;border-radius:6px;margin-right:10px;vertical-align:middle;background:var(--hover)}
 .name{display:inline-block;vertical-align:middle}
 </style>
@@ -190,6 +192,16 @@ function applyLocal() {
 
 const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
 const pct = (d) => (d ? '-' + d + '%' : '—');
+// 轻量提示条：标记成功/失败给个即时反馈（避免"点了没反应"的错觉）
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.classList.remove('on'); }, 2000);
+}
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Steam 类型 → 中文名：DLC 一眼能区分出来
 const TYPE_LABELS = {
@@ -269,6 +281,8 @@ function render() {
     const gap = others.length ? others[0].price : null;
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
+    // 不感兴趣：给个低调标签，避免"点了没反应"的错觉
+    const uninterested = g.interested === false ? '<span class="tag" style="background:var(--hover);color:var(--muted)">不感兴趣</span>' : '';
     const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
     // 类型徽标：DLC/试玩等非游戏类型要一眼看出来（game 不标，默认即游戏）
     const typeKey = String(g.app_type ?? '').toLowerCase();
@@ -281,7 +295,7 @@ function render() {
       : '';
     const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
-      '<td>' + cover + '<div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + typeTag + owned + '</div>' + en + '</td>' +
+      '<td>' + cover + '<div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + typeTag + owned + uninterested + '</div>' + en + '</td>' +
       (function(){
         var steam = null;
         for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];
@@ -313,9 +327,19 @@ async function load(background) {
   } catch {
     /* 拿不到数量不影响列表 */
   }
-  // 签名包含数量与每款的价格/名称，任何变化都会触发重渲染
+  // 签名包含数量与每款的展示字段：价格/名称/屏蔽/**感兴趣/已拥有**/类型，
+  // 任何一项变化都会触发重渲染（之前漏了 interested/owned，导致标记后列表不刷新）
   const sig = state.games.map(function (g) {
-    return [g.id, g.current_low, g.steam_price, g.name, g.blocked ? 1 : 0].join(':');
+    return [
+      g.id,
+      g.current_low,
+      g.steam_price,
+      g.name,
+      g.blocked ? 1 : 0,
+      g.interested === false ? 0 : 1,
+      g.owned ? 1 : 0,
+      g.app_type || '',
+    ].join(':');
   }).join('|');
   lastLoadAt = Date.now();
   const meta = document.getElementById('meta');
@@ -510,7 +534,9 @@ async function openDetail(appid, gid) {
     '<td>' + (o.buy_url ? '<a href="' + esc(o.buy_url) + '" target="_blank" rel="noopener noreferrer nofollow">去购买</a>' : '—') + '</td></tr>'
   ).join('') || '<tr><td colspan="5" class="muted">当前没有在售报价</td></tr>';
 
-  const admin = state.user?.role === 'admin'
+  // 标记是全局的（games.interested / games.owned），只有管理员能改；
+  // 没有 Steam appid 的杉果游戏暂时没有对应的写接口，按钮不显示，避免点了 404
+  const admin = state.user?.role === 'admin' && appid
     ? '<div class="bar"><button class="btn" id="toggleInterest">' + (g.interested === false ? '标记为感兴趣' : '标记不感兴趣') + '</button>' +
       '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
     : '';
@@ -535,18 +561,33 @@ async function openDetail(appid, gid) {
   document.getElementById('closeDetail').onclick = () => dlg.close();
   if (admin) {
     document.getElementById('toggleInterest').onclick = async () => {
-      await fetch('/api/games/' + appid + '/interest', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ interested: g.interested === false }),
-      });
-      dlg.close(); await load();
+      const next = g.interested === false; // 点一下切换：当前不感兴趣 → 恢复感兴趣
+      try {
+        const res = await fetch('/api/games/' + appid + '/interest', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ interested: next }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+        toast(next ? '已标记为感兴趣' : '已标记不感兴趣（见「不感兴趣」页签）');
+        dlg.close();
+        await load();
+      } catch (err) {
+        toast('失败：' + err.message);
+      }
     };
     document.getElementById('toggleOwned').onclick = async () => {
-      await fetch('/api/games/' + appid + '/owned', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owned: !g.owned }),
-      });
-      dlg.close(); await load();
+      try {
+        const res = await fetch('/api/games/' + appid + '/owned', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ owned: !g.owned }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+        toast(!g.owned ? '已标记为已拥有（见「已拥有」页签）' : '已取消已拥有');
+        dlg.close();
+        await load();
+      } catch (err) {
+        toast('失败：' + err.message);
+      }
     };
   }
 }
@@ -633,5 +674,6 @@ document.addEventListener('visibilitychange', function () {
 });
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>
+<div id="toast"></div>
 </body>
 </html>
