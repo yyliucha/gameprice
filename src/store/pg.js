@@ -629,7 +629,7 @@ export async function findUserByName(q, username) {
 }
 
 export async function listUsers(q) {
-  const r = await q('select id, username, display_name, email, role, disabled, created_at, last_login_at from users order by id');
+  const r = await q('select id, username, display_name, email, email_verified, role, disabled, created_at, last_login_at from users order by id');
   return r.rows;
 }
 
