@@ -5,13 +5,29 @@ import { fetchJson } from '../http.js';
 export const descriptor = {
   code: 'steam-catalog',
   name: 'Steam 应用目录',
-  endpoint: 'https://api.steampowered.com/ISteamApps/GetAppList/v2/',
+  // Steam WebAPI 的版本号是 v0002；写成 v2 会返回 404 Method not found
+  endpoints: [
+    'https://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json',
+    'https://api.steampowered.com/ISteamApps/GetAppList/v0002/',
+  ],
 };
 
 export async function fetchAppList({ logger = null } = {}) {
-  const data = await fetchJson(descriptor.endpoint, { logger });
-  const apps = data?.applist?.apps ?? [];
-  return apps
-    .map((a) => ({ appid: Number(a.appid), name: String(a.name ?? '').trim() }))
-    .filter((a) => Number.isFinite(a.appid) && a.appid > 0 && a.name);
+  let lastError = null;
+  for (const url of descriptor.endpoints) {
+    try {
+      const data = await fetchJson(url, { logger });
+      const apps = data?.applist?.apps ?? [];
+      if (!apps.length) {
+        lastError = new Error("接口返回 0 条：" + url);
+        continue;
+      }
+      return apps
+        .map((a) => ({ appid: Number(a.appid), name: String(a.name ?? "").trim() }))
+        .filter((a) => Number.isFinite(a.appid) && a.appid > 0 && a.name);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError ?? new Error("拉取 Steam 应用目录失败");
 }
