@@ -1,0 +1,91 @@
+// Steam OpenID 登录 + 游戏库同步。
+// 登录不需要 API Key；游戏库需要 STEAM_API_KEY，且账号的"游戏详情"必须公开。
+import { fetchText, fetchJson } from './http.js';
+
+const OPENID_ENDPOINT = 'https://steamcommunity.com/openid/login';
+
+/** 建表（幂等）：users.steam_id + steam_games。 */
+export async function ensureSteamSchema(store) {
+  const exec = (sql) => (store.exec ? store.exec(sql) : store.query(sql));
+  await exec('alter table users add column if not exists steam_id text');
+  await exec('create unique index if not exists users_steam_uniq on users (steam_id) where steam_id is not null');
+  await exec(`
+    create table if not exists steam_games (
+      steam_id text not null,
+      appid integer not null,
+      name text,
+      playtime_minutes integer not null default 0,
+      last_played_at timestamptz,
+      synced_at timestamptz not null default now(),
+      primary key (steam_id, appid)
+    );
+  `);
+}
+
+export function baseUrl(req) {
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost');
+  const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
+/** 生成跳转到 Steam 的授权地址。 */
+export function buildLoginUrl(base) {
+  const params = new URLSearchParams({
+    'openid.ns': 'http://specs.openid.net/auth/2.0',
+    'openid.mode': 'checkid_setup',
+    'openid.return_to': `${base}/api/auth/steam/callback`,
+    'openid.realm': base,
+    'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+    'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
+  });
+  return `${OPENID_ENDPOINT}?${params.toString()}`;
+}
+
+/** 用 Steam 校验回传参数，成功返回 steamid（17 位），失败返回 null。 */
+export async function verifyCallback(url, { logger = null } = {}) {
+  const params = new URLSearchParams(url.search);
+  params.set('openid.mode', 'check_authentication');
+  let text = '';
+  try {
+    text = await fetchText(OPENID_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      timeoutMs: 20000,
+      retries: 1,
+      logger,
+    });
+  } catch (err) {
+    logger?.warn('steam.openid_failed', { message: String(err.message).slice(0, 160) });
+    return null;
+  }
+  if (!/is_valid\s*:\s*true/.test(text)) {
+    logger?.warn('steam.openid_invalid', { snippet: String(text).slice(0, 120) });
+    return null;
+  }
+  const claimed = String(url.searchParams.get('openid.claimed_id') ?? '');
+  const m = /\/id\/(\d{17})$/.exec(claimed);
+  if (!m) {
+    logger?.warn('steam.openid_no_id', { claimed });
+    return null;
+  }
+  logger?.info('steam.openid_ok', { steamId: m[1] });
+  return m[1];
+}
+
+/** 拉取账号拥有的游戏（需要 API Key）。 */
+export async function fetchOwnedGames({ apiKey, steamId, logger = null }) {
+  const url =
+    'https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/' +
+    '?key=' + encodeURIComponent(apiKey) +
+    '&steamid=' + encodeURIComponent(steamId) +
+    '&include_appinfo=1&include_played_free_games=1&format=json';
+  const data = await fetchJson(url, { logger, timeoutMs: 30000, retries: 1 });
+  const games = data?.response?.games ?? [];
+  return games.map((g) => ({
+    appid: Number(g.appid),
+    name: String(g.name ?? '').trim(),
+    playtimeMinutes: Number(g.playtime_forever ?? 0),
+    lastPlayedAt: g.rtime_last_played ? new Date(g.rtime_last_played * 1000) : null,
+  })).filter((g) => Number.isFinite(g.appid) && g.appid > 0);
+}

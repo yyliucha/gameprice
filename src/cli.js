@@ -1044,6 +1044,7 @@ async function cmdAll() {
   const store = await openStore(dbTarget, { logger });
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
+  await (await import('./steam-login.js')).ensureSteamSchema(store); // Steam 登录与游戏库
   const srv = await startApiServer({
     query: (sql, p) => store.query(sql, p),
     logger,

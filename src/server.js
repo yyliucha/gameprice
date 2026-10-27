@@ -233,7 +233,77 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
-      // ---- 管理员：游戏列表（分页 + 搜索）----
+      // ---- Steam OpenID 登录 / 游戏库 ----
+      const steamMod = await import('./steam-login.js');
+      if (path === '/api/auth/steam/start' && req.method === 'GET') {
+        const target = steamMod.buildLoginUrl(steamMod.baseUrl(req));
+        logger?.info('steam.login_start', { host: req.headers.host });
+        res.writeHead(302, { location: target });
+        res.end();
+        return;
+      }
+
+      if (path.startsWith('/api/auth/steam/callback')) {
+        const steamId = await steamMod.verifyCallback(url, { logger });
+        if (!steamId) return json(res, 400, { error: 'Steam 校验失败，请重试' });
+        let found = await q('select id, username, role, disabled from users where steam_id = $1', [steamId]);
+        let account = found.rows[0];
+        if (!account) {
+          const username = 'steam_' + steamId.slice(-6);
+          const ins = await q("insert into users (username, password_hash, role, steam_id) values ($1, $2, 'user', $3) returning id, username, role, disabled", [username, db.hashPassword('steam-' + steamId), steamId]);
+          account = ins.rows[0];
+          logger?.info('steam.user_created', { steamId, username });
+        }
+        if (account.disabled) return json(res, 403, { error: '账号已禁用' });
+        const token = await db.createSession(q, { userId: account.id });
+        logger?.info('steam.login_ok', { steamId, username: account.username });
+        res.writeHead(302, {
+          location: '/',
+          'set-cookie': 'gp_session=' + token + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800',
+        });
+        res.end();
+        return;
+      }
+
+      if (path === '/api/admin/steam/library' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const apiKey = String(process.env.STEAM_API_KEY ?? '').trim();
+        if (!apiKey) return json(res, 400, { error: '未配置 STEAM_API_KEY（Steam Web API Key）' });
+        const row = await q('select steam_id from users where username = $1', [user.username]);
+        const steamId = row.rows[0]?.steam_id;
+        if (!steamId) return json(res, 400, { error: '当前账号还没绑定 Steam，请先用「用 Steam 登录」' });
+        let games = [];
+        try {
+          games = await steamMod.fetchOwnedGames({ apiKey, steamId, logger });
+        } catch (err) {
+          return json(res, 502, { error: '拉取游戏库失败：' + String(err.message).slice(0, 160) });
+        }
+        for (const g of games) {
+          await q(
+            "insert into steam_games (steam_id, appid, name, playtime_minutes, last_played_at, synced_at) values ($1,$2,$3,$4,$5,now()) " +
+            "on conflict (steam_id, appid) do update set name = excluded.name, playtime_minutes = excluded.playtime_minutes, last_played_at = excluded.last_played_at, synced_at = now()",
+            [steamId, g.appid, g.name, g.playtimeMinutes, g.lastPlayedAt],
+          );
+        }
+        logger?.info('steam.library_synced', { steamId, total: games.length });
+        return json(res, 200, { total: games.length });
+      }
+
+      if (path === '/api/steam/library' && req.method === 'GET') {
+        if (!requireUser()) return;
+        const row = await q('select steam_id from users where id = $1', [user.id]);
+        const steamId = row.rows[0]?.steam_id;
+        if (!steamId) return json(res, 200, { steamId: null, games: [] });
+        const games = await q(
+          "select sg.appid, coalesce(g.name, sg.name) as name, sg.playtime_minutes, sg.last_played_at, " +
+          "(select min(o.price_cents) from offers o where o.game_id = g.id and o.in_stock) as low " +
+          "from steam_games sg left join games g on g.steam_appid = sg.appid where sg.steam_id = $1 order by sg.playtime_minutes desc limit 500",
+          [steamId],
+        );
+        return json(res, 200, { steamId, games: games.rows });
+      }
+
+      // ---- 管理员：游戏列表（分页 + 搜索）----      // ---- 管理员：游戏列表（分页 + 搜索）----
       if (path === '/api/admin/games' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const kw = String(url.searchParams.get('q') ?? '').trim();
