@@ -258,7 +258,14 @@ async function cmdImportSteamCatalog() {
   console.log("拉取 Steam 应用目录…（单次请求，可能 10MB 左右）");
   let apps = [];
   try {
-    apps = await fetchAppList({ logger });
+    apps = await fetchAppList({
+      logger,
+      onPage: (p) => {
+        const msg = '已拉取第 ' + p.page + ' 页，累计 ' + p.total + ' 条';
+        console.log("  " + msg);
+        logger.info('import.steamcatalog.progress', { page: p.page, total: p.total });
+      },
+    });
   } catch (err) {
     logger.error('import.steamcatalog.failed', { message: String(err.message).slice(0, 300) });
     throw err;
