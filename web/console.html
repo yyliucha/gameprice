@@ -204,7 +204,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
 
       <section data-section="stats" class="hide">
         <h2>浏览排行（90 天）</h2>
-        <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
+        <div class="card"><table><thead><tr><th>游戏</th><th>页面</th><th class="num">现价</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
       </section>
     </div>
   </main>
@@ -564,8 +564,12 @@ async function loadStats() {
   try {
     const d = await api('/api/admin/views');
     $('viewRows').innerHTML = (d.views || []).map(function (v) {
-      return '<tr><td>' + esc(v.path) + '</td><td class="num">' + v.views + '</td><td class="muted small">' + when(v.last_at) + '</td></tr>';
-    }).join('') || '<tr><td colspan="3" class="muted">还没有浏览记录</td></tr>';
+      return '<tr><td>' + (v.name ? esc(v.name) : '<span class="muted">未知</span>') + '</td>' +
+      '<td class="muted small">' + esc(v.path) + '</td>' +
+      '<td class="num">' + (v.price != null ? '¥' + (v.price / 100).toFixed(2) : '—') + '</td>' +
+      '<td class="num">' + v.views + '</td>' +
+      '<td class="muted small">' + when(v.last_at) + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">还没有浏览记录</td></tr>';
   } catch (e) { /* ignore */ }
 }
 

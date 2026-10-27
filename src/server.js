@@ -584,7 +584,36 @@ export function createApiServer({ query, logger = null, outDir = null }) {
 
       if (path === '/api/admin/views' && req.method === 'GET') {
         if (!requireAdmin()) return;
-        return json(res, 200, { views: await db.viewStats(q, { limit: 50 }) });
+        const views = await db.viewStats(q, { limit: 50 });
+        // 把 /game/<appid> 与 /game/id/<id> 解析成游戏名与当前最低价
+        const appids = [];
+        const ids = [];
+        for (const v of views) {
+          const byId = /^\/game\/id\/(\d+)$/.exec(v.path);
+          const byAppid = /^\/game\/(\d+)$/.exec(v.path);
+          if (byId) ids.push(Number(byId[1]));
+          else if (byAppid) appids.push(Number(byAppid[1]));
+        }
+        const map = new Map();
+        if (appids.length || ids.length) {
+          const rows = await q(
+            "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, " +
+            "(select min(o.price_cents) from offers o where o.game_id = g.id and o.in_stock) as low " +
+            "from games g where g.steam_appid = any($1::int[]) or g.id = any($2::int[])",
+            [appids, ids],
+          );
+          for (const g of rows.rows) {
+            if (g.steam_appid != null) map.set('a' + g.steam_appid, g);
+            map.set('i' + g.id, g);
+          }
+        }
+        const enriched = views.map((v) => {
+          const byId = /^\/game\/id\/(\d+)$/.exec(v.path);
+          const byAppid = /^\/game\/(\d+)$/.exec(v.path);
+          const g = byId ? map.get('i' + byId[1]) : byAppid ? map.get('a' + byAppid[1]) : null;
+          return { ...v, name: g ? g.name : null, price: g ? g.low : null };
+        });
+        return json(res, 200, { views: enriched });
       }
 
       if (path === '/api/admin/users' && req.method === 'POST') {
