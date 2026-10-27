@@ -104,7 +104,22 @@ textarea{width:100%;min-height:100px;resize:vertical}
       </section>
 
       <section data-section="games" class="hide">
-        <h2>游戏</h2>
+        <h2>同步结果</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="gameKw" placeholder="按名称或 appid 搜索" style="width:240px">
+            <button class="btn" id="gameRefresh">刷新</button>
+            <span class="small muted" id="gameMeta"></span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <table>
+            <thead><tr><th>appid</th><th>名称</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
+            <tbody id="gameRows"></tbody>
+          </table>
+        </div>
+
+        <h2>单个游戏编辑</h2>
         <div class="card pad">
           <div class="row">
             <input id="gappid" placeholder="Steam appid，如 413150" style="width:200px">
@@ -232,6 +247,7 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
+  if (page === 'games') loadGameList();
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
@@ -246,6 +262,51 @@ async function boot() {
   if (admin) { await loadUsers(); showPage(location.hash.replace('#', '') || 'users'); }
   else if (d.user) $('msg').textContent = '该账号不是管理员。';
 }
+
+async function loadGameList() {
+  const kw = ($('gameKw') ? $('gameKw').value.trim() : '');
+  try {
+    const d = await api('/api/admin/games' + (kw ? '?q=' + encodeURIComponent(kw) : ''));
+    $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
+    $('gameRows').innerHTML = (d.games || []).map(function (g) {
+      return '<tr>' +
+        '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + esc(g.name) + (g.name_en ? '<div class="small muted">' + esc(g.name_en) + '</div>' : '') + '</td>' +
+        '<td class="num">' + (g.steam_price != null ? '¥' + (g.steam_price / 100).toFixed(2) : '<span class="muted">无</span>') + '</td>' +
+        '<td>' + (g.has_desc ? '<span class="pill ok">有</span>' : '<span class="pill off">无</span>') + '</td>' +
+        '<td class="num">' + g.offer_count + '</td>' +
+        '<td>' + (g.blocked ? '<span class="pill off">已禁用</span>' : '<span class="pill ok">正常</span>') + '</td>' +
+        '<td class="muted small">' + when(g.updated_at) + '</td>' +
+        '<td>' +
+          (g.steam_appid ? '<button class="btn" data-gact="edit" data-appid="' + g.steam_appid + '">编辑</button> ' : '') +
+          (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button>' : '') +
+        '</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="muted">还没有游戏数据</td></tr>';
+  } catch (e) {
+    $('gameRows').innerHTML = '<tr><td colspan="8" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+
+$('gameRows').addEventListener('click', async function (e) {
+  const btn = e.target.closest('button[data-gact]');
+  if (!btn) return;
+  const appid = btn.dataset.appid;
+  try {
+    if (btn.dataset.gact === 'edit') {
+      $('gappid').value = appid;
+      $('loadGame').click();
+      return;
+    }
+    if (btn.dataset.gact === 'block') {
+      const next = btn.dataset.blocked !== '1';
+      await api('/api/games/' + appid + '/blocked', { method: 'POST', body: JSON.stringify({ blocked: next }) });
+      toast(next ? '已禁用' : '已启用');
+      return loadGameList();
+    }
+  } catch (err) { toast('失败：' + err.message); }
+});
+$('gameRefresh').onclick = loadGameList;
+$('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
 
 async function loadUsers() {
   const d = await api('/api/admin/users');

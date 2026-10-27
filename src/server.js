@@ -233,7 +233,25 @@ export function createApiServer({ query, logger = null, outDir = null }) {
       }
 
       // ---- 管理员：用户管理（编辑 / 改密码 / 禁用）----
-      // ---- 管理员：验证邮箱归属（发码 / 校验）----
+      // ---- 管理员：游戏列表（含同步状态）----
+      if (path === '/api/admin/games' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const kw = String(url.searchParams.get('q') ?? '').trim();
+        const limit = Math.min(Number(url.searchParams.get('limit') ?? 300) || 300, 1000);
+        const rows = await q(
+          "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en, g.blocked, g.updated_at, " +
+          "(g.description is not null and g.description <> '') as has_desc, " +
+          "(select count(*) from offers o where o.game_id = g.id) as offer_count, " +
+          "(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = 'steam' and o.in_stock) as steam_price " +
+          "from games g " +
+          "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1) " +
+          "order by g.updated_at desc nulls last, g.id desc limit $2",
+          [kw, limit],
+        );
+        return json(res, 200, { total: rows.rows.length, games: rows.rows });
+      }
+
+      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----
       const bindCode = path.match(/^\/api\/admin\/users\/([^/]+)\/email\/code$/);
       if (bindCode && req.method === 'POST') {
         if (!requireAdmin()) return;
