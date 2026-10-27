@@ -210,6 +210,56 @@ test('密码哈希：加盐、可校验、不存明文', async () => {
   assert.equal(db.verifyPassword('secret123', 'garbage'), false);
 });
 
+test('逻辑删除：前台与后台默认都排除，回收站可见并可恢复；平台列随列表下发', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+
+    // 平台列：有 Steam 报价的游戏应带 platform_codes / platform_names
+    const list0 = await (await fetch(`${base}/api/admin/games`, { headers: { cookie: admin.cookie } })).json();
+    const row0 = list0.games.find((g) => g.steam_appid === 413150);
+    assert.deepEqual(row0.platform_codes, ['steam']);
+    assert.deepEqual(row0.platform_names, ['Steam 国区']);
+
+    // 逻辑删除
+    const del = await fetch(`${base}/api/games/413150/deleted`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ deleted: true }),
+    });
+    assert.equal(del.status, 200);
+    assert.equal((await q('select deleted from games where steam_appid = 413150')).rows[0].deleted, true);
+    assert.equal((await q('select count(*)::int as n from offers o join games g on g.id = o.game_id where g.steam_appid = 413150')).rows[0].n, 1, '报价数据不能被真删');
+
+    // 前台列表排除
+    const pub = await (await fetch(`${base}/api/games`)).json();
+    assert.ok(!pub.games.some((g) => g.steam_appid === 413150), '前台不该再展示已删除游戏');
+
+    // 后台默认列表排除，回收站可取到
+    const list1 = await (await fetch(`${base}/api/admin/games`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(!list1.games.some((g) => g.steam_appid === 413150), '后台默认列表也要排除');
+    const only = await (await fetch(`${base}/api/admin/games?deleted=only`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(only.games.some((g) => g.steam_appid === 413150), 'deleted=only 能查到');
+    const bin = await (await fetch(`${base}/api/admin/games/deleted`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(bin.games.some((g) => g.steam_appid === 413150), '回收站接口能查到');
+
+    // 恢复
+    const restore = await fetch(`${base}/api/games/413150/deleted`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ deleted: false }),
+    });
+    assert.equal(restore.status, 200);
+    assert.equal((await q('select deleted, deleted_at from games where steam_appid = 413150')).rows[0].deleted, false);
+    assert.equal((await q('select deleted_at from games where steam_appid = 413150')).rows[0].deleted_at, null, '恢复后清空删除时间');
+    const pub2 = await (await fetch(`${base}/api/games`)).json();
+    assert.ok(pub2.games.some((g) => g.steam_appid === 413150), '恢复后前台恢复展示');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('已拥有标记：匿名 401、普通用户 403、管理员可改', async () => {
   const { store, q, srv, base } = await setup();
   try {

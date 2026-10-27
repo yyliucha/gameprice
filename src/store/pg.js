@@ -204,6 +204,9 @@ const ALTERS = [
   'alter table games add column if not exists genres text[]',
   'alter table games add column if not exists tags text[]',
   'alter table user_prefs add column if not exists tab text not null default \'all\'',
+  // 逻辑删除：不真删数据，只打标记；前台与后台默认列表都排除，回收站里能看到并恢复
+  'alter table games add column if not exists deleted boolean not null default false',
+  'alter table games add column if not exists deleted_at timestamptz',
 ];
 
 export async function migrate(store) {
@@ -514,6 +517,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
        from games g
       where exists (select 1 from daily_prices d
                      where d.game_id = g.id and d.region = $1)
+        and not g.deleted
       order by (select min(o.price_cents) from offers o
                  join platforms p on p.code = o.platform_code
                 where o.game_id = g.id and o.region = $1 and o.in_stock
@@ -1000,6 +1004,48 @@ export async function setOwned(q, { steamAppid = null, gameId = null, owned }) {
   }
   const r = await q(`update games set owned = $1, updated_at = now() where ${where} returning id, name, owned`, params);
   return r.rows[0] ?? null;
+}
+
+/** 逻辑删除 / 恢复：只改标记与时间，数据保留。支持 appid 或内部 id。 */
+export async function setGameDeleted(q, { steamAppid = null, gameId = null, deleted }) {
+  const params = [Boolean(deleted)];
+  let where = null;
+  if (steamAppid != null) {
+    where = 'steam_appid = $2';
+    params.push(steamAppid);
+  } else if (gameId != null) {
+    where = 'id = $2';
+    params.push(gameId);
+  } else {
+    throw new Error('setGameDeleted 需要 steamAppid 或 gameId');
+  }
+  const r = await q(
+    `update games set deleted = $1,
+                       deleted_at = case when $1 then now() else null end,
+                       updated_at = now()
+      where ${where} returning id, name, deleted`,
+    params,
+  );
+  return r.rows[0] ?? null;
+}
+
+/** 已删除（回收站）的游戏列表，按删除时间倒序。 */
+export async function listDeletedGames(q, { limit = 200 } = {}) {
+  const r = await q(
+    `select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en,
+            g.app_type, g.deleted_at,
+            coalesce(array_agg(distinct p.name) filter (where p.name is not null), '{}') as platform_names,
+            (select count(*)::int from offers o where o.game_id = g.id) as offer_count
+       from games g
+       left join offers o on o.game_id = g.id
+       left join platforms p on p.code = o.platform_code
+      where g.deleted
+      group by g.id
+      order by g.deleted_at desc nulls last
+      limit $1`,
+    [Math.min(Math.max(Number(limit) || 200, 1), 1000)],
+  );
+  return r.rows;
 }
 export async function markNotified(q, { watchId, priceCents }) {
   await q('update watchlist set last_notified_at = now(), last_notified_cents = $1 where id = $2', [

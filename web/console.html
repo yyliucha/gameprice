@@ -60,6 +60,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
     <nav>
       <button data-page="users" class="on">用户管理</button>
       <button data-page="games">游戏管理</button>
+      <button data-page="recycle">回收站</button>
       <button data-page="visitors">访问记录</button>
       <button data-page="steam">Steam 账号</button>
       <button data-page="sync">日志</button>
@@ -134,6 +135,15 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <div class="card pad">
           <div class="row">
             <input id="gameKw" placeholder="按名称或 appid 搜索" style="width:240px">
+            <select id="gamePlatform" style="padding:6px 8px">
+              <option value="">全部平台</option>
+              <option value="steam">Steam</option>
+              <option value="sonkwo">杉果</option>
+              <option value="gog">GOG</option>
+              <option value="humble">Humble</option>
+              <option value="itad">ITAD</option>
+              <option value="steampy">SteamPy</option>
+            </select>
             <button class="btn" id="gameRefresh">刷新</button>
             <label class="small muted"><input type="checkbox" id="showImgs"> 显示图片</label>
             <span class="small muted" id="gameMeta"></span>
@@ -141,7 +151,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
         </div>
         <div class="card" style="margin-top:10px">
           <table>
-            <thead><tr><th>图片</th><th>appid</th><th>名称</th><th>类型</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
+            <thead><tr><th>图片</th><th>appid</th><th>名称</th><th>类型</th><th>平台</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:230px">操作</th></tr></thead>
             <tbody id="gameRows"></tbody>
           </table>
         </div>
@@ -162,6 +172,23 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <input id="pgJump" placeholder="页码" style="width:62px">
             <button class="btn" id="pgGo">跳转</button>
           </span>
+        </div>
+      </section>
+
+      <section data-section="recycle" class="hide">
+        <h2>回收站（逻辑删除，数据仍在库里）</h2>
+        <div class="card pad">
+          <div class="row">
+            <button class="btn" id="recycleRefresh">刷新</button>
+            <span class="small muted" id="recycleMeta"></span>
+          </div>
+          <p class="muted small" style="margin-bottom:0">「删除」只是打标记：数据不真删，这里可以随时恢复；删除后前台不再展示，增量同步也不会再补它的数据。</p>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <table>
+            <thead><tr><th>appid</th><th>名称</th><th>类型</th><th>平台</th><th class="num">报价</th><th>删除时间</th><th style="width:100px">操作</th></tr></thead>
+            <tbody id="recycleRows"></tbody>
+          </table>
         </div>
       </section>
 
@@ -372,6 +399,7 @@ function showPage(page) {
   if (page === 'stats') { loadStats(); loadImgStats(); }
   if (page === 'sync') loadLogs();
   if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
+  if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
   if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
@@ -417,13 +445,20 @@ async function loadGameList(page) {
   if (page) gamesPage = page;
   gamesPageSize = Number(($('pgSize') || {}).value || 20);
   const kw = ($('gameKw') ? $('gameKw').value.trim() : '');
+  const platform = ($('gamePlatform') ? $('gamePlatform').value : '');
   try {
-    const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=' + gamesPageSize + (kw ? '&q=' + encodeURIComponent(kw) : ''));
+    const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=' + gamesPageSize +
+      (kw ? '&q=' + encodeURIComponent(kw) : '') + (platform ? '&platform=' + encodeURIComponent(platform) : ''));
     gamesPage = d.page; gamesPages = d.pages; gamesTotal = d.total;
     if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
     renderPager();
     $('gameRows').innerHTML = (d.games || []).map(function (g) {
       const showImgs = ($('showImgs') || {}).checked;
+      const plats = Array.isArray(g.platform_names) ? g.platform_names : [];
+      const platPills = plats.length
+        ? plats.map(function (n) { return '<span class="pill">' + esc(n) + '</span>'; }).join(' ')
+        : '<span class="muted">—</span>';
+      const key = g.steam_appid || ('id:' + g.id);
       return '<tr>' +
         '<td>' + (showImgs && g.steam_appid
           ? '<img loading="lazy" src="/img/steam/' + g.steam_appid + '/capsule_sm_120" style="width:92px;height:43px;object-fit:cover;border-radius:6px" onerror="this.style.display=\'none\'">'
@@ -433,6 +468,7 @@ async function loadGameList(page) {
         '<td class="small">' + (g.app_type
           ? '<span class="pill' + (String(g.app_type).toLowerCase() === 'game' ? '' : ' off') + '">' + esc(g.app_type) + '</span>'
           : '<span class="muted">—</span>') + '</td>' +
+        '<td class="small">' + platPills + '</td>' +
         '<td class="num">' + (g.steam_price != null ? '¥' + (g.steam_price / 100).toFixed(2) : '<span class="muted">无</span>') + '</td>' +
         '<td>' + (g.has_desc ? '<span class="pill ok">有</span>' : '<span class="pill off">无</span>') + '</td>' +
         '<td class="num">' + g.offer_count + '</td>' +
@@ -440,11 +476,12 @@ async function loadGameList(page) {
         '<td class="muted small">' + when(g.updated_at) + '</td>' +
         '<td>' +
           (g.steam_appid ? '<button class="btn" data-gact="edit" data-appid="' + g.steam_appid + '">编辑</button> ' : '') +
-          (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button>' : '') +
+          (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button> ' : '') +
+          '<button class="btn danger" data-gact="delete" data-key="' + key + '">删除</button>' +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="10" class="muted">没有匹配的游戏</td></tr>';
+    }).join('') || '<tr><td colspan="11" class="muted">没有匹配的游戏</td></tr>';
   } catch (e) {
-    $('gameRows').innerHTML = '<tr><td colspan="10" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+    $('gameRows').innerHTML = '<tr><td colspan="11" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }
 }
 $('gameRows').addEventListener('click', async function (e) {
@@ -454,6 +491,15 @@ $('gameRows').addEventListener('click', async function (e) {
   try {
     if (btn.dataset.gact === 'edit') {
       return openGameModal(appid);
+    }
+    if (btn.dataset.gact === 'delete') {
+      const key = btn.dataset.key;
+      const ok = window.confirm('删除后前台不再展示，但数据保留在回收站，可随时恢复。确定删除？');
+      if (!ok) return;
+      const url = key.startsWith('id:') ? '/api/games/id/' + key.slice(3) + '/deleted' : '/api/games/' + key + '/deleted';
+      await api(url, { method: 'POST', body: JSON.stringify({ deleted: true }) });
+      toast('已删除（可在回收站恢复）');
+      return loadGameList();
     }
     if (btn.dataset.gact === 'block') {
       const next = btn.dataset.blocked !== '1';
@@ -465,6 +511,44 @@ $('gameRows').addEventListener('click', async function (e) {
 });
 if ($('gameRefresh')) $('gameRefresh').onclick = loadGameList;
 if ($('gameKw')) $('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
+if ($('gamePlatform')) $('gamePlatform').onchange = function () { loadGameList(1); };
+
+// ---- 回收站：逻辑删除的游戏，可恢复 ----
+async function loadRecycleBin() {
+  try {
+    const d = await api('/api/admin/games/deleted?limit=200');
+    const games = d.games || [];
+    $('recycleMeta').textContent = '共 ' + games.length + ' 款已删除';
+    $('recycleRows').innerHTML = games.map(function (g) {
+      const plats = Array.isArray(g.platform_names) ? g.platform_names : [];
+      const platPills = plats.length
+        ? plats.map(function (n) { return '<span class="pill">' + esc(n) + '</span>'; }).join(' ')
+        : '<span class="muted">—</span>';
+      return '<tr>' +
+        '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + esc(g.name) + (g.name_en ? '<div class="small muted">' + esc(g.name_en) + '</div>' : '') + '</td>' +
+        '<td class="small">' + (g.app_type ? '<span class="pill off">' + esc(g.app_type) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+        '<td class="small">' + platPills + '</td>' +
+        '<td class="num">' + (g.offer_count || 0) + '</td>' +
+        '<td class="muted small">' + when(g.deleted_at) + '</td>' +
+        '<td><button class="btn" data-restore="' + (g.steam_appid ? g.steam_appid : 'id:' + g.id) + '">恢复</button></td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">回收站是空的</td></tr>';
+  } catch (e) {
+    $('recycleRows').innerHTML = '<tr><td colspan="7" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+if ($('recycleRefresh')) $('recycleRefresh').onclick = loadRecycleBin;
+$('recycleRows').addEventListener('click', async function (e) {
+  const btn = e.target.closest('button[data-restore]');
+  if (!btn) return;
+  const key = btn.dataset.restore;
+  const url = key.startsWith('id:') ? '/api/games/id/' + key.slice(3) + '/deleted' : '/api/games/' + key + '/deleted';
+  try {
+    await api(url, { method: 'POST', body: JSON.stringify({ deleted: false }) });
+    toast('已恢复');
+    await loadRecycleBin();
+  } catch (err) { toast('恢复失败：' + err.message); }
+});
 
 // ---- 弹窗编辑游戏（说明 / 禁用）----
 let editingAppid = null;

@@ -334,6 +334,7 @@ async function cmdSyncSteamAll() {
   const rows = await withStore(async (store) => {
     const r = await store.query(
       "select g.steam_appid from games g where g.steam_appid is not null " +
+        "and not g.deleted " +
         "and (g.description is null or g.description = '' or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam')) " +
         "order by g.id limit $1",
       [limit],

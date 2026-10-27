@@ -553,28 +553,65 @@ export function createApiServer({
         return json(res, 200, { steamId, games: games.rows });
       }
 
-      // ---- 管理员：游戏列表（分页 + 搜索）----      // ---- 管理员：游戏列表（分页 + 搜索）----
+      // ---- 管理员：游戏列表（分页 + 搜索 + 平台筛选 + 回收站）----
       if (path === '/api/admin/games' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const kw = String(url.searchParams.get('q') ?? '').trim();
         const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
         const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 20) || 20, 5), 200);
         const offset = (page - 1) * pageSize;
-        const where =
+        const platform = String(url.searchParams.get('platform') ?? '').trim();
+        const deletedParam = String(url.searchParams.get('deleted') ?? 'exclude');
+        // 默认只看正常游戏；deleted=only 就是回收站，include 两边都看
+        const deletedWhere =
+          deletedParam === 'only' ? ' and g.deleted = true' : deletedParam === 'include' ? '' : ' and not g.deleted';
+        // 平台筛选：按参数位置生成（计数查询与列表查询占位符不同）
+        const platformCond = (index) =>
+          platform
+            ? " and exists (select 1 from offers po join platforms pp on pp.code = po.platform_code where po.game_id = g.id and po.platform_code = $" + index + ')'
+            : '';
+        const baseWhere =
           "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') " +
-          "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)";
-        const cnt = await q("select count(*)::int as n from games g " + where, [kw]);
+          "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)" +
+          deletedWhere;
+        const cnt = await q(
+          'select count(*)::int as n from games g ' + baseWhere + platformCond(2),
+          platform ? [kw, platform] : [kw],
+        );
         const rows = await q(
-          "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en, g.app_type, g.blocked, g.updated_at, " +
-          "(g.description is not null and g.description <> '') as has_desc, " +
-          "(select count(*) from offers o where o.game_id = g.id) as offer_count, " +
-          "(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = 'steam' and o.in_stock) as steam_price " +
-          "from games g " + where + " " +
-          "order by g.updated_at desc nulls last, g.id desc limit $2 offset $3",
-          [kw, pageSize, offset],
+          'select g.id, g.steam_appid, coalesce(g.name, \'appid:\' || g.steam_appid) as name, g.name_en, g.app_type, g.blocked, g.deleted, g.deleted_at, g.updated_at, ' +
+          '(g.description is not null and g.description <> \'\') as has_desc, ' +
+          '(select count(*) from offers o where o.game_id = g.id) as offer_count, ' +
+          '(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = \'steam\' and o.in_stock) as steam_price, ' +
+          // 平台列：这款游戏当前有报价的渠道（多个用数组，前端渲染成多个标签）
+          '(select coalesce(array_agg(distinct p.name), \'{}\') from offers o2 join platforms p on p.code = o2.platform_code where o2.game_id = g.id) as platform_names, ' +
+          '(select coalesce(array_agg(distinct o3.platform_code), \'{}\') from offers o3 where o3.game_id = g.id) as platform_codes ' +
+          'from games g ' + baseWhere + platformCond(4) + ' ' +
+          'order by g.updated_at desc nulls last, g.id desc limit $2 offset $3',
+          platform ? [kw, pageSize, offset, platform] : [kw, pageSize, offset],
         );
         const total = cnt.rows[0]?.n ?? 0;
         return json(res, 200, { total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)), games: rows.rows });
+      }
+
+      // ---- 管理员：回收站（逻辑删除的游戏）----
+      if (path === '/api/admin/games/deleted' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const limit = Number(url.searchParams.get('limit') ?? 200);
+        return json(res, 200, { games: await db.listDeletedGames(q, { limit }) });
+      }
+
+      // ---- 管理员：逻辑删除 / 恢复（按 appid 或内部 id）----
+      const delByAppid = path.match(/^\/api\/games\/(\d+)\/deleted$/);
+      const delById = path.match(/^\/api\/games\/id\/(\d+)\/deleted$/);
+      if ((delByAppid || delById) && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const target = delByAppid ? { steamAppid: Number(delByAppid[1]) } : { gameId: Number(delById[1]) };
+        const row = await db.setGameDeleted(q, { ...target, deleted: body.deleted !== false });
+        if (!row) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.game_deleted', { ...target, deleted: row.deleted, by: user.username });
+        return json(res, 200, { game: row });
       }
 
       // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----      // ---- 管理员：验证邮箱归属（发码 / 校验）----
