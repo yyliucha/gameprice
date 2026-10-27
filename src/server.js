@@ -418,7 +418,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
           "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)";
         const cnt = await q("select count(*)::int as n from games g " + where, [kw]);
         const rows = await q(
-          "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en, g.blocked, g.updated_at, " +
+          "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en, g.app_type, g.blocked, g.updated_at, " +
           "(g.description is not null and g.description <> '') as has_desc, " +
           "(select count(*) from offers o where o.game_id = g.id) as offer_count, " +
           "(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = 'steam' and o.in_stock) as steam_price " +

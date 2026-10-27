@@ -53,6 +53,15 @@ export function genreName(id) {
   return GENRES[Number(id)] ?? `genre:${id}`;
 }
 
+/**
+ * Steam 类型归一化：官方接口用小写（game/dlc/demo），PICS 镜像用大写
+ * （Game/DLC/Demo/…）。统一成小写入库，前端才好按类型显示徽标。
+ */
+export function normalizeType(raw) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  return s || null;
+}
+
 export const descriptor = { code: 'steam', name: 'Steam 元数据' };
 
 const OFFICIAL_DETAILS = 'https://store.steampowered.com/api/appdetails';
@@ -79,7 +88,7 @@ export function normalizeOfficial(appid, data) {
     steamAppid: Number(appid),
     nameEn: null, // 官方接口按 l 参数返回一种语言，中文请求下拿不到英文名
     nameZh: data.name ?? null,
-    appType: data.type ?? null,
+    appType: normalizeType(data.type),
     isFree: data.is_free ?? null,
     headerImage: data.header_image ?? null,
     releaseDate: parseReleaseDate(data.release_date?.date ?? null),
@@ -135,7 +144,7 @@ export function normalizeSteamcmd(appid, app) {
     steamAppid: Number(appid),
     nameEn: common.name ?? null,
     nameZh: zh,
-    appType: common.type ?? null,
+    appType: normalizeType(common.type),
     isFree: null, // PICS 数据里没有可靠的免费标记
     headerImage: headerFile ? `${CDN}${appid}/${headerFile}` : null,
     releaseDate: parseReleaseDate(toDate(common.steam_release_date)),

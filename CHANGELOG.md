@@ -2,6 +2,28 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.17.3] - 2026-10-27
+
+游戏类型（游戏 / DLC）在前台体现；开发商/发行商同步补强。
+
+### 新增
+
+- 前台列表：DLC / 试玩 / 音乐等非游戏类型显示**类型徽标**（`app_type` 由 `gameOverview` 下发）；
+  游戏详情弹窗 facts 首项显示「类型」，控制台游戏列表新增「类型」列
+- 同步日志输出 DLC 数量（`sync.steamall.done` 带 `dlc` 计数）
+
+### 修复 / 变更
+
+- **类型大小写统一**：官方接口（`dlc`）与 steamcmd 镜像（`DLC`）的 `type` 全部归一化成小写入库
+  （新增 `normalizeType`；`upsertGameMeta` 防御性再归一，老库大小写混用的数据随下次同步自动纠正，
+  前端按小写匹配，旧数据也能立即正确显示）
+- 开发商 / 发行商：此前已在同步链路中提取落库（两个后端都抓 `developers` / `publishers`），
+  本次补上入库断言与 DLC 落库测试，保证不再回退
+
+### 测试
+
+- `steam-meta.test.js` 新增类型归一化用例；`gamemeta.test.js` 新增开发商/发行商/DLC 落库用例（共 214 项全绿）
+
 ## [0.17.2] - 2026-10-27
 
 验证码邮件内容落库，用户收不到邮件时管理员可直接提供验证码。

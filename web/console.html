@@ -129,7 +129,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
         </div>
         <div class="card" style="margin-top:10px">
           <table>
-            <thead><tr><th>图片</th><th>appid</th><th>名称</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
+            <thead><tr><th>图片</th><th>appid</th><th>名称</th><th>类型</th><th>Steam 价</th><th>说明</th><th>报价</th><th>状态</th><th>更新时间</th><th style="width:200px">操作</th></tr></thead>
             <tbody id="gameRows"></tbody>
           </table>
         </div>
@@ -393,6 +393,9 @@ async function loadGameList(page) {
           : '<span class="muted small">—</span>') + '</td>' +
         '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
         '<td>' + esc(g.name) + (g.name_en ? '<div class="small muted">' + esc(g.name_en) + '</div>' : '') + '</td>' +
+        '<td class="small">' + (g.app_type
+          ? '<span class="pill' + (String(g.app_type).toLowerCase() === 'game' ? '' : ' off') + '">' + esc(g.app_type) + '</span>'
+          : '<span class="muted">—</span>') + '</td>' +
         '<td class="num">' + (g.steam_price != null ? '¥' + (g.steam_price / 100).toFixed(2) : '<span class="muted">无</span>') + '</td>' +
         '<td>' + (g.has_desc ? '<span class="pill ok">有</span>' : '<span class="pill off">无</span>') + '</td>' +
         '<td class="num">' + g.offer_count + '</td>' +
@@ -402,9 +405,9 @@ async function loadGameList(page) {
           (g.steam_appid ? '<button class="btn" data-gact="edit" data-appid="' + g.steam_appid + '">编辑</button> ' : '') +
           (g.steam_appid ? '<button class="btn" data-gact="block" data-appid="' + g.steam_appid + '" data-blocked="' + (g.blocked ? '1' : '0') + '">' + (g.blocked ? '启用' : '禁用') + '</button>' : '') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="9" class="muted">没有匹配的游戏</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="muted">没有匹配的游戏</td></tr>';
   } catch (e) {
-    $('gameRows').innerHTML = '<tr><td colspan="9" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+    $('gameRows').innerHTML = '<tr><td colspan="10" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }
 }
 $('gameRows').addEventListener('click', async function (e) {

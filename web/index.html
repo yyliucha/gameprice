@@ -193,6 +193,13 @@ function applyLocal() {
 const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
 const pct = (d) => (d ? '-' + d + '%' : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Steam 类型 → 中文名：DLC 一眼能区分出来
+const TYPE_LABELS = {
+  game: '游戏', dlc: 'DLC', demo: '试玩', music: '音乐', video: '视频',
+  software: '软件', hardware: '硬件', series: '系列', mod: 'Mod',
+  guide: '指南', tool: '工具', application: '应用', config: '配置',
+};
+const typeLabelOf = (raw) => TYPE_LABELS[String(raw ?? '').toLowerCase()] ?? (raw ? String(raw) : null);
 
 function visible(game) {
   if (state.tab === 'owned') return game.owned === true;
@@ -278,13 +285,18 @@ function render() {
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
+    // 类型徽标：DLC/试玩等非游戏类型要一眼看出来（game 不标，默认即游戏）
+    const typeKey = String(g.app_type ?? '').toLowerCase();
+    const typeTag = typeKey && typeKey !== 'game'
+      ? '<span class="tag warn" title="Steam 类型：' + esc(g.app_type) + '">' + esc(typeLabelOf(g.app_type)) + '</span>'
+      : '';
     // Steam 封面：有 appid 就显示（走本站图片代理，自动 lazy）
     const cover = g.steam_appid
       ? '<img class="gameImg" loading="lazy" src="/img/steam/' + esc(g.steam_appid) + '/capsule_sm_120" alt="" onerror="this.style.display=\'none\'">'
       : '';
     const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
-      '<td>' + cover + '<div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + owned + '</div>' + en + '</td>' +
+      '<td>' + cover + '<div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + typeTag + owned + '</div>' + en + '</td>' +
       (function(){
         var steam = null;
         for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];
@@ -501,6 +513,7 @@ async function openDetail(appid, gid) {
   const d = await res.json();
   const g = d.game;
   const facts = [];
+  if (g.app_type) facts.push('类型 ' + esc(typeLabelOf(g.app_type)));
   if (g.developers?.length) facts.push('开发商 ' + esc(g.developers.join(' / ')));
   if (g.publishers?.length) facts.push('发行商 ' + esc(g.publishers.join(' / ')));
   const genres = (g.genres ?? []).filter((x) => !String(x).startsWith('tag:'));

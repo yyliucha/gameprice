@@ -38,12 +38,20 @@ test('steamcmd 条目归一化：中文名、封面、发行日期、开发商',
   assert.equal(item.steamAppid, 1091500);
   assert.equal(item.nameEn, 'Cyberpunk 2077');
   assert.equal(item.nameZh, '赛博朋克 2077');
-  assert.equal(item.appType, 'Game');
+  assert.equal(item.appType, 'game', 'PICS 的 Game 要归一化成小写');
   assert.equal(item.releaseDate, '2020-12-10');
   assert.match(item.headerImage, /^https:\/\/cdn\.akamai\.steamstatic\.com\/steam\/apps\/1091500\/.+header_schinese\.jpg$/);
   assert.deepEqual(item.developers, ['CD PROJEKT RED']);
   assert.equal(item.source, 'steamcmd');
   assert.equal(item.isFree, null, '镜像不提供可靠的免费标记');
+});
+
+test('类型归一化：DLC 大小写统一，未知类型原样小写', () => {
+  assert.equal(normalizeSteamcmd(1, { common: { name: 'X', type: 'DLC' } }).appType, 'dlc');
+  assert.equal(normalizeSteamcmd(2, { common: { name: 'X', type: 'Game' } }).appType, 'game');
+  assert.equal(normalizeOfficial(3, { name: 'X', type: 'dlc' }).appType, 'dlc');
+  assert.equal(normalizeOfficial(4, { name: 'X', type: 'Music' }).appType, 'music');
+  assert.equal(normalizeOfficial(5, { name: 'X' }).appType, null);
 });
 
 test('steamcmd 只有 sc_schinese 时也能取到中文名', () => {

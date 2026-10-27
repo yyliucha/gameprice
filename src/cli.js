@@ -370,8 +370,9 @@ async function cmdSyncSteamAll() {
     const stats = await withStore((store) =>
       ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger }),
     );
-    logger.info('sync.steamall.done', { appids: appids.length, items: items.length, described, priced, ...stats });
-    console.log(`完成：${items.length} 条元数据（说明 ${described} 条）、${priced} 条 Steam 价格（新增 ${stats.inserted}）`);
+    const dlcCount = items.filter((i) => i.appType === 'dlc').length;
+    logger.info('sync.steamall.done', { appids: appids.length, items: items.length, dlc: dlcCount, described, priced, ...stats });
+    console.log(`完成：${items.length} 条元数据（其中 DLC ${dlcCount} 款；说明 ${described} 条）、${priced} 条 Steam 价格（新增 ${stats.inserted}）`);
   } else {
     console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
   }

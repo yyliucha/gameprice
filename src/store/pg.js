@@ -451,6 +451,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
             g.steam_appid,
             coalesce(g.name, 'appid:' || g.steam_appid) as name,
             g.name_en,
+            g.app_type,
             g.interested,
             g.owned,
             g.blocked,
@@ -861,6 +862,8 @@ export async function removeBlockedIp(q, ip) {
  * 正确名字改坏。其余字段（类型/封面/发行日期/is_free）以元数据为准。
  */
 export async function upsertGameMeta(q, item) {
+  // 类型统一小写：老数据里有 PICS 镜像的 'Game'/'DLC' 大小写混用，前端按小写匹配
+  const appType = item.appType == null ? null : String(item.appType).toLowerCase();
   const r = await q(
     `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date,
                         developers, publishers, genres, tags)
@@ -882,7 +885,7 @@ export async function upsertGameMeta(q, item) {
       item.steamAppid,
       item.nameZh ?? null,
       item.nameEn ?? null,
-      item.appType ?? null,
+      appType,
       item.isFree ?? null,
       item.headerImage ?? null,
       item.releaseDate ?? null,
