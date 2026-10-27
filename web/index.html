@@ -76,6 +76,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     <button class="chip" data-tab="on">感兴趣</button>
     <button class="chip" data-tab="off">不感兴趣</button>
     <button class="chip" data-tab="owned">已拥有</button>
+    <input id="q" placeholder="搜索游戏（中文 / 英文）" style="max-width:250px;margin-left:8px">
     <span class="spacer"></span>
     <button class="chip" data-sort="discount">折扣</button>
     <button class="chip" data-sort="price">价格</button>
@@ -181,7 +182,9 @@ function sorted(list) {
 }
 
 function render() {
-  const list = sorted(state.games.filter(visible));
+  const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
+  const matched = (g) => !kw || [g.name, g.name_en].some((v) => String(v || '').toLowerCase().includes(kw));
+  const list = sorted(state.games.filter(visible).filter(matched));
   const tbody = document.getElementById('rows');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="muted">这个分类下没有游戏</td></tr>';
@@ -457,6 +460,15 @@ document.getElementById('rows').addEventListener('click', (e) => {
 me().then(load);
 // 访客先恢复本地偏好；登录用户以服务端偏好为准（me() 里已覆盖）
 applyLocal();
+
+(function bindSearch() {
+  const box = document.getElementById('q');
+  if (!box) return;
+  box.addEventListener('input', function () {
+    clearTimeout(window.__qTimer);
+    window.__qTimer = setTimeout(render, 150);
+  });
+})();
 </script>
 </body>
 </html>
