@@ -188,10 +188,21 @@ function render() {
     return;
   }
   tbody.innerHTML = list.map((g) => {
-    const offers = Array.isArray(g.all_offers) ? g.all_offers : [];
-    const pills = offers.slice(0, 3).map((o, i) =>
-      '<span class="pill' + (i === 0 ? ' low' : '') + '">' + esc(o.platform_name ?? o.platform) + ' ' + yuan(o.price) + '</span>').join(' ');
-    const gap = offers.length > 1 ? offers[1].price - offers[0].price : null;
+    const all = Array.isArray(g.all_offers) ? g.all_offers : [];
+    // 固定展示顺序：Steam 永远第一，其余按价格升序、同价按平台名 —— 每次渲染都一致
+    const offers = all.slice().sort((a, b) => {
+      const as = a.platform === 'steam' ? 0 : 1;
+      const bs = b.platform === 'steam' ? 0 : 1;
+      if (as !== bs) return as - bs;
+      if (a.price !== b.price) return a.price - b.price;
+      return String(a.platform).localeCompare(String(b.platform));
+    });
+    const cheapest = all.reduce((min, o) => (min == null || o.price < min ? o.price : min), null);
+    const pills = offers.slice(0, 3).map((o) =>
+      '<span class="pill' + (o.price === cheapest ? ' low' : '') + '">' +
+      esc(o.platform_name ?? o.platform) + ' ' + yuan(o.price) + '</span>').join(' ');
+    const others = all.filter((o) => o.platform !== 'steam').sort((a, b) => a.price - b.price);
+    const gap = others.length ? others[0].price : null;
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
@@ -202,8 +213,8 @@ function render() {
         var steam = null;
         for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];
         var base = steam ? steam.price : g.current_low;
-        var low = offers.length ? offers[0] : null;
-        var note = steam && low && low.platform !== 'steam'
+        var low = others.length ? others[0] : null; // 参考价只看非 Steam 平台，避免和自己比
+        var note = steam && low
           ? '<div class="small muted">其他平台最低 ' + yuan(low.price) + '（' + esc(low.platform_name || low.platform) + '）</div>'
           : (g.steam_price == null && low ? '<div class="small muted">Steam 无价，取最低 ' + esc(low.platform_name || low.platform) + '</div>' : '');
         return '<td class="num">' + yuan(base) + note + '</td>';
