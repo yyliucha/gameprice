@@ -323,6 +323,9 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const auth = await import('./email-auth.js');
         const body = await readBody(req);
         const pass = body.pass ? auth.encryptSecret(String(body.pass), auth.loadSecretKey()) : null;
+        // 发件人留空就用账号，保存时就补全，避免后续判断为"未配置"
+        const mailUser = String(body.user ?? '').trim();
+        const mailFrom = String(body.from ?? '').trim() || mailUser;
         await q(
           `insert into smtp_settings (id, host, port, secure, username, password_enc, from_addr, enabled, updated_at)
            values (1, $1, $2, $3, $4, $5, $6, $7, now())
@@ -335,9 +338,9 @@ export function createApiServer({ query, logger = null, outDir = null }) {
             String(body.host ?? '').trim(),
             Number(body.port ?? 465),
             body.secure !== false,
-            String(body.user ?? '').trim(),
+            mailUser,
             pass,
-            String(body.from ?? '').trim(),
+            mailFrom,
             body.enabled !== false,
           ],
         );
@@ -351,7 +354,13 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         const { sendMail } = await import('./notify.js');
         const body = await readBody(req);
         const cfg = await auth.smtpConfig(q);
-        if (!auth.isSmtpConfigured(cfg)) return json(res, 400, { error: 'SMTP 还没配置完整（主机与发件人必填）' });
+        if (!auth.isSmtpConfigured(cfg)) {
+          const missing = [];
+          if (!cfg.host) missing.push('主机');
+          if (!cfg.from) missing.push('发件人（留空时应回填账号，请再保存一次）');
+          logger?.warn('api.smtp_incomplete', { missing, by: user.username });
+          return json(res, 400, { error: 'SMTP 配置不完整：缺少 ' + missing.join('、') });
+        }
         // 收件人留空时发给发件人自己，前端不用重复填
         const to = String(body.to ?? '').trim() || cfg.from;
         if (!auth.normalizeEmail(to)) return json(res, 400, { error: '收件邮箱不合法' });
