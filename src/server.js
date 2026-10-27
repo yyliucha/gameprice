@@ -385,6 +385,63 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         return json(res, 200, { records: rows.rows });
       }
 
+      // ---- 管理员：给用户绑定/解绑登录邮箱 ----
+      const bindMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/email$/);
+      if (bindMatch && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const auth = await import('./email-auth.js');
+        const raw = String(body.email ?? '').trim();
+        const email = raw ? auth.normalizeEmail(raw) : null;
+        if (raw && !email) return json(res, 400, { error: '邮箱格式不正确' });
+        const username = decodeURIComponent(bindMatch[1]);
+        try {
+          const r = await q(
+            'update users set email = $1, email_verified = false where username = $2 returning id, username, email, role, disabled',
+            [email, username],
+          );
+          if (!r.rows.length) return json(res, 404, { error: '没有该用户' });
+          logger?.info('api.user_email_bound', { username, email: email ? auth.maskEmail(email) : null, by: user.username });
+          return json(res, 200, { user: r.rows[0] });
+        } catch (err) {
+          if (String(err.code) === '23505') return json(res, 409, { error: '这个邮箱已被其他账号绑定' });
+          throw err;
+        }
+      }
+
+      // ---- 管理员：最近日志（排障用；日志层已做脱敏）----
+      if (path === '/api/admin/logs' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const fsMod = await import('node:fs');
+        const dir = process.env.LOG_DIR ?? 'logs';
+        const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 1000);
+        const grep = String(url.searchParams.get('grep') ?? '').trim();
+        let files = [];
+        try {
+          files = fsMod.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort();
+        } catch {
+          files = [];
+        }
+        const picked = files.slice(-2);
+        const entries = [];
+        for (const f of picked) {
+          try {
+            const lines = fsMod.readFileSync(dir + '/' + f, 'utf8').split('\n').filter(Boolean);
+            for (const line of lines.slice(-limit)) {
+              try {
+                entries.push(JSON.parse(line));
+              } catch {
+                entries.push({ msg: line });
+              }
+            }
+          } catch {
+            /* 单个文件读失败不影响整体 */
+          }
+        }
+        const filtered = grep ? entries.filter((e) => JSON.stringify(e).includes(grep)) : entries;
+        return json(res, 200, { files: picked, count: filtered.length, entries: filtered.slice(-limit) });
+      }
+
       if (path === '/api/admin/users' && req.method === 'GET') {
         if (!requireAdmin()) return;
         return json(res, 200, { users: await db.listUsers(q) });

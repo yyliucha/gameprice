@@ -11,37 +11,40 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 a{color:var(--brand);text-decoration:none}
-.layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-aside{background:var(--panel);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh}
-.brand{font-weight:700;display:block;margin-bottom:18px;color:var(--fg)}
-nav a{display:block;padding:8px 10px;border-radius:9px;color:var(--muted);font-size:14px;margin-bottom:2px}
-nav a:hover{background:var(--hover);color:var(--fg)}
-nav a.on{background:var(--hover);color:var(--fg);font-weight:600}
-main{padding:24px 28px 60px;max-width:1100px}
-h1{font-size:22px;margin:0 0 6px}
-h2{font-size:15px;margin:26px 0 10px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--border);padding:16px 12px;position:sticky;top:0;height:100vh}
+.brand{font-weight:700;display:block;margin-bottom:16px;color:var(--fg)}
+nav button{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:9px;color:var(--muted);font-size:14px;font-family:inherit;cursor:pointer;margin-bottom:2px}
+nav button:hover{background:var(--hover);color:var(--fg)}
+nav button.on{background:var(--hover);color:var(--fg);font-weight:600}
+main{padding:22px 26px 60px;max-width:1120px}
+h1{font-size:21px;margin:0 0 4px}
+h2{font-size:14px;margin:22px 0 8px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .muted{color:var(--muted)}.small{font-size:12px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
 .card.pad{padding:16px}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;padding:10px 14px;color:var(--muted);font-size:12px;text-transform:uppercase;border-bottom:1px solid var(--border)}
-td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+th{text-align:left;padding:9px 12px;color:var(--muted);font-size:12px;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:0}
 tr:hover td{background:var(--hover)}
 .num{text-align:right;font-family:var(--mono)}
-.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:9px;padding:5px 11px;cursor:pointer;font-family:inherit;font-size:13px}
+.btn{border:1px solid var(--border);background:var(--panel);color:var(--fg);border-radius:9px;padding:5px 11px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border))}
 input,select,textarea{padding:7px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px}
-textarea{width:100%;min-height:110px;resize:vertical}
+textarea{width:100%;min-height:100px;resize:vertical}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--hover);color:var(--muted)}
 .pill.ok{background:var(--good-bg);color:var(--good)}
 .pill.off{background:var(--warn-bg);color:var(--warn)}
-#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
+.logbox{max-height:420px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--bg);padding:10px 12px}
+.logline{white-space:pre-wrap;word-break:break-all;padding:1px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent)}
+.lv-warn{color:var(--warn)}.lv-error{color:var(--danger)}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
-.hide{display:none}
+.hide{display:none !important}
 </style>
 </head>
 <body>
@@ -49,11 +52,13 @@ textarea{width:100%;min-height:110px;resize:vertical}
   <aside>
     <a class="brand" href="/">← 返回网站</a>
     <nav>
-      <a href="#users" class="on">用户管理</a>
-      <a href="#games">游戏管理</a>
-      <a href="#stats">数据统计</a>
+      <button data-page="users" class="on">用户管理</button>
+      <button data-page="games">游戏管理</button>
+      <button data-page="sync">采集同步</button>
+      <button data-page="mail">邮箱配置</button>
+      <button data-page="stats">数据统计</button>
     </nav>
-    <div style="margin-top:20px" class="small muted" id="who"></div>
+    <div style="margin-top:18px" class="small muted" id="who"></div>
     <button class="btn" id="logout" style="margin-top:8px" hidden>退出</button>
   </aside>
 
@@ -70,73 +75,96 @@ textarea{width:100%;min-height:110px;resize:vertical}
     </div>
 
     <div id="app" class="hide">
-      <h2 id="users">用户管理</h2>
-      <div class="card">
-        <table>
-          <thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>最近登录</th><th style="width:260px">操作</th></tr></thead>
-          <tbody id="userRows"></tbody>
-        </table>
-      </div>
-      <div class="card pad" style="margin-top:12px">
-        <strong class="small">新增用户</strong>
-        <div class="row">
-          <input id="nu" placeholder="用户名" style="width:150px">
-          <input id="np" placeholder="初始密码（≥6位）" style="width:180px">
-          <select id="nr"><option value="user">普通用户</option><option value="admin">管理员</option></select>
-          <button class="btn primary" id="addUser">创建</button>
-          <span id="addMsg" class="small muted"></span>
+      <section data-section="users">
+        <h2>用户</h2>
+        <div class="card">
+          <table>
+            <thead><tr><th>用户名</th><th>显示名</th><th>登录邮箱</th><th>角色</th><th>状态</th><th>最近登录</th><th style="width:360px">操作</th></tr></thead>
+            <tbody id="userRows"></tbody>
+          </table>
         </div>
-      </div>
+        <div class="card pad" style="margin-top:12px">
+          <strong class="small">新增用户</strong>
+          <div class="row">
+            <input id="nu" placeholder="用户名" style="width:140px">
+            <input id="np" placeholder="初始密码（≥6位）" style="width:170px">
+            <input id="ne" placeholder="登录邮箱（可选）" style="width:190px">
+            <select id="nr"><option value="user">普通用户</option><option value="admin">管理员</option></select>
+            <button class="btn primary" id="addUser">创建</button>
+            <span id="addMsg" class="small muted"></span>
+          </div>
+          <p class="muted small">绑定邮箱后，该账号可用「邮箱验证码」登录、也可自助重置密码。</p>
+        </div>
+      </section>
 
-      <h2 id="games">游戏管理</h2>
-      <div class="card pad">
-        <div class="row">
-          <input id="gappid" placeholder="Steam appid，如 413150" style="width:200px">
-          <button class="btn" id="loadGame">载入</button>
-          <button class="btn" id="toggleBlock" disabled>禁用/启用</button>
-          <span id="gMsg" class="small muted"></span>
+      <section data-section="games" class="hide">
+        <h2>游戏</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="gappid" placeholder="Steam appid，如 413150" style="width:200px">
+            <button class="btn" id="loadGame">载入</button>
+            <button class="btn" id="toggleBlock" disabled>禁用/启用</button>
+            <span id="gMsg" class="small muted"></span>
+          </div>
+          <div id="gBox" class="hide">
+            <div class="small muted" id="gName" style="margin:6px 0"></div>
+            <textarea id="gdesc" placeholder="游戏说明（Steam 同步只在为空时填，人工编辑会保留）"></textarea>
+            <div class="row"><button class="btn primary" id="saveDesc">保存说明</button></div>
+          </div>
         </div>
-        <div id="gBox" class="hide">
-          <div class="small muted" id="gName" style="margin-bottom:6px"></div>
-          <textarea id="gdesc" placeholder="游戏说明（Steam 同步只在为空时填写，人工编辑会保留）"></textarea>
-          <div class="row"><button class="btn primary" id="saveDesc">保存说明</button></div>
+        <div class="card pad" style="margin-top:12px">
+          <strong class="small">同步 Steam</strong>
+          <div class="row">
+            <button class="btn primary" id="syncAll">一键同步全部 Steam 游戏</button>
+            <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；到「采集同步」看实时日志</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="card pad" style="margin-top:12px">
-        <strong class="small">同步 Steam</strong>
-        <div class="row">
-          <button class="btn primary" id="syncAll">一键同步全部 Steam 游戏</button>
-          <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；后台运行，完成后刷新列表可见</span>
+      <section data-section="sync" class="hide">
+        <h2>同步状态</h2>
+        <div class="card pad">
+          <div class="row">
+            <button class="btn primary" id="syncAll2">立即同步全部 Steam 游戏</button>
+            <input id="logGrep" placeholder="过滤关键字，如 sync.steamall / error" style="width:280px">
+            <button class="btn" id="logRefresh">刷新</button>
+            <label class="small muted"><input type="checkbox" id="logAuto" checked> 自动刷新（3s）</label>
+            <span class="small muted" id="logMeta"></span>
+          </div>
+          <div class="logbox" id="logBox"><div class="muted">加载中…</div></div>
         </div>
-      </div>
+        <p class="muted small">数据来自 logs/*.jsonl。同步完成后能看到 <code>sync.steamall.done</code>；单条失败是 <code>sync.item_failed</code>。</p>
+      </section>
 
-      <h2 id="mail">邮箱配置（SMTP）</h2>
-      <div class="card pad">
-        <div class="row">
-          <input id="sHost" placeholder="SMTP 主机，如 smtp.qq.com" style="width:220px">
-          <input id="sPort" placeholder="端口" value="465" style="width:90px">
-          <select id="sSecure"><option value="1">SSL(465)</option><option value="0">STARTTLS(587)</option></select>
+      <section data-section="mail" class="hide">
+        <h2>SMTP</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="sHost" placeholder="SMTP 主机，如 smtp.qq.com" style="width:220px">
+            <input id="sPort" placeholder="端口" value="465" style="width:80px">
+            <select id="sSecure"><option value="1">SSL(465)</option><option value="0">STARTTLS(587)</option></select>
+          </div>
+          <div class="row">
+            <input id="sUser" placeholder="账号，如 you@qq.com" style="width:200px">
+            <input id="sPass" type="password" placeholder="授权码（留空表示不修改）" style="width:230px">
+            <input id="sFrom" placeholder="发件人（留空用账号）" style="width:200px">
+          </div>
+          <div class="row">
+            <button class="btn primary" id="saveSmtp">保存配置</button>
+            <input id="sTest" placeholder="测试收件邮箱" style="width:200px">
+            <button class="btn" id="testSmtp">发送测试邮件</button>
+            <span class="small muted" id="smtpMsg"></span>
+          </div>
+          <p class="muted small">QQ/163 需用「授权码」；密码加密存库，未配置时回退环境变量。</p>
         </div>
-        <div class="row">
-          <input id="sUser" placeholder="账号，如 you@qq.com" style="width:220px">
-          <input id="sPass" type="password" placeholder="授权码/密码（留空表示不修改）" style="width:260px">
-          <input id="sFrom" placeholder="发件人（留空用账号）" style="width:220px">
-        </div>
-        <div class="row">
-          <button class="btn primary" id="saveSmtp">保存配置</button>
-          <input id="sTest" placeholder="测试收件邮箱" style="width:200px">
-          <button class="btn" id="testSmtp">发送测试邮件</button>
-          <span class="small muted" id="smtpMsg"></span>
-        </div>
-        <p class="muted small">密码加密存库；未配置时回退环境变量。QQ/163 邮箱需用「授权码」，不是登录密码。</p>
-      </div>
+        <h2>验证码发送记录</h2>
+        <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
+      </section>
 
-      <h2>验证码发送记录</h2>
-      <div class="card"><table><thead><tr><th>邮箱</th><th>用途</th><th>结果</th><th>时间</th></tr></thead><tbody id="mailRows"></tbody></table></div>
-
-      <h2 id="stats">数据统计</h2>
-      <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
+      <section data-section="stats" class="hide">
+        <h2>浏览排行（90 天）</h2>
+        <div class="card"><table><thead><tr><th>页面</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
+      </section>
     </div>
   </main>
 </div>
@@ -148,26 +176,30 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const when = (v) => (v ? new Date(v).toISOString().slice(0, 16).replace('T', ' ') : '—');
 let toastTimer = null;
 function toast(msg) {
-  const el = $('toast');
-  el.textContent = msg; el.classList.add('on');
+  const el = $('toast'); el.textContent = msg; el.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 1600);
 }
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'content-type': 'application/json', ...(opts.headers ?? {}) },
-    ...opts,
-  });
+async function api(path, opts) {
+  opts = opts || {};
+  const res = await fetch(path, { headers: { 'content-type': 'application/json', ...(opts.headers || {}) }, ...opts });
   const text = await res.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-  if (res.status === 401) {
-    // 会话失效（例如管理员刚改过密码会踢掉所有会话）：退回登录框，别让人对着假登录状态点
-    await boot().catch(function(){});
-    throw new Error('会话已失效，请重新登录');
-  }
+  if (res.status === 401) { await boot().catch(() => {}); throw new Error('会话已失效，请重新登录'); }
   if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
   return body;
 }
+
+let currentPage = 'users';
+function showPage(page) {
+  currentPage = page;
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
+  document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
+  if (page === 'stats') loadStats();
+  if (page === 'sync') loadLogs();
+  if (page === 'mail') { loadSmtp(); loadMail(); }
+}
+document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
 
 async function boot() {
   const d = await api('/api/me');
@@ -176,162 +208,193 @@ async function boot() {
   $('logout').hidden = !d.user;
   $('loginBox').classList.toggle('hide', !!admin);
   $('app').classList.toggle('hide', !admin);
-  if (admin) { await loadUsers(); await loadStats(); }
+  if (admin) { await loadUsers(); showPage(location.hash.replace('#', '') || 'users'); }
   else if (d.user) $('msg').textContent = '该账号不是管理员。';
 }
 
 async function loadUsers() {
-  const { users } = await api('/api/admin/users');
-  $('userRows').innerHTML = (users ?? []).map((u) => {
+  const d = await api('/api/admin/users');
+  $('userRows').innerHTML = (d.users || []).map(function (u) {
     const name = esc(u.username);
     const disabled = u.disabled === true;
     return '<tr>' +
       '<td>' + name + '</td>' +
-      '<td class="muted small">' + esc(u.display_name ?? '') + '</td>' +
+      '<td class="muted small">' + esc(u.display_name || '') + '</td>' +
+      '<td class="small">' + (u.email ? esc(u.email) : '<span class="pill off">未绑定</span>') + '</td>' +
       '<td>' + esc(u.role) + '</td>' +
       '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? '已禁用' : '正常') + '</span></td>' +
       '<td class="muted small">' + when(u.last_login_at) + '</td>' +
       '<td>' +
         '<button class="btn" data-act="rename" data-user="' + name + '">改名</button> ' +
+        '<button class="btn" data-act="email" data-user="' + name + '">绑邮箱</button> ' +
         '<button class="btn" data-act="pwd" data-user="' + name + '">改密码</button> ' +
         '<button class="btn ' + (disabled ? '' : 'danger') + '" data-act="toggle" data-user="' + name + '" data-disabled="' + disabled + '">' + (disabled ? '启用' : '禁用') + '</button>' +
       '</td></tr>';
-  }).join('') || '<tr><td colspan="6" class="muted">还没有用户</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">还没有用户</td></tr>';
 }
 
-async function patchUser(username, body) {
-  await api('/api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', body: JSON.stringify(body) });
-  await loadUsers();
-  toast('已更新 ' + username);
-}
-
-$('userRows').addEventListener('click', async (e) => {
+$('userRows').addEventListener('click', async function (e) {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const username = btn.dataset.user;
   try {
+    if (btn.dataset.act === 'email') {
+      const v = prompt('绑定登录邮箱（留空表示解绑）：', '');
+      if (v === null) return;
+      await api('/api/admin/users/' + encodeURIComponent(username) + '/email', { method: 'POST', body: JSON.stringify({ email: v.trim() }) });
+      toast(v.trim() ? '已绑定邮箱' : '已解绑');
+      return loadUsers();
+    }
     if (btn.dataset.act === 'rename') {
       const v = prompt('新的显示名（留空清除）：', '');
       if (v === null) return;
-      await patchUser(username, { display_name: v });
-    } else if (btn.dataset.act === 'pwd') {
-      const v = prompt('新密码（≥6 位，保存后该用户会被强制重新登录）：', '');
+      await api('/api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', body: JSON.stringify({ display_name: v }) });
+      toast('已更新'); return loadUsers();
+    }
+    if (btn.dataset.act === 'pwd') {
+      const v = prompt('新密码（≥6 位，保存后该用户被强制重新登录）：', '');
       if (!v) return;
       await api('/api/admin/users/' + encodeURIComponent(username) + '/password', { method: 'POST', body: JSON.stringify({ password: v }) });
-      toast('密码已重置：' + username);
-    } else if (btn.dataset.act === 'toggle') {
+      toast('密码已重置'); return;
+    }
+    if (btn.dataset.act === 'toggle') {
       const disabled = btn.dataset.disabled === 'true';
-      await patchUser(username, { disabled: !disabled });
+      await api('/api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', body: JSON.stringify({ disabled: !disabled }) });
+      toast(disabled ? '已启用' : '已禁用'); return loadUsers();
     }
   } catch (err) { toast('失败：' + err.message); }
 });
 
-$('addUser').onclick = async () => {
+$('addUser').onclick = async function () {
   try {
-    await api('/api/admin/users', {
-      method: 'POST',
-      body: JSON.stringify({ username: $('nu').value.trim(), password: $('np').value, role: $('nr').value }),
-    });
-    $('nu').value = ''; $('np').value = '';
+    const body = { username: $('nu').value.trim(), password: $('np').value, role: $('nr').value };
+    await api('/api/admin/users', { method: 'POST', body: JSON.stringify(body) });
+    const email = $('ne').value.trim();
+    if (email) await api('/api/admin/users/' + encodeURIComponent(body.username) + '/email', { method: 'POST', body: JSON.stringify({ email: email }) });
+    $('nu').value = ''; $('np').value = ''; $('ne').value = '';
     $('addMsg').textContent = '已创建';
     await loadUsers();
   } catch (err) { $('addMsg').textContent = '失败：' + err.message; }
 };
 
-async function loadStats() {
-  const { views } = await api('/api/admin/views');
-  $('viewRows').innerHTML = (views ?? []).map((v) =>
-    '<tr><td>' + esc(v.path) + '</td><td class="num">' + v.views + '</td><td class="muted small">' + when(v.last_at) + '</td></tr>').join('')
-    || '<tr><td colspan="3" class="muted">还没有浏览记录</td></tr>';
-}
-
 let currentGame = null;
-$('loadGame').onclick = async () => {
+$('loadGame').onclick = async function () {
   const appid = $('gappid').value.trim();
   if (!/^\d+$/.test(appid)) { $('gMsg').textContent = '请填数字 appid'; return; }
   try {
-    const { game } = await api('/api/games/' + appid);
-    currentGame = game;
+    const d = await api('/api/games/' + appid);
+    currentGame = d.game;
     $('gBox').classList.remove('hide');
     $('toggleBlock').disabled = false;
-    $('gName').textContent = (game.name ?? appid) + (game.blocked ? '（已禁用）' : '');
-    $('gdesc').value = game.description ?? '';
+    $('gName').textContent = (currentGame.name || appid) + (currentGame.blocked ? '（已禁用）' : '');
+    $('gdesc').value = currentGame.description || '';
     $('gMsg').textContent = '';
   } catch (err) { $('gMsg').textContent = '载入失败：' + err.message; }
 };
-
-$('toggleBlock').onclick = async () => {
+$('toggleBlock').onclick = async function () {
   if (!currentGame) return;
   try {
-    await api('/api/games/' + currentGame.steam_appid + '/blocked', {
-      method: 'POST', body: JSON.stringify({ blocked: !currentGame.blocked }),
-    });
+    await api('/api/games/' + currentGame.steam_appid + '/blocked', { method: 'POST', body: JSON.stringify({ blocked: !currentGame.blocked }) });
     currentGame.blocked = !currentGame.blocked;
-    $('gName').textContent = (currentGame.name ?? '') + (currentGame.blocked ? '（已禁用）' : '');
-    toast(currentGame.blocked ? '已禁用，网站不再显示' : '已恢复显示');
+    $('gName').textContent = (currentGame.name || '') + (currentGame.blocked ? '（已禁用）' : '');
+    toast(currentGame.blocked ? '已禁用' : '已恢复');
   } catch (err) { toast('失败：' + err.message); }
 };
-
-$('saveDesc').onclick = async () => {
+$('saveDesc').onclick = async function () {
   if (!currentGame) return;
   try {
-    await api('/api/games/' + currentGame.steam_appid + '/description', {
-      method: 'POST', body: JSON.stringify({ description: $('gdesc').value, overwrite: true }),
-    });
+    await api('/api/games/' + currentGame.steam_appid + '/description', { method: 'POST', body: JSON.stringify({ description: $('gdesc').value, overwrite: true }) });
     toast('说明已保存');
   } catch (err) { toast('失败：' + err.message); }
 };
 
-$('syncAll').onclick = async () => {
+async function triggerSync() {
   try {
-    const r = await api('/api/admin/sync', { method: 'POST' });
-    $('syncMsg').textContent = '已开始（pid ' + r.pid + '），完成后刷新网站列表';
+    await api('/api/admin/sync', { method: 'POST' });
     toast('同步已开始');
-  } catch (err) { $('syncMsg').textContent = '失败：' + err.message; }
-};
+    if (currentPage !== 'sync') { location.hash = 'sync'; showPage('sync'); }
+  } catch (err) { toast('失败：' + err.message); }
+}
+$('syncAll').onclick = triggerSync;
+$('syncAll2').onclick = triggerSync;
 
-$('login').onclick = async () => {
+async function loadLogs() {
+  const grep = $('logGrep').value.trim();
+  try {
+    const d = await api('/api/admin/logs?limit=200' + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
+    const entries = (d.entries || []).slice().reverse();
+    $('logMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
+    $('logBox').innerHTML = entries.length ? entries.map(function (e) {
+      const lv = String(e.level || '').toLowerCase();
+      const t = e.time ? String(e.time).slice(11, 19) : '';
+      const ev = esc(e.event || e.msg || '');
+      const rest = Object.entries(e).filter(function (kv) { return ['time', 'level', 'event', 'msg', 'runId'].indexOf(kv[0]) < 0; })
+        .map(function (kv) { return kv[0] + '=' + (typeof kv[1] === 'object' ? JSON.stringify(kv[1]) : String(kv[1])); }).join(' ');
+      return '<div class="logline lv-' + esc(lv) + '">' + esc(t) + '  ' + esc(lv.toUpperCase()) + ' ' + ev + '  <span class="muted">' + esc(rest) + '</span></div>';
+    }).join('') : '<div class="muted">没有匹配的日志</div>';
+  } catch (err) {
+    $('logBox').innerHTML = '<div class="lv-error">读取日志失败：' + esc(err.message) + '</div>';
+  }
+}
+$('logRefresh').onclick = loadLogs;
+$('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
+setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
+
+async function loadSmtp() {
+  try {
+    const d = await api('/api/admin/smtp');
+    const s = d.smtp;
+    $('sHost').value = s.host || ''; $('sPort').value = s.port || 465;
+    $('sSecure').value = s.secure ? '1' : '0';
+    $('sUser').value = s.user || ''; $('sFrom').value = s.from || '';
+    $('smtpMsg').textContent = (s.ready ? '已配置' : '未配置') + '（来源：' + (s.source === 'database' ? '后台' : '环境变量') + '）' + (s.hasPassword ? '，密码已保存' : '');
+  } catch (e) { $('smtpMsg').textContent = '读取失败：' + e.message; }
+}
+$('saveSmtp').onclick = async function () {
+  $('smtpMsg').textContent = '保存中…';
+  try {
+    await api('/api/admin/smtp', { method: 'POST', body: JSON.stringify({
+      host: $('sHost').value.trim(), port: Number($('sPort').value || 465), secure: $('sSecure').value === '1',
+      user: $('sUser').value.trim(), pass: $('sPass').value, from: $('sFrom').value.trim(), enabled: true }) });
+    $('sPass').value = '';
+    await loadSmtp(); toast('SMTP 已保存');
+  } catch (e) { $('smtpMsg').textContent = '保存失败：' + e.message; }
+};
+$('testSmtp').onclick = async function () {
+  const to = $('sTest').value.trim();
+  if (!to) { $('smtpMsg').textContent = '先填收件邮箱'; return; }
+  $('smtpMsg').textContent = '发送中…';
+  try { await api('/api/admin/smtp/test', { method: 'POST', body: JSON.stringify({ to: to }) }); $('smtpMsg').textContent = '测试邮件已发送'; }
+  catch (e) { $('smtpMsg').textContent = '发送失败：' + e.message; }
+};
+async function loadMail() {
+  try {
+    const d = await api('/api/admin/emails');
+    $('mailRows').innerHTML = (d.records || []).map(function (r) {
+      return '<tr><td>' + esc(r.email) + '</td><td>' + esc(r.purpose) + '</td><td>' +
+        (r.sent_ok ? '<span class="pill ok">成功</span>' : '<span class="pill off">失败</span> ' + esc(r.error || '')) +
+        '</td><td class="muted small">' + when(r.created_at) + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">还没有发送记录</td></tr>';
+  } catch (e) { /* 表可能未建 */ }
+}
+
+async function loadStats() {
+  try {
+    const d = await api('/api/admin/views');
+    $('viewRows').innerHTML = (d.views || []).map(function (v) {
+      return '<tr><td>' + esc(v.path) + '</td><td class="num">' + v.views + '</td><td class="muted small">' + when(v.last_at) + '</td></tr>';
+    }).join('') || '<tr><td colspan="3" class="muted">还没有浏览记录</td></tr>';
+  } catch (e) { /* ignore */ }
+}
+
+$('login').onclick = async function () {
   $('msg').textContent = '';
   try {
     await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('u').value, password: $('p').value }) });
-    await async function loadSmtp(){
-  try{
-    const d=await api('/api/admin/smtp');
-    const s=d.smtp;
-    $('sHost').value=s.host||''; $('sPort').value=s.port||465;
-    $('sSecure').value=s.secure?'1':'0'; $('sUser').value=s.user||''; $('sFrom').value=s.from||'';
-    $('smtpMsg').textContent=(s.ready?'已配置':'未配置')+'（来源：'+(s.source==='database'?'后台':'环境变量')+'）'+(s.hasPassword?'，密码已保存':'');
-  }catch(e){ $('smtpMsg').textContent='读取失败：'+e.message; }
-}
-$('saveSmtp').onclick=async()=>{
-  $('smtpMsg').textContent='保存中…';
-  try{
-    await api('/api/admin/smtp',{method:'POST',body:JSON.stringify({
-      host:$('sHost').value.trim(), port:Number($('sPort').value||465),
-      secure:$('sSecure').value==='1', user:$('sUser').value.trim(),
-      pass:$('sPass').value, from:$('sFrom').value.trim(), enabled:true }) });
-    $('sPass').value='';
-    await loadSmtp(); toast('SMTP 已保存');
-  }catch(e){ $('smtpMsg').textContent='保存失败：'+e.message; }
-};
-$('testSmtp').onclick=async()=>{
-  const to=$('sTest').value.trim(); if(!to){ $('smtpMsg').textContent='先填收件邮箱'; return; }
-  $('smtpMsg').textContent='发送中…';
-  try{ await api('/api/admin/smtp/test',{method:'POST',body:JSON.stringify({to})}); $('smtpMsg').textContent='测试邮件已发送'; }
-  catch(e){ $('smtpMsg').textContent='发送失败：'+e.message; }
-};
-async function loadMail(){
-  try{ const d=await api('/api/admin/emails');
-    $('mailRows').innerHTML=(d.records||[]).map(r=>
-      '<tr><td>'+esc(r.email)+'</td><td>'+esc(r.purpose)+'</td><td>'+(r.sent_ok?'成功':'失败'+(r.error?'：'+esc(r.error):''))+'</td><td class="muted small">'+when(r.created_at)+'</td></tr>').join('')
-      || '<tr><td colspan="4" class="muted">还没有发送记录</td></tr>';
-  }catch(e){ /* 表可能还没建 */ }
-}
-
-boot().then(()=>{ loadSmtp(); loadMail(); });
+    await boot();
   } catch (err) { $('msg').textContent = err.message; }
 };
-$('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); await boot(); };
+$('logout').onclick = async function () { await api('/api/logout', { method: 'POST' }); await boot(); };
 
 boot();
 </script>
