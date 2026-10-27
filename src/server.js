@@ -463,7 +463,7 @@ export function createApiServer({ query, logger = null, outDir = null }) {
         } catch {
           files = [];
         }
-        const picked = files.slice(-2);
+        const picked = files.slice(-5);
         const entries = [];
         for (const f of picked) {
           try {

@@ -60,9 +60,8 @@ textarea{width:100%;min-height:100px;resize:vertical}
     <nav>
       <button data-page="users" class="on">用户管理</button>
       <button data-page="games">游戏管理</button>
-      <button data-page="sync">采集同步</button>
+      <button data-page="sync">日志</button>
       <button data-page="mail">邮箱配置</button>
-      <button data-page="logs">系统日志</button>
       <button data-page="stats">数据统计</button>
     </nav>
     <div style="margin-top:18px" class="small muted" id="who"></div>
@@ -123,13 +122,13 @@ textarea{width:100%;min-height:100px;resize:vertical}
           <strong class="small">同步 Steam</strong>
           <div class="row">
             <button class="btn primary" id="syncAll">一键同步全部 Steam 游戏</button>
-            <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；到「采集同步」看实时日志</span>
+            <span class="small muted" id="syncMsg">元数据 + 商店简介 + 当前价格；到「日志」看实时输出</span>
           </div>
         </div>
       </section>
 
       <section data-section="sync" class="hide">
-        <h2>同步状态</h2>
+        <h2>日志（当前容器全部输出）</h2>
         <div class="card pad">
           <div class="row">
             <button class="btn primary" id="syncAll2">立即同步全部 Steam 游戏</button>
@@ -140,7 +139,7 @@ textarea{width:100%;min-height:100px;resize:vertical}
           </div>
           <div class="logbox" id="logBox"><div class="muted">加载中…</div></div>
         </div>
-        <p class="muted small">数据来自 logs/*.jsonl。同步完成后能看到 <code>sync.steamall.done</code>；单条失败是 <code>sync.item_failed</code>。</p>
+        <p class="muted small">显示容器内全部结构化日志（最近 5 个文件、最多 300 条）。同步后可见 <code>sync.steamall.done</code> / <code>sync.item_failed</code>；报错多为 <code>error</code> 级别，可搜 "error"。</p>
       </section>
 
       <section data-section="mail" class="hide">
@@ -232,7 +231,6 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') loadStats();
   if (page === 'sync') loadLogs();
-  if (page === 'logs') loadAllLogs();
   if (page === 'mail') { loadSmtp(); loadMail(); }
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
@@ -392,7 +390,7 @@ $('syncAll2').onclick = triggerSync;
 async function loadLogs() {
   const grep = $('logGrep').value.trim();
   try {
-    const d = await api('/api/admin/logs?limit=200' + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
+    const d = await api('/api/admin/logs?limit=300' + (grep ? '&grep=' + encodeURIComponent(grep) : ''));
     const entries = (d.entries || []).slice().reverse();
     $('logMeta').textContent = '文件 ' + (d.files || []).join(', ') + ' · ' + entries.length + ' 条';
     $('logBox').innerHTML = entries.length ? entries.map(function (e) {
