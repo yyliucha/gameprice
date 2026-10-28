@@ -900,11 +900,14 @@ async function loadSyncRuns() {
     }).join('') || '<tr><td colspan="5" class="muted">还没有同步记录</td></tr>';
   } catch (e) { /* 表未建时忽略 */ }
 }
+// 记录本轮是否真的看到过"运行中"：只有从运行中转为结束才自动刷新，避免进页面时就重复拉一遍
+let sawSyncRunning = false;
 async function pollSyncStatus() {
   try {
     const d = await api('/api/admin/sync/status');
     const live = $('syncLive'), meta = $('syncLiveMeta'), box = $('syncLiveBox');
     if (d.running && d.run) {
+      sawSyncRunning = true;
       setSyncBusy(true);
       if (live) live.classList.remove('hide');
       if (meta) meta.textContent = '运行中：' + (d.run.mode === 'catalog' ? '导入目录' : '增量同步') +
@@ -913,7 +916,7 @@ async function pollSyncStatus() {
       syncPollTimer = setTimeout(pollSyncStatus, 3000);
       return;
     }
-    // 结束了
+    // 同步刚结束：自动把列表、统计、同步记录刷新成最新（不用手动按刷新）
     setSyncBusy(false);
     syncPollTimer = null;
     if (d.output && box) {
@@ -922,6 +925,13 @@ async function pollSyncStatus() {
       box.textContent = d.output;
     }
     await loadSyncRuns();
+    if (sawSyncRunning) {
+      sawSyncRunning = false;
+      const ok = d.last?.status === 'ok';
+      toast(ok ? '同步完成，数据已刷新' : '同步结束（有失败），数据已刷新');
+      await loadGameList();
+      await loadGameStats();
+    }
   } catch (e) {
     syncPollTimer = setTimeout(pollSyncStatus, 5000);
   }
