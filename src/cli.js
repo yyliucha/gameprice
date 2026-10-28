@@ -1597,6 +1597,112 @@ async function cmdProxyCheck() {
   console.log('  certificate/ssl → 代理地址写了 https:// 而实际是 http 代理，改成 http://');
 }
 
+/**
+ * 批量回填：用 IStoreBrowseService/GetItems（一次最多 100 个 appid）把全量目录的
+ * 元数据 + 国区价格补齐。失败/缺 key 时回退到单条 appdetails。
+ */
+async function cmdBackfill() {
+  const batch = Math.max(1, Math.min(Number(flag('batch', '50')) || 50, 100));
+  const sleepMs = Math.max(0, Number(flag('sleep', '1500')) || 0);
+  const limit = Math.max(1, Math.min(Number(flag('limit', '20000')) || 20000, 200000));
+  const { fetchStoreItems } = await import('./adapters/store-browse.js');
+  const key = String(process.env.STEAM_API_KEY ?? '').trim();
+  const startedMs = Date.now();
+  let done = 0;
+  let stored = 0;
+  let fallback = 0;
+  let failed = 0;
+  let batches = 0;
+
+  console.log(`批量回填：每批 ${batch} 个、间隔 ${sleepMs}ms、上限 ${limit} 款${key ? '' : '（未配置 STEAM_API_KEY，将全部走单条接口）'}`);
+
+  while (done < limit) {
+    const size = Math.min(batch, limit - done);
+    const rows = await withStore((store) =>
+      store.query(
+        'select g.steam_appid from games g where g.steam_appid is not null and not g.deleted ' +
+          "and (g.description is null or g.description = '' or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam')) " +
+          'order by g.id limit $1',
+        [size],
+      ),
+    );
+    const appids = rows.rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
+    if (!appids.length) {
+      console.log('没有需要回填的游戏了');
+      break;
+    }
+    batches += 1;
+
+    let items = [];
+    let missed = [];
+    if (key) {
+      try {
+        const r = await fetchStoreItems(appids, { key, logger });
+        items = r.items;
+        missed = r.failed;
+      } catch (err) {
+        logger.warn('backfill.batch_failed', { message: String(err.message).slice(0, 160) });
+        missed = appids;
+      }
+    } else {
+      missed = appids;
+    }
+
+    // 回退：批量接口没返回的，逐个走 appdetails（最多 10 个/批，避免拖慢）
+    for (const appid of missed.slice(0, 10)) {
+      try {
+        const one = await fetchMetadata([appid], { backend: 'official', logger });
+        if (one.items?.length) items.push(...one.items);
+        fallback += 1;
+      } catch (err) {
+        failed += 1;
+        logger.warn('backfill.item_failed', { appid, message: String(err.message).slice(0, 160) });
+      }
+      await sleep(400);
+    }
+    failed += Math.max(0, missed.length - 10);
+
+    const offers = [];
+    for (const item of items) {
+      await withStore(async (store) => {
+        const q = (sql, p) => store.query(sql, p);
+        await db.upsertGameMeta(q, item);
+        if (item.priceOverview) {
+          offers.push({
+            platformCode: 'steam',
+            platformProductId: String(item.steamAppid),
+            steamAppid: item.steamAppid,
+            title: item.nameZh ?? String(item.steamAppid),
+            productType: 'official_direct',
+            region: 'cn',
+            currency: item.priceOverview.currency ?? 'CNY',
+            priceCents: Math.round(item.priceOverview.final),
+            originalCents: Math.round(item.priceOverview.initial ?? item.priceOverview.final),
+            discountPct: Number(item.priceOverview.discountPercent ?? 0),
+            inStock: true,
+            buyUrl: 'https://store.steampowered.com/app/' + item.steamAppid + '/',
+            meta: {},
+          });
+        }
+      });
+      stored += 1;
+    }
+    if (offers.length) {
+      await withStore((store) =>
+        ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger }),
+      );
+    }
+
+    done += appids.length;
+    const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);
+    console.log(`  批次 ${batches}：本批 ${appids.length} 款，写入 ${items.length}，回退 ${fallback}，失败 ${failed}；累计 ${done}/${limit}（${rate} 款/分钟）`);
+    if (sleepMs) await sleep(sleepMs);
+  }
+
+  logger.info('backfill.done', { done, stored, fallback, failed, batches, elapsedMs: Date.now() - startedMs });
+  console.log(`完成：处理 ${done} 款，写入 ${stored} 条元数据，单条回退 ${fallback}，失败 ${failed}`);
+}
+
 async function cmdReport() {
   const sub = String(args[1] ?? 'price');
   if (sub !== 'price') {
@@ -1703,6 +1809,7 @@ const commands = {
   stats: cmdStats,
   logs: cmdLogs,
   diagnose: cmdDiagnose,
+  backfill: cmdBackfill,
   'proxy-check': cmdProxyCheck,
   images: cmdImages,
   report: cmdReport,
@@ -1960,6 +2067,7 @@ async function main() {
   logs                 查日志（--level error --event http --since 60 --limit 50）
   diagnose             环境/数据库/网络自检，报告落盘
   proxy-check          代理专项排查：TCP → CONNECT → 经代理访问 Steam
+  backfill             批量回填全量游戏的元数据/价格（GetItems，一次最多 100 个 appid）
 
 通用参数：--db <target> --level <trace|debug|info|warn|error> --log-dir <dir>
 环境变量：DATABASE_URL / ITAD_API_KEY / LOG_LEVEL / LOG_DIR

@@ -2,6 +2,22 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.25.0] - 2026-10-28
+
+批量回填全量游戏的元数据与国区价格。
+
+### 新增
+
+- **ackfill 命令**：用 `IStoreBrowseService/GetItems`（一次最多 100 个 appid，需 `STEAM_API_KEY`）
+  批量补名称/类型/开发商/发行商/简介/国区现价与原价，配合 `upsertGameMeta` + `ingestOffers` 落库
+- 单批失败或个别 appid 不返回时，自动**回退单个 appdetails**（每批最多 10 个，避免拖慢）
+- 只处理「缺说明或缺 Steam 报价」的游戏，可断点续跑；默认**不下载图片**（之后 `images pull` 只补有价格的）
+- 用法：`node src/cli.js backfill --batch 50 --sleep 1500 --limit 20000`
+
+### 测试
+
+- 新增 `test/store-browse.test.js`：请求体（100 上限/上下文）、字段映射（含免费/DLC/无价）、
+  分批与缺失 appid 收集、无 key 抛错
 ## [0.24.5] - 2026-10-28
 
 修复前台列表卡在「加载中…」。
