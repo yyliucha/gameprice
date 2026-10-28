@@ -444,6 +444,45 @@ test('个人标记：登录用户个人优先，未标记回退全局标记', as
   }
 });
 
+test('到价提醒：管理员增删查、appid 解析、普通用户 403、匿名 401', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+    const alice = await login(base, 'alice', 'alice123456');
+
+    const byAppid = await fetch(`${base}/api/admin/watchlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ appid: 413150, targetCents: 3000 }),
+    });
+    assert.equal(byAppid.status, 200);
+    const list = await (await fetch(`${base}/api/admin/watchlist`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(list.watches.length, 1);
+    assert.equal(list.watches[0].target_cents, 3000, '按 appid 也能解析成游戏');
+
+    const gid = list.watches[0].game_id;
+    // 留空 = 只跟史低
+    await fetch(`${base}/api/admin/watchlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ gameId: gid, targetCents: null }),
+    });
+    const list2 = await (await fetch(`${base}/api/admin/watchlist`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(list2.watches[0].target_cents, null, '留空应覆盖成史低提醒');
+
+    assert.equal((await fetch(`${base}/api/admin/watchlist`, { headers: { cookie: alice.cookie } })).status, 403);
+    assert.equal((await fetch(`${base}/api/admin/watchlist`)).status, 401);
+
+    const del = await fetch(`${base}/api/admin/watchlist/${gid}`, { method: 'DELETE', headers: { cookie: admin.cookie } });
+    assert.equal(del.status, 200);
+    const list3 = await (await fetch(`${base}/api/admin/watchlist`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(list3.watches.length, 0);
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

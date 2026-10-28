@@ -660,6 +660,47 @@ export function createApiServer({
         return json(res, 200, { games: await db.listDeletedGames(q, { limit }) });
       }
 
+      // ---- 管理员：到价提醒（关注列表）----
+      if (path === '/api/admin/watchlist' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const region = String(url.searchParams.get('region') ?? 'cn');
+        return json(res, 200, { watches: await db.listWatches(q, { region }) });
+      }
+
+      if (path === '/api/admin/watchlist' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        let gameId = Number(body.gameId);
+        if (!Number.isFinite(gameId) || gameId <= 0) {
+          const appid = Number(body.appid);
+          const found = Number.isFinite(appid) && appid > 0 ? await db.gameDetail(q, { steamAppid: appid }) : null;
+          if (!found) return json(res, 400, { error: '需要有效的 gameId 或 appid' });
+          gameId = found.id;
+        }
+        let targetCents = null;
+        if (body.targetCents != null && body.targetCents !== '') {
+          const n = Math.round(Number(body.targetCents));
+          if (!Number.isFinite(n) || n < 0) return json(res, 400, { error: '目标价不合法' });
+          targetCents = n;
+        }
+        const id = await db.upsertWatch(q, {
+          gameId,
+          region: 'cn',
+          targetCents,
+          note: String(body.note ?? '').trim().slice(0, 200) || null,
+        });
+        logger?.info('api.watch_saved', { gameId, targetCents, by: user.username });
+        return json(res, 200, { id });
+      }
+
+      const watchDel = path.match(/^\/api\/admin\/watchlist\/(\d+)$/);
+      if (watchDel && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const removed = await db.deleteWatch(q, { gameId: Number(watchDel[1]), region: 'cn' });
+        logger?.info('api.watch_deleted', { gameId: Number(watchDel[1]), removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
       // ---- 管理员：合并重复游戏（把 from 并进 to，按 Steam appid 指定）----
       if (path === '/api/admin/games/merge' && req.method === 'POST') {
         if (!requireAdmin()) return;

@@ -619,6 +619,27 @@ async function openDetail(appid, gid) {
       '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
     : '';
 
+  // 到价提醒：关注列表是全局的（提醒发到管理员配置的通道），只在管理员登录时提供入口
+  const isAdmin = state.user?.role === 'admin';
+  let watch = null;
+  if (isAdmin) {
+    try {
+      const wl = await (await fetch('/api/admin/watchlist')).json();
+      watch = (wl.watches || []).find(function (w) { return Number(w.game_id) === Number(g.id); }) ?? null;
+    } catch (e) {
+      /* 关注列表读取失败不影响详情展示 */
+    }
+  }
+  const watchBar = isAdmin
+    ? '<div class="bar">' +
+        '<input id="watchTarget" placeholder="目标价（元，留空=史低提醒）" style="width:210px;margin:0" value="' +
+          (watch?.target_cents != null ? (watch.target_cents / 100).toFixed(2) : '') + '">' +
+        '<button class="btn primary" id="watchSave">' + (watch ? '更新到价提醒' : '保存到价提醒') + '</button>' +
+        (watch ? '<button class="btn" id="watchDel">取消提醒</button>' : '') +
+        '<span class="small muted" id="watchMsg">' + (watch ? '已在关注（到价或史低时通知）' : '未关注') + '</span>' +
+      '</div>'
+    : '';
+
   const headerImg = appid
     ? '<img src="/img/steam/' + esc(appid) + '/header" alt="" loading="lazy" style="display:block;width:100%;max-width:520px;border-radius:10px;margin:0 auto 12px;background:var(--hover)" onerror="this.style.display=\'none\'">'
     : '';
@@ -633,10 +654,46 @@ async function openDetail(appid, gid) {
     '<div class="bar"><span class="pill">现价 ' + yuan(g.current_low) + '</span>' +
     '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
     '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
-    chartSvg(d.series) + admin +
+    chartSvg(d.series) + admin + watchBar +
     '<div class="card tableWrap" style="margin-top:12px"><table><thead><tr><th>区服</th><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
 
   document.getElementById('closeDetail').onclick = () => dlg.close();
+  if (isAdmin) {
+    const saveBtn = document.getElementById('watchSave');
+    const delBtn = document.getElementById('watchDel');
+    if (saveBtn) saveBtn.onclick = async () => {
+      const raw = ($('watchTarget')?.value ?? '').trim();
+      const msg = $('watchMsg');
+      const targetCents = raw === '' ? null : Math.round(Number(raw) * 100);
+      if (targetCents != null && (!Number.isFinite(targetCents) || targetCents < 0)) {
+        if (msg) msg.textContent = '目标价格式不对';
+        return;
+      }
+      try {
+        const res = await fetch('/api/admin/watchlist', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ gameId: g.id, targetCents }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+        toast(targetCents == null ? '已加入关注（到史低时提醒）' : '已设置到价提醒：¥' + (targetCents / 100).toFixed(2));
+        dlg.close();
+      } catch (err) {
+        if (msg) msg.textContent = '保存失败：' + err.message;
+      }
+    };
+    if (delBtn) delBtn.onclick = async () => {
+      try {
+        const res = await fetch('/api/admin/watchlist/' + g.id, { method: 'DELETE' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+        toast('已取消关注');
+        dlg.close();
+      } catch (err) {
+        const msg = $('watchMsg');
+        if (msg) msg.textContent = '取消失败：' + err.message;
+      }
+    };
+  }
   if (admin) {
     document.getElementById('toggleInterest').onclick = async () => {
       const next = g.interested === false; // 点一下切换：当前不感兴趣 → 恢复感兴趣

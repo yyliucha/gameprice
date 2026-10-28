@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.6] - 2026-10-28
+
+前台「到价提醒」入口（关注列表此前只能 CLI 操作）。
+
+### 新增
+
+- **详情弹窗到价提醒**（管理员登录可见）：填目标价（元，留空=只跟史低）→ 保存；
+  已关注时显示「更新 / 取消提醒」与当前状态
+- **接口**：`GET /api/admin/watchlist`、`POST /api/admin/watchlist`（`{gameId | appid, targetCents}`）、
+  `DELETE /api/admin/watchlist/:gameId`——管理员专属（普通用户 403、匿名 401）
+
+### 测试
+
+- `api.test.js` 新增：按 appid 解析、留空覆盖成史低、普通用户 403、匿名 401、删除生效
+
 ## [0.19.5] - 2026-10-28
 
 同步结束后控制台自动刷新数据。
