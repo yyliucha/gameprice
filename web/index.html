@@ -67,6 +67,24 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 #detailDlg .detailFacts .pill{margin:1px 2px}
 /* 前端后台弹窗同样放宽，表格不挤 */
 #adminDlg{width:min(720px,94vw);max-width:94vw;max-height:86vh;overflow:auto}
+/* 窄屏（手机）适配：表头/表格横向滚动，间距与字号收紧 */
+@media (max-width:760px){
+  .wrap{padding:0 12px}
+  header .wrap{height:auto;flex-wrap:wrap;gap:6px;padding:8px 0}
+  main{padding:16px 0 56px}
+  h1{font-size:20px}
+  .bar{gap:6px}
+  .chip{font-size:12px;padding:4px 10px}
+  #q{max-width:100%!important;margin-left:0!important;flex:1 1 100%}
+  .card{overflow-x:auto}
+  table{font-size:13px}
+  th,td{padding:8px 8px}
+  .gameImg{width:64px;height:30px;margin-right:6px}
+  .detailHead{flex-wrap:wrap}
+  #detailDlg{width:96vw;padding:14px}
+  #detailDlg table{min-width:560px}
+  .toTop{right:10px;bottom:64px;padding:6px 10px;font-size:12px}
+}
 input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px;margin:6px 0 12px}
 #msg{margin-top:10px;font-size:13px;color:var(--warn);min-height:18px}
 .hide{display:none !important}
@@ -230,6 +248,22 @@ async function persistPrefs() {
 
 const yuan = (cents) => (cents == null ? '—' : '¥' + (cents / 100).toFixed(2));
 const pct = (d) => (d ? '-' + d + '%' : '—');
+// 多区服展示：区服中文名 + 按币种显示金额（不同币种不折算，这是数据层的约定）
+const REGION_LABELS = {
+  cn: '国区', hk: '港区', tw: '台区', us: '美区', jp: '日区', ru: '俄区',
+  tr: '土区', ar: '阿区', gb: '英区', de: '德区', br: '巴西', ca: '加区', au: '澳区', kr: '韩区',
+};
+const regionLabel = (r) => REGION_LABELS[String(r ?? '').toLowerCase()] ?? (r ? String(r) : '—');
+const CURRENCY_SYMBOLS = {
+  CNY: '¥', USD: '$', EUR: '€', GBP: '£', JPY: 'JP¥', RUB: '₽', TRY: '₺', ARS: 'ARS ',
+  BRL: 'R$', HKD: 'HK$', TWD: 'NT$', KRW: '₩',
+};
+function money(cents, currency) {
+  if (cents == null) return '—';
+  const cur = String(currency ?? 'CNY').toUpperCase();
+  const sym = CURRENCY_SYMBOLS[cur] ?? cur + ' ';
+  return sym + (cents / 100).toFixed(2);
+}
 // 轻量提示条：标记成功/失败给个即时反馈（避免"点了没反应"的错觉）
 let toastTimer = null;
 function toast(msg) {
@@ -566,13 +600,16 @@ async function openDetail(appid, gid) {
   const genres = (g.genres ?? []).filter((x) => !String(x).startsWith('tag:'));
   if (genres.length) facts.push('分类 ' + genres.map((x) => '<span class="pill">' + esc(x) + '</span>').join(' '));
 
-  const offers = (d.offers ?? []).map((o) =>
-    '<tr><td>' + esc(o.platform_name ?? o.platform_code) + '</td>' +
-    '<td class="num">' + yuan(o.price_cents) + '</td>' +
-    '<td class="num">' + yuan(o.original_cents) + '</td>' +
+  // 区服标签：多区服数据一直在库里有，这里直接展示（不同币种不折算）
+  const OFFERS = (d.offers ?? []).map((o) =>
+    '<tr><td class="small">' + esc(regionLabel(o.region)) + '</td>' +
+    '<td>' + esc(o.platform_name ?? o.platform_code) + '</td>' +
+    '<td class="num">' + money(o.price_cents, o.currency) + '</td>' +
+    '<td class="num">' + money(o.original_cents, o.currency) + '</td>' +
     '<td class="num">' + pct(o.discount_pct) + '</td>' +
     '<td>' + (o.buy_url ? '<a href="' + esc(o.buy_url) + '" target="_blank" rel="noopener noreferrer nofollow">去购买</a>' : '—') + '</td></tr>'
-  ).join('') || '<tr><td colspan="5" class="muted">当前没有在售报价</td></tr>';
+  ).join('') || '<tr><td colspan="6" class="muted">当前没有在售报价</td></tr>';
+  const offers = OFFERS;
 
   // 标记是全局的（games.interested / games.owned），只有管理员能改。
   // 有 Steam appid 用 /api/games/<appid>/...；没有 appid（杉果等）用 /api/games/id/<内部id>/...
@@ -597,7 +634,7 @@ async function openDetail(appid, gid) {
     '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
     '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
     chartSvg(d.series) + admin +
-    '<div class="card tableWrap" style="margin-top:12px"><table><thead><tr><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
+    '<div class="card tableWrap" style="margin-top:12px"><table><thead><tr><th>区服</th><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
 
   document.getElementById('closeDetail').onclick = () => dlg.close();
   if (admin) {

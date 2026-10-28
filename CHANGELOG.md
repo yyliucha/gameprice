@@ -2,12 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.3] - 2026-10-28
+
+多区服展示、合并重复游戏入口、移动端适配。
+
+### 新增
+
+- **详情弹窗支持多区服**：报价表新增「区服」列（国区/港区/美区/俄区/土区…），金额按币种显示
+  （¥/$/€/₽/₺ 等，不同币种不折算）；多区服数据本来就在库里有，之前前端没展示
+- **合并重复游戏入口**（控制台「合并重复游戏」卡片）：填两个 Steam appid，
+  把源的报价/快照/日聚合/关注迁移到目标后删除源行；接口 `POST /api/admin/games/merge`
+- **移动端基础适配**：前台/控制台窄屏下侧栏折叠、表格横向滚动、字号与间距收紧
+
+### 测试
+
+- `api.test.js` 新增合并接口断言（报价迁移、源行删除、匿名 401、同源同目标 400）
+
 ## [0.19.2] - 2026-10-28
 
 价格报表增强：新史低、按天趋势、CSV 导出。
 
 ### 新增
 
+- **国内镜像入口**：`compose.cn.yaml` / `compose.cn.external-db.yaml` 使用腾讯云 TCR 公开镜像
+  `ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals`，国内不依赖 Docker Hub；
+  `docker-tcr` 工作流负责推 amd64 app 镜像并镜像 `postgres:15-alpine`
 - **新史低统计**：报表里新增 `newLows`——窗口内降价的游戏里，现价 ≤ 历史最低（日聚合）的条数
 - **按天趋势**（`GET /api/admin/reports/price?days=7` 的 `daily`）：近 N 天每天降价/涨价/合计条数；
   控制台「数据统计 → 近 7 天变动趋势」

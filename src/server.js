@@ -633,6 +633,25 @@ export function createApiServer({
         return json(res, 200, { games: await db.listDeletedGames(q, { limit }) });
       }
 
+      // ---- 管理员：合并重复游戏（把 from 并进 to，按 Steam appid 指定）----
+      if (path === '/api/admin/games/merge' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const fromAppid = Number(body.fromAppid);
+        const toAppid = Number(body.toAppid);
+        if (!Number.isFinite(fromAppid) || !Number.isFinite(toAppid)) {
+          return json(res, 400, { error: '需要 fromAppid 与 toAppid' });
+        }
+        if (fromAppid === toAppid) return json(res, 400, { error: '源和目标不能是同一个游戏' });
+        const from = await db.gameDetail(q, { steamAppid: fromAppid });
+        const to = await db.gameDetail(q, { steamAppid: toAppid });
+        if (!from) return json(res, 404, { error: '源游戏不存在：' + fromAppid });
+        if (!to) return json(res, 404, { error: '目标游戏不存在：' + toAppid });
+        const result = await db.mergeGames(q, { fromGameId: from.id, toGameId: to.id, logger });
+        logger?.info('api.game_merged', { fromAppid, toAppid, ...result, by: user.username });
+        return json(res, 200, { result });
+      }
+
       // ---- 管理员：逻辑删除 / 恢复（按 appid 或内部 id）----
       const delByAppid = path.match(/^\/api\/games\/(\d+)\/deleted$/);
       const delById = path.match(/^\/api\/games\/id\/(\d+)\/deleted$/);

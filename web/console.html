@@ -51,6 +51,18 @@ textarea{width:100%;min-height:100px;resize:vertical}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
+/* 窄屏（平板/手机）：侧栏改为顶部横排，主区撑满 */
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  aside{position:static;height:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-right:0;border-bottom:1px solid var(--border)}
+  aside .brand{margin:0 8px 0 0}
+  aside nav{display:flex;flex-wrap:wrap;gap:4px;width:100%}
+  nav button{width:auto;padding:6px 10px;margin:0}
+  main{padding:14px 12px 40px;max-width:none}
+  .card{overflow-x:auto}
+  table{font-size:13px}
+  th,td{padding:8px 8px}
+}
 </style>
 </head>
 <body>
@@ -180,6 +192,16 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <input id="pgJump" placeholder="页码" style="width:62px">
             <button class="btn" id="pgGo">跳转</button>
           </span>
+        </div>
+
+        <h2>合并重复游戏</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="mergeFrom" placeholder="源 appid（被合并掉）" style="width:170px">
+            <input id="mergeTo" placeholder="目标 appid（保留）" style="width:170px">
+            <button class="btn danger" id="mergeBtn">合并</button>
+            <span class="small muted" id="mergeMsg">把源游戏的报价/快照/日聚合/关注迁移到目标，然后删除源行（不可撤销）</span>
+          </div>
         </div>
       </section>
 
@@ -589,6 +611,28 @@ async function loadRecycleBin() {
   }
 }
 if ($('recycleRefresh')) $('recycleRefresh').onclick = loadRecycleBin;
+
+// ---- 合并重复游戏：把源并进目标（报价/快照/日聚合/关注迁移，源行删除）----
+if ($('mergeBtn')) $('mergeBtn').onclick = async function () {
+  const fromAppid = Number(($('mergeFrom').value || '').trim());
+  const toAppid = Number(($('mergeTo').value || '').trim());
+  const msg = $('mergeMsg');
+  if (!fromAppid || !toAppid) { msg.textContent = '请填源和目标 appid'; return; }
+  if (fromAppid === toAppid) { msg.textContent = '源和目标不能相同'; return; }
+  const ok = window.confirm('把 ' + fromAppid + ' 合并进 ' + toAppid + '？源行会被删除，数据迁移不可撤销。');
+  if (!ok) return;
+  msg.textContent = '合并中…';
+  try {
+    const d = await api('/api/admin/games/merge', { method: 'POST', body: JSON.stringify({ fromAppid, toAppid }) });
+    msg.textContent = '合并完成：迁移报价 ' + (d.result?.moved ?? 0) + ' 条，丢弃重复 ' + (d.result?.dropped ?? 0) + ' 条';
+    $('mergeFrom').value = '';
+    $('mergeTo').value = '';
+    await loadGameList();
+    await loadGameStats();
+  } catch (e) {
+    msg.textContent = '合并失败：' + e.message;
+  }
+};
 $('recycleRows').addEventListener('click', async function (e) {
   const btn = e.target.closest('button[data-restore]');
   if (!btn) return;

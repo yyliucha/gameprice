@@ -355,6 +355,49 @@ test('服务端搜索与分页：分页元数据、关键词全库搜索、折�
   }
 });
 
+test('合并重复游戏：报价迁移到目标、源行删除、参数校验', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+    const dupId = (await q("insert into games (steam_appid, name) values (555001, '星露谷物语(重复)') returning id")).rows[0].id;
+    await q(
+      "insert into offers (game_id, platform_code, product_type, region, currency, price_cents, in_stock) values ($1,'sonkwo','authorized_direct','cn','CNY',1000,true)",
+      [dupId],
+    );
+    const r = await fetch(`${base}/api/admin/games/merge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ fromAppid: 555001, toAppid: 413150 }),
+    });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.result.merged, true);
+    assert.ok(body.result.moved >= 1, '至少迁移 1 条报价');
+    assert.equal((await q('select count(*)::int as n from games where steam_appid = 555001')).rows[0].n, 0, '源行已删除且合并进目标');
+    const targetId = (await q('select id from games where steam_appid = 413150')).rows[0].id;
+    assert.equal(
+      (await q("select count(*)::int as n from offers where game_id = $1 and platform_code = 'sonkwo'", [targetId])).rows[0].n,
+      1,
+      '杉果报价已迁到目标游戏',
+    );
+
+    // 匿名 401、同源同目标 400
+    assert.equal(
+      (await fetch(`${base}/api/admin/games/merge`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fromAppid: 413150, toAppid: 730 }) })).status,
+      401,
+    );
+    const bad = await fetch(`${base}/api/admin/games/merge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ fromAppid: 413150, toAppid: 413150 }),
+    });
+    assert.equal(bad.status, 400);
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');
