@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { createLogger, serializeError, readLogs } from './log.js';
 import { openStore, ping } from './store/index.js';
 import { startApiServer } from './server.js';
@@ -23,14 +25,14 @@ import {
 import { bestMatch, confidenceLabel } from './match.js';
 import { renderCompare, groupOffersByRegion } from './compare.js';
 import { extractAppId, fetchMetadata } from './adapters/steam-meta.js';
-import { describeProxy } from './proxy.js';
+import { describeProxy, decideProxy, parseProxy, redactProxy } from './proxy.js';
 import { startStaticServer } from './serve.js';
 import * as settings from './settings.js';
 
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
 const humble = { ...humbleDescriptor, searchOffer: humbleSearch };
-import { fetchText, fetchJson, fetchBuffer, sleep } from './http.js';
+import { fetchText, fetchJson, fetchBuffer, sleep, proxyStatusHint } from './http.js';
 import { runPool } from './pool.js';
 import { createBackup } from './backup.js';
 
@@ -1344,6 +1346,64 @@ async function cmdDiagnose() {
   const proxyInfo = describeProxy(process.env);
   add('proxy:steam', true, proxyInfo.steam.via === 'direct' ? '直连（国内通常不可达）' : `${proxyInfo.steam.via} → ${proxyInfo.steam.proxy}`);
   add('proxy:others', true, proxyInfo.others.via === 'direct' ? '直连' : `${proxyInfo.others.via} → ${proxyInfo.others.proxy}`);
+
+  // 代理"协议层"探测：TCP 通 ≠ CONNECT 通（407 要账号密码、403 是代理禁目标、代理挂了是 ECONNREFUSED）。
+  // 关键点：必须用**未脱敏**的代理地址探测——凭证在 URL 里，拿 "http://***@host" 去探只会得到 407。
+  const probeProxyConnect = async (proxyUrl, target) => {
+    const u = new URL(proxyUrl.includes('://') ? proxyUrl : 'http://' + proxyUrl);
+    const secure = u.protocol === 'https:';
+    const headers = { host: target };
+    if (u.username) {
+      const cred = `${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`;
+      headers['proxy-authorization'] = 'Basic ' + Buffer.from(cred).toString('base64');
+    }
+    try {
+      const res = await new Promise((resolve, reject) => {
+        const req = (secure ? httpsRequest : httpRequest)(
+          {
+            host: u.hostname,
+            port: Number(u.port || (secure ? 443 : 80)),
+            method: 'CONNECT',
+            path: target,
+            headers,
+            timeout: 12000,
+          },
+          () => reject(new Error('代理没有返回 CONNECT 响应')),
+        );
+        req.on('connect', (r, sock) => {
+          sock.destroy();
+          resolve(r);
+        });
+        req.on('timeout', () => req.destroy(new Error('CONNECT 超时（12s）')));
+        req.on('error', reject);
+        req.end();
+      });
+      const status = res.statusCode;
+      const detail = status === 200 ? '成功：代理能建隧道' : proxyStatusHint(status);
+      return { ok: status === 200, detail: `CONNECT ${target} → ${status}（${detail}）` };
+    } catch (err) {
+      return { ok: false, detail: `CONNECT ${target} 失败：${String(err.message).slice(0, 140)}` };
+    }
+  };
+
+  // socks5:// 之类会被 parseProxy 静默丢掉、回落直连——最难查的一类配置错误，单独报出来
+  const rawSteamProxy = String(process.env.STEAM_PROXY ?? process.env.steam_proxy ?? '').trim();
+  if (rawSteamProxy && !parseProxy(rawSteamProxy)) {
+    add('proxy:format', false, 'STEAM_PROXY 不是合法的 http/https 地址（只支持 http:// 或 https://，socks5 不支持）');
+  }
+
+  // store 与 api 的放行规则经常不一样，而「导入目录」走的正是 api.steampowered.com
+  const steamRoute = decideProxy('api.steampowered.com', process.env);
+  if (steamRoute.url) {
+    const shown = redactProxy(steamRoute.url);
+    for (const [name, target] of [
+      ['proxy:connect', 'store.steampowered.com:443'],
+      ['proxy:connect:api', 'api.steampowered.com:443'],
+    ]) {
+      const r = await probeProxyConnect(steamRoute.url, target);
+      add(name, r.ok, `${r.detail}${shown ? `；代理 ${shown}` : ''}`);
+    }
+  }
 
   if (dbTarget) {
     try {

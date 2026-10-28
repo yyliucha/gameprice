@@ -471,33 +471,39 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
 ```bash
 node test/log.test.js        # 7 项：JSONL 格式、脱敏、轮转读取、过滤
 node test/adapters.test.js   # 5 项：Steam 接口构造与解析
-node test/sonkwo.test.js     # 7 项：对着真实页面快照解析（含"别取错版本价"）
-node test/gog.test.js        # 9 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
+node test/sonkwo.test.js     # 9 项：对着真实页面快照解析（含"别取错版本价"）
+node test/gog.test.js        # 11 项：标题归一化、精确匹配、拒绝模糊结果、折扣计算
 node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校验、重定向与 404
-node test/steam-meta.test.js # 11 项：appid 解析、双后端归一化、官方不可用时自动回落
-node test/gamemeta.test.js   # 5 项：元数据只补空缺、不覆盖人工维护的名字
+node test/steam-meta.test.js # 15 项：appid 解析、双后端归一化、官方不可用时自动回落
 node test/proxy.test.js      # 10 项：代理决策、NO_PROXY、密码脱敏、本地代理真实转发
+node test/http-error.test.js # 8 项：代理隧道错误翻译（407/403/502）、code=0 不误判、真实 ProxyAgent
 node test/serve.test.js      # 5 项：路径穿越防护、内容类型、GET/HEAD/405
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
-node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
 node test/compare.test.js    # 7 项：分区、同币种比较、终端渲染
 node test/regions.test.js    # 4 项：跨区报价存储与 C2C 隔离（真 PG）
-node test/store.test.js      # 10 项：URL 解析、建库 SQL、真 TCP PG 协议下自动建库
-node test/pg.test.js         # 8 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
-node test/report.test.js     # 9 项：SVG 图表、转义、空数据、静态站点端到端
+node test/store.test.js      # 12 项：URL 解析、建库 SQL、真 TCP PG 协议下自动建库
+node test/merge.test.js      # 5 项：合并重复游戏行（报价/快照/日聚合/关注）
+node test/gamemeta.test.js   # 6 项：元数据只补空缺、不覆盖人工维护的名字
+node test/pg.test.js         # 11 项：真 PG 语义（PGlite）跑建表/入库/去重/主榜/史低
+node test/report.test.js     # 14 项：SVG 图表、转义、空数据、静态站点端到端
 node test/alerts.test.js     # 8 项：到价判定、同价位去重、简报、webhook 失败不抛
 node test/notify.test.js     # 10 项：通道发现、MIME 编码、假 SMTP 协议对话、企业微信 errcode
 node test/watchlist.test.js  # 5 项：关注表 CRUD、候选查询、标记后不再提醒、级联删除
-node test/scheduler.test.js  # 11 项：调度时刻表、首轮错开、参数透传、熔断
+node test/scheduler.test.js  # 13 项：调度时刻表、首轮错开、参数透传、熔断
 node test/visitors.test.js   # 5 项：IP/CIDR 校验、记录落库与过滤、黑名单 403 拦截、权限隔离
 node test/sync-runs.test.js  # 2 项：同步任务记录生命周期、重启中断标记、状态接口权限
-node test/deploy.test.js     # 8 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
+node test/pool.test.js       # 4 项：并发上限、结果顺序、单项失败隔离
+node test/version.test.js    # 4 项：版本比较、release/tag 回退、缓存与强制刷新
+node test/images.test.js     # 4 项：封面缓存路径安全、原子写、下载失败兜底
+node test/settings.test.js   # 8 项：设置定义、密钥加密、env 兜底与水合、SMTP 特殊存储
+node test/setup.test.js      # 4 项：首次初始化流程与 SETUP_TOKEN
+node test/deploy.test.js     # 23 项：compose/Dockerfile/入口脚本一致性、CRLF 检查
 node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐全、README 必备章节、CHANGELOG 格式、许可一致
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **210 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **258 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

@@ -2,6 +2,27 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.21.1] - 2026-10-28
+
+同步失败不再只有 `fetch failed`：代理拒绝建隧道时，直接把代理的回答写进同步记录。
+
+### 修复
+
+- **代理拒绝 CONNECT 的报错说清楚了**：undici 把真实原因埋在三层 `cause` 里（最外层 `fetch failed`、
+  中间层是 `code=0` 的 `Request was cancelled.`、最底层才是 `Proxy response (407) !== 200 when HTTP Tunneling`）。
+  现在顺着 `cause` 链挖到底，同步记录显示 `fetch failed (PROXY_407) → api.steampowered.com · 代理要求认证… · 经 steam-proxy`，
+  日志同时记 `proxyStatus` / `cause`，不再出现毫无意义的 `code=0`
+- **403/407 不再无意义重试**：这是代理配置问题，重试 3 次只会拖慢并刷屏；代理 5xx 仍然重试
+- **`diagnose` 增加代理隧道探测**：对 `store.steampowered.com:443` 与 `api.steampowered.com:443` 各发一次 CONNECT，
+  直接打印代理的状态码（407 要账号密码、403 是代理不放行、200 才算通）；探测用未脱敏的代理地址，带账号密码也能验通
+- **代理地址格式配错时会明说**：`STEAM_PROXY=socks5://…` 这类值原来被静默丢弃、回落直连，
+  `diagnose` 现在报 `proxy:format` 失败
+
+### 测试
+
+- 新增 `test/http-error.test.js`：三层 cause 链解析、`code=0` 不当错误码、407 不重试且提示可操作、
+  起本地假代理真实走一遍 undici `ProxyAgent`（407 → `PROXY_407` 且只请求一次，502 → 重试）
+
 ## [0.21.0] - 2026-10-28
 
 控制台显示当前版本，并在有新版本时提示。

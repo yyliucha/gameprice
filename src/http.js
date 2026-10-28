@@ -36,20 +36,101 @@ const hostOf = (url) => {
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
-function classify(err) {
-  const code = err?.cause?.code ?? err?.cause?.errno ?? err?.code ?? '';
-  const map = {
-    ENOTFOUND: 'DNS 解析失败（域名不存在或 DNS 不可用）',
-    ECONNREFUSED: '连接被拒绝（端口没有服务）',
-    ECONNRESET: '连接被对端重置（常见于风控或中间设备）',
-    ETIMEDOUT: '连接超时（目标不可达或被阻断）',
-    UND_ERR_CONNECT_TIMEOUT: '连接超时（目标不可达或被阻断）',
-    UND_ERR_HEADERS_TIMEOUT: '等待响应头超时',
-    UND_ERR_SOCKET: '连接被关闭',
-    CERT_HAS_EXPIRED: '证书过期',
-    UNABLE_TO_VERIFY_LEAF_SIGNATURE: '证书校验失败（可能有中间人代理）',
-  };
-  return { code, hint: map[code] ?? '' };
+// 出网错误的"翻译表"：把 undici/Node 的英文错误码变成能照着做的中文提示。
+const CODE_HINTS = {
+  ENOTFOUND: 'DNS 解析失败（域名不存在或 DNS 不可用）',
+  ECONNREFUSED: '连接被拒绝（端口没有服务）',
+  ECONNRESET: '连接被对端重置（常见于风控或中间设备）',
+  ETIMEDOUT: '连接超时（目标不可达或被阻断）',
+  UND_ERR_CONNECT_TIMEOUT: '连接超时（目标不可达或被阻断）',
+  UND_ERR_HEADERS_TIMEOUT: '等待响应头超时',
+  UND_ERR_BODY_TIMEOUT: '读取响应体超时',
+  UND_ERR_SOCKET: '连接被关闭',
+  UND_ERR_ABORTED: '请求被中止（常见于代理拒绝隧道或连接被重置）',
+  UND_ERR_PRX_TLS: '代理的 HTTPS 证书校验失败（自签证书？换 http:// 或导入证书）',
+  CERT_HAS_EXPIRED: '证书过期',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: '证书校验失败（可能有中间人代理）',
+  DEPTH_ZERO_SELF_SIGNED_CERT: '证书是自签名的（可能有中间人代理）',
+  ERR_TLS_CERT_ALTNAME_INVALID: '证书域名不匹配（可能有中间人代理）',
+};
+
+/** undici 在代理拒绝建隧道时抛的英文原因，形如 "Proxy response (407) !== 200 when HTTP Tunneling" */
+const PROXY_TUNNEL_RE = /Proxy response \((\d{3})\) !== 200/;
+
+/** 代理 CONNECT 的状态码 → 人话。诊断命令也复用这张表。 */
+export const PROXY_STATUS_HINTS = {
+  400: '代理不接受 CONNECT（配的可能是反向代理，不是 HTTP 正向代理）',
+  403: '代理拒绝放行该域名（检查代理规则/白名单）',
+  405: '代理不允许 CONNECT（配的可能不是 HTTP 正向代理）',
+  407: '代理要求认证（在代理地址里带上账号密码：用户名:密码@主机:端口）',
+  421: '代理无法处理该目标',
+  502: '代理连不上目标（代理侧故障，稍后重试）',
+  503: '代理暂时不可用（稍后重试）',
+  504: '代理连目标超时（稍后重试）',
+};
+
+export function proxyStatusHint(status) {
+  return PROXY_STATUS_HINTS[status] ?? `代理拒绝建立隧道（HTTP ${status}）`;
+}
+
+/** 配了代理却连不上代理本身时，这几个错误码更可能是"代理没开/地址错"，而不是目标站点的问题。 */
+const PROXY_UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
+
+/** 把错误码翻译与出网通道合起来，得到最终给用户看的一句提示。 */
+export function errorHint(info, route, { aborted = false, timeoutMs = 0 } = {}) {
+  if (aborted) return `超时（${timeoutMs}ms 内无响应）`;
+  if (route?.via && route.via !== 'direct' && PROXY_UNREACHABLE_CODES.has(info.code)) {
+    return `连不上代理${route.proxy ? ` ${route.proxy}` : ''}（确认代理在运行、地址/端口正确）`;
+  }
+  return info.hint;
+}
+
+/** 顺着 err.cause 挖到最底层：undici 把真实原因埋了 2~3 层，只看最外层等于没打日志。 */
+export function rootCause(err, depth = 0) {
+  if (!err || typeof err !== 'object' || depth > 8) return null;
+  const next = err.cause;
+  if (!next || typeof next !== 'object' || next === err) return err;
+  return rootCause(next, depth + 1) ?? err;
+}
+
+/**
+ * 把 fetch/undici 的错误翻译成 { code, hint, cause, proxyStatus, retryable }。
+ *
+ * 实测 undici 8.x 的代理隧道失败长这样（最外层完全看不出原因）：
+ *   TypeError: fetch failed
+ *     cause: DOMException { message: 'Request was cancelled.', code: 0 }   ← 数字 0，不是错误码
+ *       cause: AbortError { message: 'Proxy response (407) !== 200 when HTTP Tunneling' }
+ * 所以必须挖到底层，否则同步记录里只有 "fetch failed" + code=0。
+ */
+export function explainError(err) {
+  for (let cur = err, guard = 0; cur && typeof cur === 'object' && guard < 8; cur = cur.cause, guard += 1) {
+    const m = PROXY_TUNNEL_RE.exec(String(cur.message ?? ''));
+    if (!m) continue;
+    const proxyStatus = Number(m[1]);
+    return {
+      code: `PROXY_${proxyStatus}`,
+      hint: proxyStatusHint(proxyStatus),
+      cause: `代理 CONNECT 返回 ${proxyStatus}`,
+      proxyStatus,
+      retryable: proxyStatus >= 500,
+    };
+  }
+
+  const codes = [];
+  for (let cur = err, guard = 0; cur && typeof cur === 'object' && guard < 8; cur = cur.cause, guard += 1) {
+    for (const value of [cur.code, cur.errno]) {
+      if (value == null || value === 0 || value === '') continue;
+      const text = String(value);
+      if (!codes.includes(text)) codes.push(text);
+    }
+  }
+  // 已知错误码优先；DOMException 的 code=0（"未知"）上面已经排除
+  const code = codes.find((c) => CODE_HINTS[c]) ?? codes[0] ?? '';
+  const deep = rootCause(err);
+  const deepMessage = String(deep?.message ?? '').slice(0, 200);
+  // HTTP 4xx/5xx 的 message 已经是"HTTP 500"，再塞进 cause 只是重复
+  const cause = !err?.status && !/^(fetch failed|Request was cancelled\.?)$/i.test(deepMessage) ? deepMessage : '';
+  return { code, hint: CODE_HINTS[code] ?? '', cause, proxyStatus: null, retryable: null };
 }
 
 /**
@@ -135,9 +216,16 @@ export async function fetchText(url, opts = {}) {
     } catch (err) {
       const elapsedMs = Date.now() - startedAt;
       lastError = err;
-      const { code, hint } = classify(err);
+      const info = explainError(err);
       const aborted = err.name === 'AbortError';
-      const retryable = aborted || !err.status || err.status === 429 || err.status >= 500;
+      const code = aborted ? 'ABORTED' : info.code;
+      const hint = errorHint(info, route, { aborted, timeoutMs });
+      // 代理拒绝隧道（403/407）是配置问题，重试 3 次只会拖慢并刷屏；5xx 才值得再试
+      const retryable = aborted
+        ? true
+        : info.proxyStatus != null
+          ? info.retryable
+          : !err.status || err.status === 429 || err.status >= 500;
 
       logger?.warn('http.error', {
         label,
@@ -145,9 +233,13 @@ export async function fetchText(url, opts = {}) {
         attempt: attempt + 1,
         elapsedMs,
         status: err.status ?? null,
-        code: aborted ? 'ABORTED' : code,
-        hint: aborted ? `超时（${timeoutMs}ms 内无响应）` : hint,
+        code,
+        hint,
         message: String(err.message).slice(0, 200),
+        // undici 把真正的网络原因埋在 cause 链最底层（如 "Proxy response (407) !== 200 when HTTP Tunneling"、
+        // ECONNREFUSED、证书错误）。只打 "fetch failed" 等于没打，排障时必须有这一行。
+        ...(info.cause ? { cause: info.cause } : {}),
+        ...(info.proxyStatus != null ? { proxyStatus: info.proxyStatus } : {}),
         bodySnippet: err.body ? err.body.slice(0, 300) : undefined,
         via: route.via,
         retryable,
@@ -164,7 +256,9 @@ export async function fetchText(url, opts = {}) {
     }
   }
 
-  const { code, hint } = classify(lastError);
+  const info = explainError(lastError);
+  const code = info.code;
+  const hint = errorHint(info, route, { aborted: lastError?.name === 'AbortError' });
   let host = url;
   try {
     host = new URL(url).host;
@@ -173,19 +267,23 @@ export async function fetchText(url, opts = {}) {
   }
   const finalErr = new Error(
     `${lastError?.message ?? 'request failed'}${code ? ` (${code})` : ''} → ${host}${hint ? ` · ${hint}` : ''}` +
-      `${route.via !== 'direct' ? ` · 经 ${route.via}` : ''}`,
+      `${route.via !== 'direct' ? ` · 经 ${route.via}${route.proxy ? `(${route.proxy})` : ''}` : ''}`,
   );
   finalErr.status = lastError?.status;
   finalErr.body = lastError?.body;
   finalErr.code = code;
   finalErr.via = route.via;
   finalErr.cause = lastError?.cause;
+  finalErr.proxyStatus = info.proxyStatus ?? undefined;
+  finalErr.detail = info.cause || undefined;
   logger?.error('http.fail', {
     label,
     url: redactUrl(url),
     code,
     hint,
     status: lastError?.status ?? null,
+    ...(info.cause ? { cause: info.cause } : {}),
+    ...(info.proxyStatus != null ? { proxyStatus: info.proxyStatus } : {}),
     via: route.via,
   });
   throw finalErr;
