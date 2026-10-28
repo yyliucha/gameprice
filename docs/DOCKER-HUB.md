@@ -4,6 +4,43 @@
 
 **部署不需要 `.env`，也不需要改 docker-compose 文件里的业务配置。** 第一次打开页面会进入 `/setup`，创建管理员并填写数据源/代理/提醒；这些配置写到 PostgreSQL，之后在「控制台 → 系统设置」修改。
 
+## 国内用户：腾讯云 TCR
+
+Docker Hub 在国内可能拉不动，国内入口用腾讯云 TCR 公开仓库：
+
+```bash
+docker compose -f compose.cn.yaml up -d
+```
+
+已有 PostgreSQL：
+
+```bash
+# 先改 compose.cn.external-db.yaml 里的 DATABASE_URL
+docker compose -f compose.cn.external-db.yaml up -d
+```
+
+镜像地址（腾讯云广州个人版）：
+
+```text
+ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:latest
+ccr.ccs.tencentyun.com/tcb-100003189690-pljp/postgres:15-alpine
+```
+
+仓库是**公开**的，用户不需要 `docker login`。
+TCR 个人版只支持 amd64；Docker Hub 仍保留 amd64 + arm64。
+
+镜像由 GitHub Actions 的 `docker-tcr` 工作流推送。首次使用前需要在仓库配置：
+
+| Secret | 值 |
+|---|---|
+| `TCR_USERNAME` | `100003189690`（腾讯云账号 ID） |
+| `TCR_PASSWORD` | TCR 个人版访问密码 |
+
+然后手动运行一次 Actions → `docker-tcr` → Run workflow。
+之后打 `v*` 标签也会自动推 TCR。
+
+> TCR 个人版是免费共享服务，有拉取限速；适合个人项目。
+
 ## 方式一：自带 PostgreSQL（零配置，推荐）
 
 ```bash

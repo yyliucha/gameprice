@@ -3,11 +3,17 @@
 面向：一台全新的 Linux 云服务器（Ubuntu 22.04 / Debian 12 最顺），2 核 2G 起，20G 磁盘。
 不需要域名，**只发布 Web 端口 8090（首次打开是 /setup）**，数据库端口不对外。
 
-> **只是部署，不想克隆代码？** 用 Docker Hub 镜像，三条命令：
+> **只是部署，不想克隆代码？** 用 Docker Hub 镜像：
 >
 > ```bash
 > docker compose -f compose.hub.yaml up -d
 > # 打开 http://服务器IP:8090 → /setup 创建管理员
+> ```
+>
+> 国内服务器 Docker Hub 可能拉不动，改用腾讯云 TCR：
+>
+> ```bash
+> docker compose -f compose.cn.yaml up -d
 > ```
 >
 > 用已有 PostgreSQL 见 [DOCKER-HUB.md](DOCKER-HUB.md)。下面的第 2–4 节是“从源码构建”的完整流程，只有改代码/自定义镜像时才需要。

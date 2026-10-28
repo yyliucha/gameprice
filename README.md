@@ -220,6 +220,20 @@ docker compose -f compose.hub.external-db.local.yaml up -d
 
 完整说明（外部库、docker run、卷、备份、SETUP_TOKEN、排障）见 **[docs/DOCKER-HUB.md](docs/DOCKER-HUB.md)**。
 
+**国内用户**：Docker Hub 可能拉不动，用腾讯云 TCR 公开镜像：
+
+```bash
+docker compose -f compose.cn.yaml up -d
+```
+
+已有 PostgreSQL 就改 [compose.cn.external-db.yaml](compose.cn.external-db.yaml) 里的 `DATABASE_URL`，然后：
+
+```bash
+docker compose -f compose.cn.external-db.yaml up -d
+```
+
+镜像由 GitHub Actions 的 `docker-tcr` 工作流推送，需要先配置 `TCR_USERNAME` / `TCR_PASSWORD` 并手动运行一次。详见 [docs/DOCKER-HUB.md](docs/DOCKER-HUB.md#国内用户腾讯云-tcr)。
+
 **从源码构建**（开发/自定义镜像）：
 
 ```bash

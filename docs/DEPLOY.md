@@ -18,6 +18,16 @@ docker compose -f compose.hub.yaml up -d
 docker compose -f compose.hub.external-db.yaml up -d
 ```
 
+**国内用户**：Docker Hub 可能不可达，用腾讯云 TCR 公开镜像：
+
+```bash
+docker compose -f compose.cn.yaml up -d
+# 或已有 PostgreSQL：先改 compose.cn.external-db.yaml
+docker compose -f compose.cn.external-db.yaml up -d
+```
+
+镜像由 GitHub Actions 的 `docker-tcr` 工作流推送，需先配置 `TCR_USERNAME` / `TCR_PASSWORD` 并手动运行一次。
+
 打开 `http://服务器IP:8090`，先进入 `/setup`：
 
 1. 创建第一个管理员（密码 ≥ 8 位）

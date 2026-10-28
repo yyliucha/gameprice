@@ -164,6 +164,34 @@ test('Docker Hub 外部数据库 compose：DATABASE_URL 直接写在 compose 文
   assert.match(doc.services.app.ports.join(' '), /\$\{WEB_PORT:-8090\}:8080/);
 });
 
+test('腾讯云 TCR 国内 compose：app/postgres 都走 TCR 公开仓库', () => {
+  const doc = parse(read('compose.cn.yaml'));
+  assert.equal(doc.services.app.image, 'ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:latest');
+  assert.equal(doc.services.db.image, 'ccr.ccs.tencentyun.com/tcb-100003189690-pljp/postgres:15-alpine');
+  assert.ok(doc.services.db, '国内零配置模式必须自带 db');
+  assert.match(doc.services.app.environment.DATABASE_URL, /@db:5432\/steamdeals/);
+  assert.equal(doc.services.app.environment.ITAD_API_KEY, undefined, '业务配置不能塞进 compose');
+});
+
+test('腾讯云 TCR 国内外部库 compose：不启动 db，DATABASE_URL 内联', () => {
+  const doc = parse(read('compose.cn.external-db.yaml'));
+  assert.equal(doc.services.app.image, 'ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:latest');
+  assert.equal(doc.services.db, undefined, '外部库模式不能启动 db');
+  assert.match(doc.services.app.environment.DATABASE_URL, /postgres:\/\/.*@host:5432\/steamdeals/);
+});
+
+test('TCR 发布工作流：只推 amd64、带 PostgreSQL 镜像、用 Secrets 登录', () => {
+  const wf = read('.github/workflows/docker-tcr.yml');
+  assert.match(wf, /ccr\.ccs\.tencentyun\.com/);
+  assert.match(wf, /tcb-100003189690-pljp/);
+  assert.match(wf, /TCR_USERNAME/);
+  assert.match(wf, /TCR_PASSWORD/);
+  assert.match(wf, /platforms: linux\/amd64/);
+  assert.ok(!/linux\/amd64,linux\/arm64/.test(wf), 'TCR 个人版不走多架构');
+  assert.match(wf, /postgres:15-alpine/);
+  assert.match(wf, /steamdeals:latest/);
+});
+
 test('发布工作流：多架构构建、Docker Hub 镜像名、先跑测试与冒烟', () => {
   const wf = read('.github/workflows/docker-hub.yml');
   assert.match(wf, /yyliucha\/steamdeals/);

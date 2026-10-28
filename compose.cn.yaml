@@ -1,0 +1,60 @@
+name: steamdeals
+
+# 国内部署：腾讯云 TCR 个人版 + 自带 PostgreSQL。
+#
+#   docker compose -f compose.cn.yaml up -d
+#
+# 镜像已放在腾讯云 TCR 公开仓库，国内拉取不依赖 Docker Hub。
+# 首次打开 http://服务器IP:8090 会进入 /setup 初始化页。
+
+services:
+  db:
+    image: ccr.ccs.tencentyun.com/tcb-100003189690-pljp/postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: steamdeals
+      POSTGRES_USER: steamdeals
+      POSTGRES_HOST_AUTH_METHOD: trust
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U steamdeals -d steamdeals"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    image: ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:latest
+    restart: unless-stopped
+    command: ["all"]
+    ports:
+      - "${WEB_PORT:-8090}:8080"
+    environment:
+      DATABASE_URL: postgres://steamdeals@db:5432/steamdeals
+      TZ: ${TZ:-Asia/Shanghai}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/app/data
+      - logs:/app/logs
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "src/cli.js", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  appdata:
+  logs:

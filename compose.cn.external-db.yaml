@@ -1,0 +1,43 @@
+name: steamdeals
+
+# 国内部署：腾讯云 TCR 镜像 + 已有 PostgreSQL，不启动 db 容器。
+#
+#   1. 改下面 environment.DATABASE_URL 为你的连接串
+#   2. docker compose -f compose.cn.external-db.yaml up -d
+#
+# 首次打开 http://服务器IP:8090 会进入 /setup 初始化页。
+
+services:
+  app:
+    image: ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:latest
+    restart: unless-stopped
+    command: ["all"]
+    ports:
+      - "${WEB_PORT:-8090}:8080"
+    environment:
+      # 直接改成你的外部 PostgreSQL；不要提交真实密码到公开仓库。
+      # 可以复制成 compose.cn.external-db.local.yaml（已 gitignore）。
+      DATABASE_URL: "postgres://steamdeals:password@host:5432/steamdeals?sslmode=require"
+      TZ: ${TZ:-Asia/Shanghai}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - appdata:/app/data
+      - logs:/app/logs
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "src/cli.js", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  appdata:
+  logs:
