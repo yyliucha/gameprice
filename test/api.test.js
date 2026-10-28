@@ -638,6 +638,36 @@ test('版本接口：返回当前版本，可关闭出网检查，匿名 401', a
   }
 });
 
+test('数据指纹：数据变化后 stamp 改变，轮询不写访问日志', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const s1 = await (await fetch(`${base}/api/games/stamp`)).json();
+    assert.ok(s1.stamp, '应返回指纹');
+    assert.equal(typeof s1.games, 'number');
+    assert.equal(typeof s1.offers, 'number');
+
+    // 新增游戏 + 报价后指纹必须变化
+    const gid = (await q("insert into games (steam_appid, name) values (900001, '指纹测试') returning id")).rows[0].id;
+    await q(
+      "insert into offers (game_id, platform_code, product_type, region, currency, price_cents, in_stock) values ($1,'steam','official_direct','cn','CNY',1000,true)",
+      [gid],
+    );
+    const s2 = await (await fetch(`${base}/api/games/stamp`)).json();
+    assert.notEqual(s2.stamp, s1.stamp);
+    assert.ok(s2.games > s1.games || s2.offers > s1.offers);
+
+    // 指纹接口不进访问记录（否则自动刷新会污染统计）
+    const before = (await q('select count(*)::int as n from visitor_logs')).rows[0].n;
+    await (await fetch(`${base}/api/games/stamp`)).text();
+    await new Promise((r) => setTimeout(r, 300)); // 日志在响应 finish 后异步写
+    const after = (await q('select count(*)::int as n from visitor_logs')).rows[0].n;
+    assert.equal(after, before, '轮询指纹不应产生访问记录');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

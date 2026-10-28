@@ -319,6 +319,21 @@ export function createApiServer({
         return json(res, 200, { priced: priced.rows[0]?.n ?? 0, catalog: catalog.rows[0]?.n ?? 0 });
       }
 
+      // ---- 数据指纹（匿名可读）：前台轮询这个，变了才重新拉列表 ----
+      // 只做低成本聚合：别再让每次自动刷新都跑一遍完整列表查询。
+      // 说明：价格/库存变化会更新 offers.last_seen_at，新游戏/新报价会改变计数，
+      // 所以这三项足够判断"列表内容是否需要重新拉"。
+      if (path === '/api/games/stamp' && req.method === 'GET') {
+        const r = await q(
+          `select (select count(*)::int from games) as games,
+                  (select count(*)::int from offers) as offers,
+                  (select max(last_seen_at)::text from offers) as offers_seen`,
+        );
+        const row = r.rows[0] ?? {};
+        const stamp = [row.games, row.offers, row.offers_seen].join('|');
+        return json(res, 200, { stamp, ...row }, { 'cache-control': 'no-store' });
+      }
+
       // ---- 游戏列表（匿名可读）：服务端搜索 + 分页 + 排序 ----
       if (path === '/api/games' && req.method === 'GET') {
         const oneOf = (key, allowed, fallback) => {
@@ -1375,6 +1390,8 @@ export function createApiServer({
 /** 访问记录过滤：静态资源与图片代理不记，页面与 API 必记。 */
 function isLoggablePath(path) {
   if (path === '/favicon.ico') return false;
+  // 前台轮询用的轻量指纹接口：每 10 秒一次，记访问日志只会污染统计
+  if (path === '/api/games/stamp') return false;
   if (/\.(png|jpe?g|gif|webp|svg|ico|css|js|map|woff2?|ttf|otf|eot|json|xml|txt|md)$/i.test(path)) return false;
   if (path.startsWith('/img/')) return false;
   return true;

@@ -823,16 +823,27 @@ me().then(load);
 
 // 分页：号码按钮由 render() 绑定，其余在 pagers() 里绑定（服务端分页）
 
-// 前台实时更新：每 10 秒与后端比对一次，后台同步的新价格/新游戏会自动出现；
-// 页面切回可见时立即刷一次，避免后台挂着错过更新。
+// 前台实时更新：每 10 秒查一次轻量「数据指纹」，只有库里的数据变了才重新拉列表。
+// 这样自动刷新不再每次跑完整列表查询，也不会把自己的轮询写进访问记录。
 const REFRESH_MS = 10 * 1000;
-setInterval(function () {
+let lastStamp = null;
+async function pollStamp() {
   if (document.hidden) return;
-  load(true).catch(function () { /* 网络抖动忽略 */ });
-}, REFRESH_MS);
-document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) load(true).catch(function () { /* 忽略 */ });
-});
+  try {
+    const r = await fetch('/api/games/stamp', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.stamp) return;
+    if (lastStamp === null) { lastStamp = d.stamp; return; } // 首次只记录基线
+    if (d.stamp === lastStamp) return;                        // 数据没变，什么都不做
+    lastStamp = d.stamp;
+    await load(true);
+  } catch {
+    /* 网络抖动忽略，下个周期再试 */
+  }
+}
+setInterval(pollStamp, REFRESH_MS);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) pollStamp(); });
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>
 <div id="toast"></div>
