@@ -398,6 +398,52 @@ test('合并重复游戏：报价迁移到目标、源行删除、参数校验',
   }
 });
 
+test('个人标记：登录用户个人优先，未标记回退全局标记', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const alice = await login(base, 'alice', 'alice123456');
+    const admin = await login(base, 'admin', 'admin123456');
+
+    // 全局标记：管理员把 413150 标成已拥有（游戏只有这一款）
+    await q('update games set owned = true where steam_appid = 413150');
+    const anon = await (await fetch(`${base}/api/games`)).json();
+    assert.equal(anon.total, 0, '默认排除已拥有，匿名看到的是全局标记');
+
+    // alice 个人取消已拥有 → 她能看到；全局仍是已拥有
+    const set = await fetch(`${base}/api/games/413150/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ owned: false }),
+    });
+    assert.equal(set.status, 200);
+    assert.equal((await set.json()).flags.owned, false);
+
+    const mine = await (await fetch(`${base}/api/games`, { headers: { cookie: alice.cookie } })).json();
+    assert.equal(mine.total, 1, '个人标记优先于全局');
+    assert.equal(mine.games[0].owned, false);
+
+    const detail = await (await fetch(`${base}/api/games/413150`, { headers: { cookie: alice.cookie } })).json();
+    assert.equal(detail.game.owned, false, '详情也返回个人生效值');
+
+    // admin 没有个人标记 → 回退全局（已拥有 → 默认列表排除）
+    const adminList = await (await fetch(`${base}/api/games`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(adminList.total, 0, '未标记时回退全局');
+
+    // 匿名不能写个人标记
+    assert.equal(
+      (await fetch(`${base}/api/games/413150/flags`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ interested: true }),
+      })).status,
+      401,
+    );
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

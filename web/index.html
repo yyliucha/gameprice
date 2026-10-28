@@ -611,10 +611,10 @@ async function openDetail(appid, gid) {
   ).join('') || '<tr><td colspan="6" class="muted">当前没有在售报价</td></tr>';
   const offers = OFFERS;
 
-  // 标记是全局的（games.interested / games.owned），只有管理员能改。
-  // 有 Steam appid 用 /api/games/<appid>/...；没有 appid（杉果等）用 /api/games/id/<内部id>/...
-  const markBase = appid ? '/api/games/' + appid : '/api/games/id/' + gid;
-  const admin = state.user?.role === 'admin' && (appid || gid)
+  // 标记：登录用户写自己的标记（个人优先，未标记回退到管理员的全局标记）；未登录不显示按钮
+  const canMark = Boolean(state.user) && Boolean(appid || gid);
+  const flagBase = appid ? '/api/games/' + appid : '/api/games/id/' + gid;
+  const admin = canMark
     ? '<div class="bar"><button class="btn" id="toggleInterest">' + (g.interested === false ? '标记为感兴趣' : '标记不感兴趣') + '</button>' +
       '<button class="btn" id="toggleOwned">' + (g.owned ? '取消已拥有' : '标记已拥有') + '</button></div>'
     : '';
@@ -641,7 +641,7 @@ async function openDetail(appid, gid) {
     document.getElementById('toggleInterest').onclick = async () => {
       const next = g.interested === false; // 点一下切换：当前不感兴趣 → 恢复感兴趣
       try {
-        const res = await fetch(markBase + '/interest', {
+        const res = await fetch(flagBase + '/flags', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ interested: next }),
         });
@@ -655,7 +655,7 @@ async function openDetail(appid, gid) {
     };
     document.getElementById('toggleOwned').onclick = async () => {
       try {
-        const res = await fetch(markBase + '/owned', {
+        const res = await fetch(flagBase + '/flags', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ owned: !g.owned }),
         });

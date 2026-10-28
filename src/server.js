@@ -341,6 +341,7 @@ export function createApiServer({
           interest,
           owned: ownedParam,
           blocked: blockedParam,
+          userId: user?.id ?? null,
         });
         return json(res, 200, {
           games: result.rows,
@@ -360,7 +361,7 @@ export function createApiServer({
       const byIdMatch = path.match(/^\/api\/games\/by-id\/(\d+)$/);
       if (byIdMatch && req.method === 'GET') {
         const id = Number(byIdMatch[1]);
-        const game = await db.gameDetail(q, { gameId: id, region: url.searchParams.get('region') ?? 'cn' });
+        const game = await db.gameDetail(q, { gameId: id, region: url.searchParams.get('region') ?? 'cn', userId: user?.id ?? null });
         if (!game) return json(res, 404, { error: '没有该游戏' });
         const offers = await db.offersOfGame(q, { gameId: game.id, region: 'cn' });
         const series = await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' });
@@ -426,12 +427,38 @@ export function createApiServer({
       if (gameMatch && req.method === 'GET') {
         const appid = Number(gameMatch[1]);
         // 单款查询：不走"列表前 500 名"，否则排在后面的游戏会 404（后台编辑曾因此失败）
-        const game = await db.gameDetail(q, { steamAppid: appid, region: url.searchParams.get('region') ?? 'cn' });
+        const game = await db.gameDetail(q, { steamAppid: appid, region: url.searchParams.get('region') ?? 'cn', userId: user?.id ?? null });
         if (!game) return json(res, 404, { error: '没有该游戏' });
         const offers = await db.regionOffers(q, { steamAppid: appid });
         const series = await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' });
         if (user) await db.recordView(q, { userId: user.id, path: `/game/${appid}`, appid });
         return json(res, 200, { game, offers, series });
+      }
+
+      // ---- 登录用户：个人标记（个人优先，未标记回退全局标记）----
+      const flagsByAppid = path.match(/^\/api\/games\/(\d+)\/flags$/);
+      const flagsById = path.match(/^\/api\/games\/id\/(\d+)\/flags$/);
+      if ((flagsByAppid || flagsById) && req.method === 'POST') {
+        if (!requireUser()) return;
+        const body = await readBody(req);
+        let gameId = null;
+        if (flagsByAppid) {
+          const found = await db.gameDetail(q, { steamAppid: Number(flagsByAppid[1]) });
+          if (!found) return json(res, 404, { error: '没有该游戏' });
+          gameId = found.id;
+        } else {
+          gameId = Number(flagsById[1]);
+        }
+        const pick = (v) => (typeof v === 'boolean' ? v : null);
+        const flags = await db.setUserGameFlag(q, {
+          userId: user.id,
+          gameId,
+          interested: pick(body.interested),
+          owned: pick(body.owned),
+        });
+        if (!flags) return json(res, 404, { error: '没有该游戏' });
+        logger?.info('api.user_flag', { userId: user.id, gameId, interested: flags.interested, owned: flags.owned });
+        return json(res, 200, { flags });
       }
 
       // ---- 管理员：标记兴趣、看用户 ----

@@ -187,6 +187,15 @@ create table if not exists page_views (
   appid integer,
   created_at timestamptz not null default now()
 );
+-- 每个用户的游戏标记：null = 未标记（回退到 games 上的全局标记）
+create table if not exists user_game_flags (
+  user_id    integer not null references users(id) on delete cascade,
+  game_id    bigint not null references games(id) on delete cascade,
+  interested boolean,
+  owned      boolean,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, game_id)
+);
 `;
 
 const ALTERS = [
@@ -688,11 +697,26 @@ const GAME_SELECT = `select g.id,
 /**
  * 单款游戏（按 steam_appid 或内部 id）。与列表不同，不受 limit / 排序影响，
  * 也不需要"有日价格数据"——后台编辑、回收站恢复后查看都要能取到。
+ * userId 传入时，interested / owned 返回该用户的生效值（个人优先，回退全局）。
  */
-export async function gameDetail(q, { steamAppid = null, gameId = null, region = 'cn' }) {
+export async function gameDetail(q, { steamAppid = null, gameId = null, region = 'cn', userId = null }) {
   const cond = steamAppid != null ? 'g.steam_appid = $2' : 'g.id = $2';
-  const r = await q(`${GAME_SELECT} from games g where ${cond} and not g.deleted`, [region, steamAppid ?? gameId]);
-  return r.rows[0] ?? null;
+  const join = userId ? 'left join user_game_flags uf on uf.game_id = g.id and uf.user_id = $3' : '';
+  const extra = userId
+    ? ', coalesce(uf.interested, g.interested) as eff_interested, coalesce(uf.owned, g.owned) as eff_owned'
+    : '';
+  const params = [region, steamAppid ?? gameId];
+  if (userId) params.push(userId);
+  const r = await q(`${GAME_SELECT}${extra} from games g ${join} where ${cond} and not g.deleted`, params);
+  const row = r.rows[0];
+  if (!row) return null;
+  if (userId) {
+    row.interested = row.eff_interested;
+    row.owned = row.eff_owned;
+    delete row.eff_interested;
+    delete row.eff_owned;
+  }
+  return row;
 }
 
 /** 有价格记录的游戏概览：当前最低 / 史低 / 数据天数 / 最近更新。 */
@@ -720,12 +744,16 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
  */
 export async function gameSearch(
   q,
-  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude' } = {},
+  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null } = {},
 ) {
   const kw = String(keyword ?? '').trim();
   const size = Math.min(Math.max(Number(pageSize) || 50, 5), 200);
   const pg = Math.max(1, Number(page) || 1);
   const offset = (pg - 1) * size;
+
+  // 生效标记：登录用户个人标记优先，未标记回退全局（games.interested / games.owned）
+  const col = (name) => (userId ? `coalesce(uf.${name}, g.${name})` : `g.${name}`);
+  const userJoin = (index) => (userId ? `left join user_game_flags uf on uf.game_id = g.id and uf.user_id = $${index}` : '');
 
   const conds = [
     'exists (select 1 from daily_prices d where d.game_id = g.id and d.region = $1)',
@@ -733,10 +761,10 @@ export async function gameSearch(
     "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
       "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%') or cast(g.steam_appid as text) = $2)",
   ];
-  if (interest === 'on') conds.push('g.interested = true');
-  if (interest === 'off') conds.push('g.interested = false');
-  if (owned === 'exclude') conds.push('g.owned = false');
-  if (owned === 'only') conds.push('g.owned = true');
+  if (interest === 'on') conds.push(`${col('interested')} = true`);
+  if (interest === 'off') conds.push(`${col('interested')} = false`);
+  if (owned === 'exclude') conds.push(`${col('owned')} = false`);
+  if (owned === 'only') conds.push(`${col('owned')} = true`);
   if (blocked === 'exclude') conds.push('g.blocked = false');
   if (blocked === 'only') conds.push('g.blocked = true');
   const where = 'where ' + conds.join(' and ');
@@ -755,11 +783,28 @@ export async function gameSearch(
         : `${discountExpr} desc nulls last, ${priceExpr} asc nulls last, name asc`;
 
   const total = Number(
-    (await q(`select count(*)::int as n from games g ${where}`, [region, kw])).rows[0]?.n ?? 0,
+    (await q(
+      `select count(*)::int as n from games g ${userJoin(3)} ${where}`,
+      userId ? [region, kw, userId] : [region, kw],
+    )).rows[0]?.n ?? 0,
   );
+  const extra = userId
+    ? `, ${col('interested')} as eff_interested, ${col('owned')} as eff_owned`
+    : '';
   const rows = (
-    await q(`${GAME_SELECT} from games g ${where} order by ${order} limit $3 offset $4`, [region, kw, size, offset])
+    await q(
+      `${GAME_SELECT}${extra} from games g ${userJoin(5)} ${where} order by ${order} limit $3 offset $4`,
+      userId ? [region, kw, size, offset, userId] : [region, kw, size, offset],
+    )
   ).rows;
+  if (userId) {
+    for (const row of rows) {
+      row.interested = row.eff_interested;
+      row.owned = row.eff_owned;
+      delete row.eff_interested;
+      delete row.eff_owned;
+    }
+  }
   return { rows, total, page: pg, pageSize: size, pages: Math.max(1, Math.ceil(total / size)) };
 }
 
@@ -1260,6 +1305,29 @@ export async function setGameDeleted(q, { steamAppid = null, gameId = null, dele
                        updated_at = now()
       where ${where} returning id, name, deleted`,
     params,
+  );
+  return r.rows[0] ?? null;
+}
+
+/**
+ * 个人标记：null 表示"不设置/保持"，写入后该字段优先于全局标记。
+ * 返回该游戏的最终生效值（个人优先，回退全局）。
+ */
+export async function setUserGameFlag(q, { userId, gameId, interested = null, owned = null }) {
+  await q(
+    `insert into user_game_flags (user_id, game_id, interested, owned) values ($1, $2, $3, $4)
+     on conflict (user_id, game_id) do update set
+       interested = coalesce(excluded.interested, user_game_flags.interested),
+       owned      = coalesce(excluded.owned, user_game_flags.owned),
+       updated_at = now()`,
+    [userId, gameId, interested, owned],
+  );
+  const r = await q(
+    `select coalesce(uf.interested, g.interested) as interested, coalesce(uf.owned, g.owned) as owned
+       from games g
+       left join user_game_flags uf on uf.game_id = g.id and uf.user_id = $2
+      where g.id = $1`,
+    [gameId, userId],
   );
   return r.rows[0] ?? null;
 }
