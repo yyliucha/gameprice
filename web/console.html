@@ -51,6 +51,9 @@ textarea{width:100%;min-height:100px;resize:vertical}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
+/* 访问记录：分「明细 / 统计」两个子视图，明细表内部滚动 + 表头吸顶 */
+#visTableWrap thead th{position:sticky;top:0;background:var(--panel,#fff);z-index:1;box-shadow:inset 0 -1px 0 var(--border,#e5e7eb)}
+#visTabs{margin-top:-4px}
 /* 同步记录紧凑表：默认 5 条，结果列单行截断 */
 table.runs td{padding:6px 8px;vertical-align:middle}
 table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
@@ -243,6 +246,11 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="visitors" class="hide">
+        <div class="bar" id="visTabs">
+          <button class="chip on" data-vtab="logs">访问记录</button>
+          <button class="chip" data-vtab="manage">统计 / 黑名单 / 白名单</button>
+        </div>
+        <div id="visManage" class="hide">
         <h2>访问统计</h2>
         <div class="card pad">
           <div class="row" id="visitorSummary" style="gap:18px">
@@ -284,6 +292,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <p class="muted small" style="margin-bottom:0">规则：<strong>60 秒内超过 60 次</strong>页面/API 请求视为异常；第 1 次封 10 分钟，第 2 次封 30 分钟，第 3 次写入永久黑名单。白名单 IP 不计数。</p>
         </div>
 
+        </div>
+        <div id="visLogs">
         <h2>访问记录</h2>
         <div class="card pad">
           <div class="row">
@@ -293,7 +303,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <span class="small muted" id="vMeta"></span>
           </div>
         </div>
-        <div class="card" style="margin-top:10px">
+        <div class="card" id="visTableWrap" style="margin-top:10px;max-height:58vh;overflow:auto">
           <table><thead><tr><th>IP</th><th>归属地</th><th>路径</th><th class="num">状态</th><th>时间</th><th style="width:90px">操作</th></tr></thead><tbody id="vRows"></tbody></table>
         </div>
         <div class="row" style="margin-top:10px;justify-content:space-between;align-items:center">
@@ -307,6 +317,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
               <option value="200">200 条/页</option>
             </select>
           </span>
+        </div>
         </div>
       </section>
 
@@ -506,7 +517,7 @@ function showPage(page) {
   if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
-  if (page === 'visitors') { loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); }
+  if (page === 'visitors') { setVisTab(visTab); loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
   if (page === 'settings') loadSettings();
 }
@@ -982,6 +993,20 @@ document.addEventListener('click', async function (e) {
   if (prev) { loadVisitors(Math.max(1, vPage - 1)); return; }
   const next = e.target.closest('#vNext');
   if (next) { loadVisitors(Math.min(vPages, vPage + 1)); return; }
+});
+
+// ---- 访问记录页子视图：明细 / 统计与名单 ----
+let visTab = 'logs';
+function setVisTab(tab) {
+  visTab = tab === 'manage' ? 'manage' : 'logs';
+  if ($('visManage')) $('visManage').classList.toggle('hide', visTab !== 'manage');
+  if ($('visLogs')) $('visLogs').classList.toggle('hide', visTab !== 'logs');
+  document.querySelectorAll('#visTabs [data-vtab]').forEach(function (b) {
+    b.classList.toggle('on', b.dataset.vtab === visTab);
+  });
+}
+document.querySelectorAll('#visTabs [data-vtab]').forEach(function (b) {
+  b.onclick = function () { setVisTab(b.dataset.vtab); };
 });
 
 // ---- 白名单 / 自动封禁 ----
