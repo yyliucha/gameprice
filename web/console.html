@@ -82,6 +82,10 @@ textarea{width:100%;min-height:100px;resize:vertical}
     </nav>
     <div style="margin-top:18px" class="small muted" id="who"></div>
     <button class="btn" id="logout" style="margin-top:8px" hidden>退出</button>
+    <div id="appVersionBox" class="small" style="margin-top:14px;cursor:pointer" title="点击重新检查新版本">
+      <span class="muted" id="appVersion">版本 …</span>
+      <div id="appUpdate" class="hide" style="margin-top:4px"></div>
+    </div>
   </aside>
 
   <main>
@@ -478,9 +482,38 @@ async function boot() {
   $('logout').hidden = !d.user;
   $('loginBox').classList.toggle('hide', !!admin);
   $('app').classList.toggle('hide', !admin);
-  if (admin) { await loadUsers(); showPage(location.hash.replace('#', '') || 'users'); }
-  else if (d.user) $('msg').textContent = '该账号不是管理员。';
+  if (admin) {
+    await loadUsers();
+    loadVersion(false); // 版本号 + 新版本提示，失败不影响页面
+    showPage(location.hash.replace('#', '') || 'users');
+  } else if (d.user) $('msg').textContent = '该账号不是管理员。';
 }
+
+// ---- 版本与新版本提示（GitHub release/tag，服务端缓存 6 小时；点击可强制刷新）----
+async function loadVersion(force) {
+  const label = $('appVersion');
+  const box = $('appUpdate');
+  if (!label) return;
+  try {
+    const d = await api('/api/admin/version' + (force ? '?force=1' : ''));
+    label.textContent = '版本 v' + (d.current || '?');
+    label.title = '上次检查：' + (d.checkedAt ? when(d.checkedAt) : '—') + (d.error ? '（' + d.error + '）' : '');
+    if (d.updateAvailable && d.latest) {
+      box.classList.remove('hide');
+      box.innerHTML =
+        '<a href="' + esc(d.url || '#') + '" target="_blank" rel="noopener" style="color:var(--warn);text-decoration:none">↑ 新版 v' +
+        esc(String(d.latest).replace(/^v/i, '')) + ' 可用</a>';
+      box.title = '当前 v' + d.current + ' → 最新 v' + d.latest;
+    } else {
+      box.classList.add('hide');
+      box.innerHTML = '';
+    }
+  } catch (err) {
+    label.textContent = '版本检查失败';
+    label.title = err.message;
+  }
+}
+if ($('appVersionBox')) $('appVersionBox').onclick = function () { loadVersion(true); };
 
 let gamesPage = 1;
 let gamesPages = 1;

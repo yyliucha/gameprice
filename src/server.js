@@ -15,6 +15,8 @@ import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
 import * as images from './images.js';
 import { createBackup, listBackups } from './backup.js';
+import { versionInfo } from './version.js';
+import { VERSION } from './settings.js';
 import * as settings from './settings.js';
 import { handleSetupRoutes } from './setup-routes.js';
 import { handleSettingsRoutes } from './settings-routes.js';
@@ -703,6 +705,26 @@ export function createApiServer({
         const removed = await db.deleteWatch(q, { gameId: Number(watchDel[1]), region: 'cn' });
         logger?.info('api.watch_deleted', { gameId: Number(watchDel[1]), removed, by: user.username });
         return json(res, 200, { removed });
+      }
+
+      // ---- 管理员：版本与更新检查 ----
+      if (path === '/api/admin/version' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const force = url.searchParams.get('force') === '1';
+        const repo = process.env.UPDATE_REPO || undefined;
+        // UPDATE_CHECK=0 时只报当前版本，不出网
+        if (process.env.UPDATE_CHECK === '0') {
+          return json(res, 200, {
+            current: VERSION,
+            latest: null,
+            updateAvailable: false,
+            url: null,
+            checkedAt: new Date().toISOString(),
+            error: null,
+            repo: repo ?? null,
+          });
+        }
+        return json(res, 200, await versionInfo({ current: VERSION, repo, logger, force }));
       }
 
       // ---- 管理员：备份（手动触发 + 列表）----

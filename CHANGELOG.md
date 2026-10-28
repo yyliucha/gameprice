@@ -2,6 +2,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.21.0] - 2026-10-28
+
+控制台显示当前版本，并在有新版本时提示。
+
+### 新增
+
+- **侧栏版本号**：控制台左下角显示「版本 v0.21.0」（取自 `package.json`，点击可立即重新检查）
+- **新版本提示**：检查 GitHub 仓库的 release / tag，若比当前版本新，显示「↑ 新版 vX 可用」，
+  点击跳到对应 release 页
+- **接口**：`GET /api/admin/version`（管理员），返回 `{current, latest, updateAvailable, url, checkedAt, error}`；
+  服务端缓存 6 小时（GitHub 未认证额度只有 60 次/小时），`UPDATE_CHECK=0` 可完全关闭出网检查，
+  `UPDATE_REPO` 可换检查的仓库
+- 检查失败（没网/被墙/额度耗尽）只在 `error` 里说明，不影响页面
+
+### 测试
+
+- 新增 `test/version.test.js`：版本解析/数值比较、无 release 时退回 tags、已是最新、缓存与强制刷新、网络失败
+- `api.test.js` 新增：版本接口返回当前版本、`UPDATE_CHECK=0` 时不出网、匿名 401
+
 ## [0.20.2] - 2026-10-28
 
 设置项敏感字段可查看明文（按需解密 + 审计），非敏感字段本来就地明文。

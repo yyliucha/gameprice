@@ -607,6 +607,37 @@ test('系统设置：敏感字段默认不回显，可单独查看明文，非�
   }
 });
 
+test('版本接口：返回当前版本，可关闭出网检查，匿名 401', async () => {
+  const { store, q, srv, base } = await setup();
+  const pkg = (await import('node:fs')).readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+  const expected = JSON.parse(pkg).version;
+  const oldCheck = process.env.UPDATE_CHECK;
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+
+    process.env.UPDATE_CHECK = '0';
+    const off = await (await fetch(`${base}/api/admin/version`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(off.current, expected, '当前版本来自 package.json');
+    assert.equal(off.latest, null, '关闭检查时不出网');
+    assert.equal(off.updateAvailable, false);
+
+    delete process.env.UPDATE_CHECK;
+    process.env.UPDATE_CHECK = '1';
+    const on = await fetch(`${base}/api/admin/version`, { headers: { cookie: admin.cookie } });
+    assert.equal(on.status, 200);
+    const body = await on.json();
+    assert.equal(body.current, expected);
+    assert.ok('updateAvailable' in body, '字段齐全（网络失败时 error 里给原因）');
+
+    assert.equal((await fetch(`${base}/api/admin/version`)).status, 401);
+  } finally {
+    if (oldCheck === undefined) delete process.env.UPDATE_CHECK;
+    else process.env.UPDATE_CHECK = oldCheck;
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');
