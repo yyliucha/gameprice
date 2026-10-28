@@ -1480,10 +1480,10 @@ async function cmdDiagnose() {
  */
 async function cmdProxyCheck() {
   const net = await import('node:net');
-  const { describeProxy, parseProxy } = await import('./proxy.js');
+  const { describeProxy, parseProxy, redactProxy } = await import('./proxy.js');
   const info = describeProxy(process.env);
   const steamUrl = parseProxy(process.env.STEAM_PROXY ?? process.env.steam_proxy ?? '');
-  console.log('配置：Steam 专用代理 = ' + (steamUrl ?? '（未配置）'));
+  console.log('配置：Steam 专用代理 = ' + (steamUrl ? redactProxy(steamUrl) : '（未配置）'));
   console.log('      通用出网代理 = ' + (info.others.via === 'direct' ? '（未配置）' : info.others.proxy));
   if (!steamUrl) {
     console.log('\n没有配置 Steam 专用代理：Steam 目前直连（国内通常不可达 api.steampowered.com）。');
@@ -1491,6 +1491,7 @@ async function cmdProxyCheck() {
   }
 
   const u = new URL(steamUrl);
+  console.log('      凭证 = ' + (u.username ? '已配置（用户名 ' + decodeURIComponent(u.username) + '）' : '未配置 —— 若代理要求认证就会 407'));
   const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
   const host = u.hostname;
 
@@ -1515,7 +1516,7 @@ async function cmdProxyCheck() {
         const cred = decodeURIComponent(u.username) + ':' + decodeURIComponent(u.password);
         headers['proxy-authorization'] = 'Basic ' + Buffer.from(cred).toString('base64');
       }
-      const req = request(
+      const req = httpRequest(
         { host, port, method: 'CONNECT', path: 'store.steampowered.com:443', headers, timeout: 8000 },
         (res) => { res.resume(); resolve({ error: '代理把 CONNECT 当普通请求处理了，返回 HTTP ' + res.statusCode }); },
       );
