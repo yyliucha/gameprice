@@ -120,6 +120,16 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
       <option value="game">游戏</option>
       <option value="dlc">DLC</option>
     </select>
+    <select id="regionFilter" class="chip" style="padding:5px 8px" title="区服（不同币种不折算）">
+      <option value="cn">国区</option>
+      <option value="hk">港区</option>
+      <option value="tw">台区</option>
+      <option value="us">美区</option>
+      <option value="jp">日区</option>
+      <option value="ru">俄区</option>
+      <option value="tr">土区</option>
+      <option value="ar">阿区</option>
+    </select>
     <span class="spacer"></span>
     <button class="chip" data-sort="discount">折扣</button>
     <button class="chip" data-sort="price">价格</button>
@@ -193,7 +203,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 <script>
 const state = {
   pageSize: 50,
-  page: 1, total: 0, pages: 1, q: '', type: 'all',
+  page: 1, total: 0, pages: 1, q: '', type: 'all', region: 'cn',
   games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
 
 // 访客偏好存在浏览器本地：不涉及账号、不上传服务端。
@@ -209,27 +219,31 @@ function readLocal() {
 }
 function saveLocal() {
   try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify({ tab: state.tab, sort: state.sort }));
+    localStorage.setItem(LOCAL_KEY, JSON.stringify({ tab: state.tab, sort: state.sort, region: state.region }));
   } catch {
     /* 隐私模式下可能不可写，忽略 */
   }
 }
 
-/** 把偏好套用到界面（页签/排序高亮）；mirror=true 时同时镜像到浏览器缓存。 */
+/** 把偏好套用到界面（页签/排序/区服高亮）；mirror=true 时同时镜像到浏览器缓存。 */
 function applyPrefs(prefs, { mirror = false } = {}) {
   const tabs = ['all', 'on', 'off', 'owned'];
   const sorts = ['discount', 'price', 'name'];
+  const regions = ['cn', 'hk', 'tw', 'us', 'jp', 'ru', 'tr', 'ar'];
   state.tab = tabs.includes(prefs?.tab) ? prefs.tab : 'all';
   state.sort = sorts.includes(prefs?.sort) ? prefs.sort : 'discount';
+  state.region = regions.includes(prefs?.region) ? prefs.region : 'cn';
   document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.tab));
   document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
+  const regionSel = document.getElementById('regionFilter');
+  if (regionSel) regionSel.value = state.region;
   if (mirror) saveLocal();
 }
 
 /** 未登录：从浏览器缓存恢复（Steam 页签已移到后台，旧值回落到「全部」）。 */
 function applyLocal() {
   const saved = readLocal();
-  applyPrefs({ tab: saved?.tab, sort: saved?.sort });
+  applyPrefs({ tab: saved?.tab, sort: saved?.sort, region: saved?.region });
   return Boolean(saved);
 }
 
@@ -395,6 +409,7 @@ async function load(background) {
   });
   if (state.q) qs.set('q', state.q);
   if (state.type && state.type !== 'all') qs.set('type', state.type);
+  if (state.region && state.region !== 'cn') qs.set('region', state.region);
   const res = await fetch('/api/games?' + qs.toString());
   const data = await res.json();
   state.games = data.games ?? [];
@@ -659,7 +674,9 @@ async function openDetail(appid, gid) {
     headerImg +
     '<div class="bar"><span class="pill">现价 ' + yuan(g.current_low) + '</span>' +
     '<span class="pill">史低 ' + yuan(g.hist_low) + '</span>' +
-    '<span class="pill">折扣 ' + pct(g.discount) + '</span></div>' +
+    '<span class="pill">折扣 ' + pct(g.discount) + '</span>' +
+    (appid ? '<a class="btn" href="/api/games/' + esc(appid) + '/history.csv?days=90" target="_blank" rel="noopener">导出价格历史 CSV</a>' : '') +
+    '</div>' +
     chartSvg(d.series) + admin + watchBar +
     '<div class="card tableWrap" style="margin-top:12px"><table><thead><tr><th>区服</th><th>平台</th><th class="num">价格</th><th class="num">原价</th><th class="num">折扣</th><th>链接</th></tr></thead><tbody>' + offers + '</tbody></table></div>';
 
@@ -762,6 +779,14 @@ me().then(load);
   if (typeSel) typeSel.addEventListener('change', function () {
     state.type = typeSel.value || 'all';
     state.page = 1;
+    load().catch(function () { /* 忽略 */ });
+  });
+  // 区服筛选：列表价格跟着区服走（不同币种不折算）
+  const regionSel = document.getElementById('regionFilter');
+  if (regionSel) regionSel.addEventListener('change', function () {
+    state.region = regionSel.value || 'cn';
+    state.page = 1;
+    saveLocal();
     load().catch(function () { /* 忽略 */ });
   });
 })();

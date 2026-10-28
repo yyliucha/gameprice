@@ -520,6 +520,52 @@ test('类型筛选：只看游戏 / 只看 DLC', async () => {
   }
 });
 
+test('备份接口、价格历史 CSV、区服筛选、日志时间范围', async () => {
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'steamdeals-backup-'));
+  const oldBackupDir = process.env.BACKUP_DIR;
+  process.env.BACKUP_DIR = tmp;
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+
+    // 立即备份
+    const bk = await fetch(`${base}/api/admin/backup`, { method: 'POST', headers: { cookie: admin.cookie } });
+    assert.equal(bk.status, 200);
+    const bkBody = await bk.json();
+    assert.equal(bkBody.result.tables, 8, '备份 8 张核心表');
+    assert.ok(bkBody.result.rows >= 1);
+    assert.ok(bkBody.backups.some((b) => b.name.startsWith('backup-')), '列表里能看到刚生成的备份');
+    assert.equal((await fetch(`${base}/api/admin/backup`, { method: 'POST' })).status, 401, '匿名不能备份');
+
+    // 单款价格历史 CSV
+    const csv = await fetch(`${base}/api/games/413150/history.csv?days=90`);
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get('content-type') || '', /text\/csv/);
+    const csvText = await csv.text();
+    assert.match(csvText, /date,price_cents,price,currency/);
+    assert.match(csvText, /4800/, 'setup 里昨天的最低价应在 CSV 里');
+
+    // 区服筛选：美国区没有日价格数据 → 空
+    const us = await (await fetch(`${base}/api/games?region=us`)).json();
+    assert.equal(us.total, 0);
+    const cn = await (await fetch(`${base}/api/games?region=cn`)).json();
+    assert.equal(cn.total, 1);
+
+    // 日志时间范围参数不报错
+    const logs = await fetch(`${base}/api/admin/logs?minutes=60&limit=10`, { headers: { cookie: admin.cookie } });
+    assert.equal(logs.status, 200);
+  } finally {
+    await srv.close();
+    await store.close();
+    if (oldBackupDir === undefined) delete process.env.BACKUP_DIR;
+    else process.env.BACKUP_DIR = oldBackupDir;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

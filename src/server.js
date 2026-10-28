@@ -14,6 +14,7 @@ import { join, extname, resolve, sep } from 'node:path';
 import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
 import * as images from './images.js';
+import { createBackup, listBackups } from './backup.js';
 import * as settings from './settings.js';
 import { handleSetupRoutes } from './setup-routes.js';
 import { handleSettingsRoutes } from './settings-routes.js';
@@ -704,6 +705,47 @@ export function createApiServer({
         return json(res, 200, { removed });
       }
 
+      // ---- 管理员：备份（手动触发 + 列表）----
+      if (path === '/api/admin/backups' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { backups: listBackups(process.env.BACKUP_DIR ?? 'data/backup') });
+      }
+
+      if (path === '/api/admin/backup' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        try {
+          const result = await createBackup(q, { dir: process.env.BACKUP_DIR ?? 'data/backup', logger });
+          logger?.info('api.backup_done', { ...result, by: user.username });
+          return json(res, 200, { result, backups: listBackups(process.env.BACKUP_DIR ?? 'data/backup') });
+        } catch (err) {
+          logger?.warn('api.backup_failed', { message: String(err.message).slice(0, 160) });
+          return json(res, 500, { error: '备份失败：' + String(err.message).slice(0, 120) });
+        }
+      }
+
+      // ---- 单款价格历史 CSV（公开）----
+      const historyCsv = path.match(/^\/api\/games\/(\d+)\/history\.csv$/);
+      if (historyCsv && req.method === 'GET') {
+        const appid = Number(historyCsv[1]);
+        const days = Math.min(Math.max(Number(url.searchParams.get('days') ?? 90) || 90, 1), 3650);
+        const game = await db.gameDetail(q, { steamAppid: appid });
+        if (!game) return json(res, 404, { error: '没有该游戏' });
+        const cutoff = Date.now() - days * 86400000;
+        const series = (await db.dailyMinSeries(q, { gameId: game.id, region: 'cn' })).filter(
+          (p) => new Date(p.day).getTime() >= cutoff,
+        );
+        const lines = ['date,price_cents,price,currency'];
+        for (const p of series) lines.push([p.day, p.price_cents, (p.price_cents / 100).toFixed(2), p.currency].join(','));
+        const body = '\uFEFF' + lines.join('\r\n');
+        res.writeHead(200, {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': 'attachment; filename="history-' + appid + '.csv"',
+          'cache-control': 'no-store',
+        });
+        res.end(body);
+        return;
+      }
+
       // ---- 管理员：合并重复游戏（把 from 并进 to，按 Steam appid 指定）----
       if (path === '/api/admin/games/merge' && req.method === 'POST') {
         if (!requireAdmin()) return;
@@ -1140,9 +1182,21 @@ export function createApiServer({
           return 'app';
         };
         const scope = String(url.searchParams.get('scope') ?? '').trim();
+        const minutes = Math.max(0, Number(url.searchParams.get('minutes') ?? 0) || 0);
+        // 时间范围：只保留最近 N 分钟的日志（ts 是 ISO 字符串）
+        let ranged = entries;
+        if (minutes > 0) {
+          const cutoff = Date.now() - minutes * 60_000;
+          ranged = entries.filter((e) => {
+            const ts = e.ts || e.time;
+            if (!ts) return false;
+            const t = new Date(ts).getTime();
+            return Number.isFinite(t) && t >= cutoff;
+          });
+        }
         const scoped = scope
-          ? entries.filter((e) => (scope === 'error' ? String(e.level || '').toLowerCase() === 'error' : scopeOf(e) === scope))
-          : entries;
+          ? ranged.filter((e) => (scope === 'error' ? String(e.level || '').toLowerCase() === 'error' : scopeOf(e) === scope))
+          : ranged;
         const filtered = grep ? scoped.filter((e) => JSON.stringify(e).includes(grep)) : scoped;
         return json(res, 200, { files: picked, count: filtered.length, entries: filtered.slice(-limit) });
       }
