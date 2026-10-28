@@ -51,6 +51,10 @@ textarea{width:100%;min-height:100px;resize:vertical}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
+/* 设置页：保存栏吸顶悬浮；统计页：锚点吸顶 + 跳转留白 */
+#settingsBar{position:sticky;top:0;z-index:7;box-shadow:0 8px 16px -12px rgba(15,23,42,.45)}
+#statsNav{position:sticky;top:0;z-index:6;background:var(--bg,#f6f7f9);padding:8px 0;margin-top:-4px}
+#statsPrice,#statsTrend,#statsImages,#statsBackup,#statsViews{scroll-margin-top:64px}
 /* 访问记录：分「明细 / 统计」两个子视图，明细表内部滚动 + 表头吸顶 */
 #visTableWrap thead th{position:sticky;top:0;background:var(--panel,#fff);z-index:1;box-shadow:inset 0 -1px 0 var(--border,#e5e7eb)}
 #visTabs{margin-top:-4px}
@@ -382,10 +386,10 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="settings" class="hide">
-        <h2>系统设置</h2>
-        <div class="card pad">
+        <h2 id="settingsTop">系统设置</h2>
+        <div class="card pad" id="settingsBar">
           <div class="row" style="margin-top:0">
-            <button class="btn primary" id="settingsSave">保存设置</button>
+            <button class="btn primary" id="settingsSave">保存设置（Ctrl+S）</button>
             <button class="btn" id="settingsReload">重新加载</button>
             <span class="small muted" id="settingsMsg">修改后调度器约 15 秒内生效；密钥留空表示不修改。</span>
           </div>
@@ -414,7 +418,15 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="stats" class="hide">
-        <h2>价格变动（近 24 小时）</h2>
+        <div class="bar" id="statsNav">
+          <button class="chip" data-goto="statsPrice">价格变动</button>
+          <button class="chip" data-goto="statsTrend">近 7 天趋势</button>
+          <button class="chip" data-goto="statsImages">图片缓存</button>
+          <button class="chip" data-goto="statsBackup">备份</button>
+          <button class="chip" data-goto="statsViews">浏览排行</button>
+          <span class="small muted">页面较长，用这里快速跳转</span>
+        </div>
+        <h2 id="statsPrice">价格变动（近 24 小时）</h2>
         <div class="card pad">
           <div class="row" id="priceReportSummary" style="gap:18px"><span class="muted">加载中…</span></div>
           <div class="row" style="margin-top:6px">
@@ -426,15 +438,15 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <table><thead><tr><th>游戏</th><th>平台</th><th class="num">原价</th><th class="num">现价</th><th class="num">变化</th><th>时间</th></tr></thead><tbody id="priceChangeRows"></tbody></table>
         </div>
 
-        <h2>近 7 天变动趋势</h2>
+        <h2 id="statsTrend">近 7 天变动趋势</h2>
         <div class="card">
           <table><thead><tr><th>日期</th><th class="num">降价</th><th class="num">涨价</th><th class="num">合计</th></tr></thead><tbody id="priceDailyRows"></tbody></table>
         </div>
 
-        <h2>封面图缓存</h2>
+        <h2 id="statsImages">封面图缓存</h2>
         <div class="card pad"><div class="row" id="imgStats" style="gap:18px"><span class="muted">加载中…</span></div></div>
 
-        <h2>备份</h2>
+        <h2 id="statsBackup">备份</h2>
         <div class="card pad">
           <div class="row">
             <button class="btn primary" id="backupNow">立即备份</button>
@@ -1540,6 +1552,23 @@ async function saveSettings() {
 }
 if ($('settingsSave')) $('settingsSave').onclick = saveSettings;
 if ($('settingsReload')) $('settingsReload').onclick = loadSettings;
+
+// Ctrl+S / Cmd+S：在设置页随时保存（其他页面不拦截浏览器快捷键）
+document.addEventListener('keydown', function (e) {
+  if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 's') return;
+  const section = document.querySelector('[data-section="settings"]');
+  if (!section || section.classList.contains('hide')) return;
+  e.preventDefault();
+  saveSettings();
+});
+
+// 统计页锚点跳转
+document.querySelectorAll('#statsNav [data-goto]').forEach(function (b) {
+  b.onclick = function () {
+    const el = document.getElementById(b.dataset.goto);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+});
 
 // ---- 登录验证码 ----
 let capToken = '';
