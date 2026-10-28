@@ -266,6 +266,35 @@ test('价格变动报表：快照带前价，涨跌榜与统计正确', async ()
   }
 });
 
+test('游戏同步统计与筛选：待同步数量、pending/done 过滤', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+    const statsUrl = `${base}/api/admin/games/stats`;
+    const s1 = (await (await fetch(statsUrl, { headers: { cookie: admin.cookie } })).json()).stats;
+    assert.equal(s1.total, 1);
+    assert.equal(s1.withAppid, 1);
+    assert.equal(s1.pending, 1, '没有说明 → 待同步');
+    assert.equal(s1.synced, 0);
+
+    // 补说明后：有 appid + 有 Steam 报价 + 有说明 → 已同步
+    await q("update games set description = '一段说明' where steam_appid = 413150");
+    const s2 = (await (await fetch(statsUrl, { headers: { cookie: admin.cookie } })).json()).stats;
+    assert.equal(s2.pending, 0);
+    assert.equal(s2.synced, 1);
+
+    const pending = await (await fetch(`${base}/api/admin/games?sync=pending`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(pending.total, 0, '没有待同步的');
+    const done = await (await fetch(`${base}/api/admin/games?sync=done`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(done.total, 1, '已同步的能筛出来');
+
+    assert.equal((await fetch(statsUrl)).status, 401, '匿名不能看统计');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

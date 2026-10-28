@@ -144,9 +144,17 @@ textarea{width:100%;min-height:100px;resize:vertical}
               <option value="itad">ITAD</option>
               <option value="steampy">SteamPy</option>
             </select>
+            <select id="gameSync" style="padding:6px 8px">
+              <option value="">全部同步状态</option>
+              <option value="pending">待同步信息</option>
+              <option value="done">已同步</option>
+            </select>
             <button class="btn" id="gameRefresh">刷新</button>
             <label class="small muted"><input type="checkbox" id="showImgs"> 显示图片</label>
             <span class="small muted" id="gameMeta"></span>
+          </div>
+          <div class="row" style="margin-top:6px">
+            <span class="small" id="gameSyncStats">统计加载中…</span>
           </div>
         </div>
         <div class="card" style="margin-top:10px">
@@ -406,7 +414,7 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') { loadStats(); loadImgStats(); loadPriceReport(); }
   if (page === 'sync') loadLogs();
-  if (page === 'games') { loadGameList(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
+  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
   if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
@@ -454,9 +462,12 @@ async function loadGameList(page) {
   gamesPageSize = Number(($('pgSize') || {}).value || 20);
   const kw = ($('gameKw') ? $('gameKw').value.trim() : '');
   const platform = ($('gamePlatform') ? $('gamePlatform').value : '');
+  const sync = ($('gameSync') ? $('gameSync').value : '');
   try {
     const d = await api('/api/admin/games?page=' + gamesPage + '&pageSize=' + gamesPageSize +
-      (kw ? '&q=' + encodeURIComponent(kw) : '') + (platform ? '&platform=' + encodeURIComponent(platform) : ''));
+      (kw ? '&q=' + encodeURIComponent(kw) : '') +
+      (platform ? '&platform=' + encodeURIComponent(platform) : '') +
+      (sync ? '&sync=' + encodeURIComponent(sync) : ''));
     gamesPage = d.page; gamesPages = d.pages; gamesTotal = d.total;
     if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
     renderPager();
@@ -517,9 +528,32 @@ $('gameRows').addEventListener('click', async function (e) {
     }
   } catch (err) { toast('失败：' + err.message); }
 });
-if ($('gameRefresh')) $('gameRefresh').onclick = loadGameList;
+if ($('gameRefresh')) $('gameRefresh').onclick = function () { loadGameList(); loadGameStats(); };
 if ($('gameKw')) $('gameKw').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadGameList(); });
 if ($('gamePlatform')) $('gamePlatform').onchange = function () { loadGameList(1); };
+if ($('gameSync')) $('gameSync').onchange = function () { loadGameList(1); };
+
+/** 同步进度统计：库内总数 / 有 appid / 待同步信息 / 已同步 / 有报价 / 已删除。 */
+async function loadGameStats() {
+  const box = $('gameSyncStats');
+  try {
+    const d = await api('/api/admin/games/stats');
+    const s = d.stats || {};
+    const base = Math.max(0, (s.withAppid || 0) - (s.deleted || 0));
+    const pct = base > 0 ? Math.round(((s.synced || 0) / base) * 100) : 100;
+    if (box) {
+      box.innerHTML =
+        '库内 <strong>' + (s.total || 0) + '</strong> 款 · ' +
+        '有 appid <strong>' + (s.withAppid || 0) + '</strong> 款 · ' +
+        '<span class="' + (s.pending > 0 ? 'lv-warn' : '') + '">待同步信息 <strong>' + (s.pending || 0) + '</strong> 款</span> · ' +
+        '已同步 <strong>' + (s.synced || 0) + '</strong> 款（' + pct + '%） · ' +
+        '有报价 <strong>' + (s.withOffers || 0) + '</strong> 款 · ' +
+        '已删除 <strong>' + (s.deleted || 0) + '</strong> 款';
+    }
+  } catch (e) {
+    if (box) box.textContent = '统计读取失败：' + e.message;
+  }
+}
 
 // ---- 回收站：逻辑删除的游戏，可恢复 ----
 async function loadRecycleBin() {

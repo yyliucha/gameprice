@@ -552,7 +552,13 @@ export function createApiServer({
         return json(res, 200, { steamId, games: games.rows });
       }
 
-      // ---- 管理员：游戏列表（分页 + 搜索 + 平台筛选 + 回收站）----
+      // ---- 管理员：游戏同步概览（待同步数量统计）----
+      if (path === '/api/admin/games/stats' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { stats: await db.adminGameStats(q) });
+      }
+
+      // ---- 管理员：游戏列表（分页 + 搜索 + 平台筛选 + 同步状态 + 回收站）----
       if (path === '/api/admin/games' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const kw = String(url.searchParams.get('q') ?? '').trim();
@@ -560,10 +566,18 @@ export function createApiServer({
         const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 20) || 20, 5), 200);
         const offset = (page - 1) * pageSize;
         const platform = String(url.searchParams.get('platform') ?? '').trim();
+        const sync = String(url.searchParams.get('sync') ?? '').trim();
         const deletedParam = String(url.searchParams.get('deleted') ?? 'exclude');
         // 默认只看正常游戏；deleted=only 就是回收站，include 两边都看
         const deletedWhere =
           deletedParam === 'only' ? ' and g.deleted = true' : deletedParam === 'include' ? '' : ' and not g.deleted';
+        // 同步状态：pending=缺说明或无 Steam 价格；done=两者都有
+        const syncWhere =
+          sync === 'pending'
+            ? " and g.steam_appid is not null and (g.description is null or g.description = '' or not exists (select 1 from offers so where so.game_id = g.id and so.platform_code = 'steam'))"
+            : sync === 'done'
+              ? " and g.steam_appid is not null and g.description is not null and g.description <> '' and exists (select 1 from offers so2 where so2.game_id = g.id and so2.platform_code = 'steam')"
+              : '';
         // 平台筛选：按参数位置生成（计数查询与列表查询占位符不同）
         const platformCond = (index) =>
           platform
@@ -572,7 +586,7 @@ export function createApiServer({
         const baseWhere =
           "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') " +
           "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)" +
-          deletedWhere;
+          deletedWhere + syncWhere;
         const cnt = await q(
           'select count(*)::int as n from games g ' + baseWhere + platformCond(2),
           platform ? [kw, platform] : [kw],

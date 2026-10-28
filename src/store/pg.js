@@ -1122,6 +1122,35 @@ export async function setGameDeleted(q, { steamAppid = null, gameId = null, dele
   return r.rows[0] ?? null;
 }
 
+/** 后台游戏同步概览：库内总数 / 有 appid / 待同步信息 / 已删除 / 有报价。 */
+export async function adminGameStats(q) {
+  const r = await q(`
+    select count(*)::int as total,
+           count(*) filter (where g.steam_appid is not null)::int as with_appid,
+           count(*) filter (where g.deleted)::int as deleted,
+           count(*) filter (
+             where g.steam_appid is not null and not g.deleted
+               and (g.description is null or g.description = ''
+                    or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam'))
+           )::int as pending,
+           count(*) filter (where exists (select 1 from offers o2 where o2.game_id = g.id))::int as with_offers
+      from games g`);
+  const row = r.rows[0] ?? {};
+  const total = Number(row.total ?? 0);
+  const withAppid = Number(row.with_appid ?? 0);
+  const deleted = Number(row.deleted ?? 0);
+  const pending = Number(row.pending ?? 0);
+  return {
+    total,
+    withAppid,
+    pending,
+    deleted,
+    withOffers: Number(row.with_offers ?? 0),
+    // 已同步 = 有 appid 且不在待同步里（目录里没有 appid 的行不计入进度）
+    synced: Math.max(0, withAppid - deleted - pending),
+  };
+}
+
 /** 已删除（回收站）的游戏列表，按删除时间倒序。 */
 export async function listDeletedGames(q, { limit = 200 } = {}) {
   const r = await q(
