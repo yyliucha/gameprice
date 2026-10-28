@@ -12,12 +12,16 @@ import {
   verifyCodeHash,
   normalizeEmail,
   checkRateLimit,
+  checkIpRateLimit,
+  checkGlobalDailyLimit,
+  SEND_DAILY_GLOBAL_LIMIT,
   smtpConfig,
   isSmtpConfigured,
   CODE_TTL_SEC,
   CODE_MAX_ATTEMPTS,
 } from './email-auth.js';
 import { sendMail } from './notify.js';
+import { clientIp } from './visitors.js';
 
 export function maskEmail(email) {
   const v = String(email ?? '');
@@ -58,6 +62,28 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
         error: limit.reason === 'cooldown' ? `请 ${limit.retryAfterSec} 秒后再试` : '发送过于频繁，请稍后再试',
         retryAfterSec: limit.retryAfterSec,
       });
+      return true;
+    }
+
+    // 防止拿同一台机器换着邮箱轰炸：按来源 IP 限流 + 全站每日上限
+    const senderIp = clientIp(req);
+    const ipRecent = await q(
+      "select created_at, sent_ok from email_codes where ip = $1 and created_at > now() - interval '1 hour' order by created_at desc limit 50",
+      [senderIp],
+    );
+    const ipLimit = checkIpRateLimit(ipRecent.rows);
+    if (!ipLimit.ok) {
+      logger?.warn('auth.otp_ip_limited', { ip: senderIp, reason: ipLimit.reason, retryAfterSec: ipLimit.retryAfterSec });
+      json(res, 429, { error: '这个网络发送验证码太频繁，请稍后再试', retryAfterSec: ipLimit.retryAfterSec });
+      return true;
+    }
+    const dailyCount = (await q(
+      "select count(*)::int as n from email_codes where sent_ok is not false and created_at > now() - interval '1 day'",
+    )).rows[0]?.n ?? 0;
+    const dailyLimit = checkGlobalDailyLimit(dailyCount);
+    if (!dailyLimit.ok) {
+      logger?.warn('auth.otp_daily_limited', { count: dailyCount, limit: SEND_DAILY_GLOBAL_LIMIT });
+      json(res, 429, { error: '今天系统发信量已达上限，请明天再试或联系管理员' });
       return true;
     }
 

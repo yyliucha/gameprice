@@ -13,6 +13,10 @@ import {
   verifyCodeHash,
   normalizeEmail,
   checkRateLimit,
+  checkIpRateLimit,
+  checkGlobalDailyLimit,
+  SEND_IP_HOURLY_LIMIT,
+  SEND_DAILY_GLOBAL_LIMIT,
   encryptSecret,
   decryptSecret,
   ensureEmailSchema,
@@ -228,4 +232,16 @@ test('发码后邮件内容落库：正文含验证码且可哈希校验，管�
     await store.close();
     smtp.close();
   }
+});
+
+test('发信限流：单 IP 每小时上限与全站每日上限', () => {
+  const now = Date.now();
+  const many = Array.from({ length: SEND_IP_HOURLY_LIMIT }, () => ({ created_at: new Date(now - 1000).toISOString(), sent_ok: true }));
+  const ipLimited = checkIpRateLimit(many, now);
+  assert.equal(ipLimited.ok, false);
+  assert.equal(ipLimited.reason, 'ip_hourly_limit');
+  assert.equal(checkIpRateLimit(many.slice(0, 3), now).ok, true);
+
+  assert.equal(checkGlobalDailyLimit(SEND_DAILY_GLOBAL_LIMIT).ok, false);
+  assert.equal(checkGlobalDailyLimit(SEND_DAILY_GLOBAL_LIMIT - 1).ok, true);
 });

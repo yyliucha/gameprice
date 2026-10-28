@@ -54,6 +54,24 @@ export function checkRateLimit(records, nowMs = Date.now()) {
   return { ok: true };
 }
 
+// 防「换着邮箱轰炸发信」：单 IP 每小时最多 10 封，全站每天最多 200 封
+export const SEND_IP_HOURLY_LIMIT = 10;
+export const SEND_DAILY_GLOBAL_LIMIT = 200;
+
+/** 按来源 IP 限流（同一台机器换邮箱也挡得住）。 */
+export function checkIpRateLimit(records, nowMs = Date.now()) {
+  const sent = (records ?? []).filter((r) => r.created_at && r.sent_ok !== false);
+  const hourly = sent.filter((r) => nowMs - new Date(r.created_at).getTime() < 3600 * 1000).length;
+  if (hourly >= SEND_IP_HOURLY_LIMIT) return { ok: false, reason: 'ip_hourly_limit', retryAfterSec: 3600 };
+  return { ok: true };
+}
+
+/** 全站每日上限：防止 SMTP 配额被打爆。 */
+export function checkGlobalDailyLimit(count) {
+  if (Number(count) >= SEND_DAILY_GLOBAL_LIMIT) return { ok: false, reason: 'global_daily_limit' };
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------- SMTP 密码加密
 
 const KEY_SALT = 'steamdeals-smtp-v1';
