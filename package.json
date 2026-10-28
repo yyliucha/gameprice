@@ -1,6 +1,6 @@
 {
   "name": "steamdeals",
-  "version": "0.21.4",
+  "version": "0.22.0",
   "private": true,
   "type": "module",
   "description": "以 Steam 为准的跨平台游戏比价：采集各授权渠道价格、留存价格历史、按需提醒。PostgreSQL + CLI + Web 前后端。",
@@ -29,7 +29,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/gog.test.js && node test/humble.test.js && node test/steam-meta.test.js && node test/proxy.test.js && node test/http-error.test.js && node test/serve.test.js && node test/discover.test.js && node test/match.test.js && node test/compare.test.js && node test/regions.test.js && node test/store.test.js && node test/merge.test.js && node test/gamemeta.test.js && node test/pg.test.js && node test/report.test.js && node test/alerts.test.js && node test/notify.test.js && node test/watchlist.test.js && node test/scheduler.test.js && node test/visitors.test.js && node test/sync-runs.test.js && node test/pool.test.js && node test/version.test.js && node test/images.test.js && node test/settings.test.js && node test/setup.test.js && node test/deploy.test.js && node test/docs.test.js && node test/secrets.test.js",
+    "test": "node test/log.test.js && node test/adapters.test.js && node test/sonkwo.test.js && node test/gog.test.js && node test/humble.test.js && node test/steam-meta.test.js && node test/proxy.test.js && node test/http-error.test.js && node test/serve.test.js && node test/discover.test.js && node test/match.test.js && node test/compare.test.js && node test/regions.test.js && node test/store.test.js && node test/merge.test.js && node test/gamemeta.test.js && node test/pg.test.js && node test/report.test.js && node test/alerts.test.js && node test/notify.test.js && node test/watchlist.test.js && node test/scheduler.test.js && node test/visitors.test.js && node test/sync-runs.test.js && node test/pool.test.js && node test/version.test.js && node test/ratelimit.test.js && node test/images.test.js && node test/settings.test.js && node test/setup.test.js && node test/deploy.test.js && node test/docs.test.js && node test/secrets.test.js",
     "scan": "node scripts/scan-secrets.js",
     "init": "node src/cli.js init",
     "bootstrap": "node src/cli.js bootstrap",

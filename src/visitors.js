@@ -13,14 +13,35 @@ import { fetchJson } from './http.js';
 
 // ---------------------------------------------------------------- IP 提取与校验
 
-/** 生效 IP：优先反代头（第一个值），否则取 socket 直连地址。 */
-export function clientIp(req) {
-  const xff = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
-  if (/^[\d.a-fA-F:]+$/.test(xff)) return xff;
-  const real = String(req.headers['x-real-ip'] ?? '').trim();
-  if (/^[\d.a-fA-F:]+$/.test(real)) return real;
-  const raw = String(req.socket?.remoteAddress ?? '');
-  return raw.replace(/^::ffff:/, '');
+/** 判断是否是「可信的反代来源」：本机/内网地址。 */
+export function isPrivateAddress(ip) {
+  const value = String(ip ?? '');
+  if (!value) return false;
+  if (value === '::1' || value.startsWith('127.')) return true;
+  if (value.startsWith('10.') || value.startsWith('192.168.')) return true;
+  const m = /^172\.(\d{1,3})\./.exec(value);
+  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(value)) return true; // fc00::/7 私有段
+  return false;
+}
+
+/**
+ * 生效 IP：只有「直连来源是内网/本机」（即 nginx/caddy 反代）时才采信 X-Forwarded-For，
+ * 否则用 socket 地址——避免公网直连时伪造 XFF 绕过限流/黑名单。
+ */
+export function clientIp(req, { trustProxy = 'auto' } = {}) {
+  const raw = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  const trust =
+    trustProxy === true ||
+    (trustProxy === 'auto' && isPrivateAddress(raw)) ||
+    process.env.TRUST_PROXY === '1';
+  if (trust) {
+    const xff = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+    if (/^[\d.a-fA-F:]+$/.test(xff)) return xff;
+    const real = String(req.headers['x-real-ip'] ?? '').trim();
+    if (/^[\d.a-fA-F:]+$/.test(real)) return real;
+  }
+  return raw;
 }
 
 const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;

@@ -28,6 +28,14 @@
 .stg-reveal:hover{background:var(--panel,#fff)}
 .stg-reveal.on{border-color:var(--accent,#0ea5e9);color:var(--accent,#0ea5e9)}
 .stg-empty{color:var(--muted,#64748b);font-size:13px;padding:8px 0}
+.stg-nav{position:sticky;top:0;z-index:6;display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:var(--bg,#f6f7f9);padding:8px 0 10px;margin-bottom:2px;border-bottom:1px solid var(--border,#e5e7eb)}
+.stg-navbtn{padding:5px 10px;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--panel,#fff);color:var(--fg,#0f172a);font-size:12px;cursor:pointer;font-family:inherit}
+.stg-navbtn:hover{border-color:var(--accent,#0ea5e9);color:var(--accent,#0ea5e9)}
+.stg-search{flex:1;min-width:160px;max-width:260px;padding:5px 9px;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--panel,#fff);color:var(--fg,#0f172a);font-size:12px;font-family:inherit}
+.stg-card.stg-collapsed .stg-body{display:none}
+.stg-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.stg-head .stg-chev{color:var(--muted,#64748b);font-size:12px}
+.stg-field.hide{display:none}
 `;
     document.head.appendChild(style);
   }
@@ -48,6 +56,7 @@
   function renderField(field, value, secretMeta, source, options) {
     const wrap = el('div', 'stg-field');
     wrap.dataset.key = field.key;
+    wrap.dataset.label = [field.label, field.key, field.help].filter(Boolean).join(' ').toLowerCase();
 
     if (field.type === 'bool') {
       const label = el('label', 'stg-bool');
@@ -176,18 +185,49 @@
     const sources = schema.sources || {};
     const groups = schema.groups || [];
 
+    // 顶部：分组跳转 + 搜索（设置项多的时候不用一路滚）
+    const nav = el('div', 'stg-nav');
+    const search = document.createElement('input');
+    search.className = 'stg-search';
+    search.placeholder = '搜索设置项（如 代理 / 间隔 / SMTP）';
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      container.querySelectorAll('.stg-field').forEach((f) => {
+        f.classList.toggle('hide', Boolean(q) && !String(f.dataset.label || '').includes(q));
+      });
+    });
+    nav.appendChild(search);
+    const cards = [];
     for (const group of groups) {
       const list = fields.filter((f) => f.group === group.id && !(options.hideAdvanced && f.advanced));
       if (!list.length) continue;
       const card = el('section', 'stg-card');
-      card.appendChild(el('h2', 'stg-h2', group.title));
-      if (group.description) card.appendChild(el('p', 'stg-desc', group.description));
+      card.id = 'stg-card-' + group.id;
+      const head = el('div', 'stg-head');
+      head.appendChild(el('h2', 'stg-h2', group.title));
+      const chev = el('span', 'stg-chev', '收起');
+      head.appendChild(chev);
+      head.addEventListener('click', () => {
+        const collapsed = card.classList.toggle('stg-collapsed');
+        chev.textContent = collapsed ? '展开' : '收起';
+      });
+      card.appendChild(head);
+      const body = el('div', 'stg-body');
+      if (group.description) body.appendChild(el('p', 'stg-desc', group.description));
       for (const f of list) {
         const isSecret = f.type === 'secret';
-        card.appendChild(renderField(f, values[f.key], isSecret ? secrets[f.key] : null, sources[f.key], options));
+        body.appendChild(renderField(f, values[f.key], isSecret ? secrets[f.key] : null, sources[f.key], options));
       }
+      card.appendChild(body);
+      cards.push({ group, card });
       container.appendChild(card);
+
+      const btn = el('button', 'stg-navbtn', group.title);
+      btn.type = 'button';
+      btn.addEventListener('click', () => card.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      nav.appendChild(btn);
     }
+    container.insertBefore(nav, container.firstChild);
     if (!container.children.length) {
       container.appendChild(el('div', 'stg-empty', '没有可显示的设置。'));
     }

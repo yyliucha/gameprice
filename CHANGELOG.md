@@ -2,6 +2,41 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.22.0] - 2026-10-28
+
+安全加固（频率限制/白名单/响应头）、控制台布局优化、定时任务状态展示。
+
+### 安全修复（按严重程度）
+
+- **高：无任何频率限制** → 新增 IP 频率限制：60 秒内超过 60 次页面/API 请求判定异常，
+  第 1 次封 10 分钟、第 2 次 30 分钟、第 3 次自动写入永久黑名单；内网/本机（反代、健康检查）不计数
+- **高：登录接口可被爆破** → 同上限流覆盖 `/api/login`（超频即 429）
+- **中：会话 Cookie 缺 `Secure`** → HTTPS 请求（含反代 `x-forwarded-proto: https`）时自动加 `Secure`
+- **中：缺安全响应头** → 统一加 `X-Content-Type-Options`、`X-Frame-Options: DENY`、
+  `Referrer-Policy`、`Permissions-Policy`，HTTPS 下加 HSTS
+- **中：`X-Forwarded-For` 可伪造绕过限流/黑名单** → 只有直连来源是内网/本机（即反代）时才采信 XFF，
+  否则一律用 socket 地址；可用 `TRUST_PROXY=1` 强制信任
+
+### 新增
+
+- **IP 白名单**：`ip_whitelist` 表 + 控制台增删；白名单不受频率限制与黑名单影响
+- **自动封禁记录**：`ip_abuse` 表，控制台可看超频次数/封禁到期时间，支持手动解封
+- **接口**：`GET/POST /api/admin/whitelist`、`DELETE /api/admin/whitelist/:ip`、
+  `GET /api/admin/abuse`、`DELETE /api/admin/abuse/:ip`
+- **定时任务状态**：调度器把各任务的间隔/上次/下次运行写 `data/scheduler-status.json`，
+  控制台「游戏管理」顶部展示「手动同步立即执行 / 定时同步按间隔自动跑」，并显示 steam 下次运行时间
+
+### 变更
+
+- **同步记录更紧凑**：默认只显示最近 5 条，「展开全部」看 20 条；结果列单行截断，完整内容悬停查看
+- **系统设置页**：顶部新增分组跳转 + 搜索框（按名称/键/帮助过滤），每个分组可折叠
+
+### 审计结论（无需修改的项）
+
+- SQL 全部参数化（备份表名取自代码内白名单）；静态文件服务已做 `resolve` 越界拦截；
+  图片路由限定 appid 数字与尺寸白名单；密码用 scrypt 加盐；会话 token 32 字节随机；
+  Cookie `HttpOnly + SameSite=Lax`；邮箱验证码存哈希；敏感设置 AES 加密存储
+
 ## [0.21.2] - 2026-10-28
 
 前台自动刷新改为「数据指纹」轮询，数据没变就不重拉列表。

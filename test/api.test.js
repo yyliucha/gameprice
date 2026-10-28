@@ -668,6 +668,79 @@ test('数据指纹：数据变化后 stamp 改变，轮询不写访问日志', a
   }
 });
 
+test('白名单与自动封禁接口：增删查、匿名 401', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    const admin = await login(base, 'admin', 'admin123456');
+    const add = await fetch(`${base}/api/admin/whitelist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ ip: '198.51.100.9', note: '测试白名单' }),
+    });
+    assert.equal(add.status, 200);
+    const list = await (await fetch(`${base}/api/admin/whitelist`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(list.ips.some((i) => i.ip === '198.51.100.9'));
+    assert.ok(list.config && list.config.max > 0, '应带回当前限流配置');
+
+    const del = await fetch(`${base}/api/admin/whitelist/198.51.100.9`, { method: 'DELETE', headers: { cookie: admin.cookie } });
+    assert.equal(del.status, 200);
+    const after = await (await fetch(`${base}/api/admin/whitelist`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(!after.ips.some((i) => i.ip === '198.51.100.9'));
+
+    const abuse = await (await fetch(`${base}/api/admin/abuse`, { headers: { cookie: admin.cookie } })).json();
+    assert.ok(Array.isArray(abuse.abuse));
+
+    assert.equal((await fetch(`${base}/api/admin/whitelist`)).status, 401);
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
+test('频率限制：同一公网 IP 超频返回 429，白名单可豁免', async () => {
+  const oldMax = process.env.RATE_LIMIT_MAX;
+  const oldWin = process.env.RATE_LIMIT_WINDOW_SEC;
+  process.env.RATE_LIMIT_MAX = '5';
+  process.env.RATE_LIMIT_WINDOW_SEC = '60';
+  const { store, q, srv, base } = await setup();
+  try {
+    // 直接把该 IP 写进白名单：应当完全不受限
+    await q("insert into ip_whitelist (ip, note) values ('203.0.113.201', 'test')");
+    await (await fetch(`${base}/api/games/count`, { headers: { 'x-forwarded-for': '203.0.113.201' } })).text();
+    // 重新让服务端加载白名单：通过管理接口增删会同步内存，这里用删掉再测的方式
+    const admin = await login(base, 'admin', 'admin123456');
+    await fetch(`${base}/api/admin/whitelist/203.0.113.201`, { method: 'DELETE', headers: { cookie: admin.cookie } });
+
+    let statuses = [];
+    for (let i = 0; i < 10; i += 1) {
+      const r = await fetch(`${base}/api/games/count`, { headers: { 'x-forwarded-for': '203.0.113.202' } });
+      statuses.push(r.status);
+    }
+    assert.ok(statuses.includes(429), '超频后应出现 429，实际：' + statuses.join(','));
+
+    // 白名单 IP 不计数
+    const wl = await fetch(`${base}/api/admin/whitelist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ ip: '203.0.113.203' }),
+    });
+    assert.equal(wl.status, 200);
+    let wan = [];
+    for (let i = 0; i < 10; i += 1) {
+      const r = await fetch(`${base}/api/games/count`, { headers: { 'x-forwarded-for': '203.0.113.203' } });
+      wan.push(r.status);
+    }
+    assert.ok(!wan.includes(429), '白名单不应被限流');
+  } finally {
+    if (oldMax === undefined) delete process.env.RATE_LIMIT_MAX;
+    else process.env.RATE_LIMIT_MAX = oldMax;
+    if (oldWin === undefined) delete process.env.RATE_LIMIT_WINDOW_SEC;
+    else process.env.RATE_LIMIT_WINDOW_SEC = oldWin;
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

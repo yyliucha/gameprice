@@ -51,6 +51,9 @@ textarea{width:100%;min-height:100px;resize:vertical}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
+/* 同步记录紧凑表：默认 5 条，结果列单行截断 */
+table.runs td{padding:6px 8px;vertical-align:middle}
+table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 /* 窄屏（平板/手机）：侧栏改为顶部横排，主区撑满 */
 @media (max-width:900px){
   .layout{grid-template-columns:1fr}
@@ -136,15 +139,23 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <span class="small muted">秒</span>
             <span class="small muted" id="syncMsg">先导入目录，再增量同步</span>
           </div>
+          <div class="row" style="margin-top:6px">
+            <span class="small muted" id="syncSchedule">定时任务状态读取中…</span>
+            <button class="btn small" id="syncScheduleRefresh">刷新</button>
+            <span class="small muted">手动同步立即执行；定时同步按「系统设置 → 数据源与采集」里的间隔自动跑</span>
+          </div>
           <div id="syncLive" class="hide" style="margin-top:10px">
             <div class="small muted" id="syncLiveMeta">运行中…</div>
             <div class="logbox" id="syncLiveBox" style="max-height:180px"></div>
           </div>
         </div>
 
-        <h2>同步记录</h2>
+        <h2 style="display:flex;align-items:center;gap:10px">同步记录
+          <button class="btn small" id="syncRunsToggle">展开全部</button>
+          <span class="small muted">默认只显示最近 5 条，结果列过长可悬停查看</span>
+        </h2>
         <div class="card">
-          <table><thead><tr><th>时间</th><th>模式</th><th>状态</th><th class="num">耗时</th><th>结果</th></tr></thead><tbody id="syncRunRows"></tbody></table>
+          <table class="runs"><thead><tr><th style="width:88px">时间</th><th style="width:86px">模式</th><th style="width:130px">状态</th><th class="num" style="width:72px">耗时</th><th>结果</th></tr></thead><tbody id="syncRunRows"></tbody></table>
         </div>
 
         <h2>同步结果</h2>
@@ -245,6 +256,27 @@ textarea{width:100%;min-height:100px;resize:vertical}
             <span class="small muted" id="blMsg"></span>
           </div>
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th>备注</th><th>加入时间</th><th style="width:90px">操作</th></tr></thead><tbody id="blRows"></tbody></table></div>
+        </div>
+
+        <h2>IP 白名单（不受频率限制与黑名单影响）</h2>
+        <div class="card pad">
+          <div class="row">
+            <input id="wlIp" placeholder="IP，如 1.2.3.4 或 1.2.3.0/24" style="width:240px">
+            <input id="wlNote" placeholder="备注（可选）" style="width:220px">
+            <button class="btn" id="wlAdd">加入白名单</button>
+            <span class="small muted" id="wlMsg"></span>
+          </div>
+          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th>备注</th><th>加入时间</th><th style="width:90px">操作</th></tr></thead><tbody id="wlRows"></tbody></table></div>
+        </div>
+
+        <h2>自动封禁（超频三振）</h2>
+        <div class="card pad">
+          <div class="row" style="justify-content:space-between">
+            <span class="small muted" id="abuseMeta">规则加载中…</span>
+            <button class="btn" id="abuseRefresh">刷新</button>
+          </div>
+          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频次数</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
+          <p class="muted small" style="margin-bottom:0">规则：<strong>60 秒内超过 60 次</strong>页面/API 请求视为异常；第 1 次封 10 分钟，第 2 次封 30 分钟，第 3 次写入永久黑名单。白名单 IP 不计数。</p>
         </div>
 
         <h2>访问记录</h2>
@@ -466,10 +498,10 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') { loadStats(); loadImgStats(); loadPriceReport(); loadBackups(); }
   if (page === 'sync') loadLogs();
-  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
+  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
-  if (page === 'visitors') { loadBlacklist(); loadVisitors(); }
+  if (page === 'visitors') { loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); }
   if (page === 'mail') { loadSmtp(); loadMail(); }
   if (page === 'settings') loadSettings();
 }
@@ -914,11 +946,84 @@ document.addEventListener('click', async function (e) {
     } catch (err) { toast('失败：' + err.message); }
     return;
   }
+  const wlBan = e.target.closest('button[data-wl]');
+  if (wlBan) {
+    try {
+      await api('/api/admin/whitelist', { method: 'POST', body: JSON.stringify({ ip: wlBan.dataset.wl }) });
+      toast('已加入白名单 ' + wlBan.dataset.wl);
+      await loadWhitelist();
+    } catch (err) { toast('失败：' + err.message); }
+    return;
+  }
+  const wlRemove = e.target.closest('button[data-wl-remove]');
+  if (wlRemove) {
+    try {
+      await api('/api/admin/whitelist/' + encodeURIComponent(wlRemove.dataset.wlRemove), { method: 'DELETE' });
+      toast('已移出白名单');
+      await loadWhitelist();
+    } catch (err) { toast('失败：' + err.message); }
+    return;
+  }
+  const abuseUnban = e.target.closest('button[data-abuse-unban]');
+  if (abuseUnban) {
+    try {
+      await api('/api/admin/abuse/' + encodeURIComponent(abuseUnban.dataset.abuseUnban), { method: 'DELETE' });
+      toast('已解封 ' + abuseUnban.dataset.abuseUnban);
+      await loadAbuse();
+    } catch (err) { toast('失败：' + err.message); }
+    return;
+  }
   const prev = e.target.closest('#vPrev');
   if (prev) { loadVisitors(Math.max(1, vPage - 1)); return; }
   const next = e.target.closest('#vNext');
   if (next) { loadVisitors(Math.min(vPages, vPage + 1)); return; }
 });
+
+// ---- 白名单 / 自动封禁 ----
+async function loadWhitelist() {
+  if (!$('wlRows')) return;
+  try {
+    const d = await api('/api/admin/whitelist');
+    $('wlRows').innerHTML = (d.ips || []).map(function (r) {
+      return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="small">' + esc(r.note || '') + '</td>' +
+        '<td class="muted small">' + when(r.created_at) + '</td>' +
+        '<td><button class="btn" data-wl-remove="' + esc(r.ip) + '">移出</button></td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">白名单为空（建议把自己的出口 IP 加进来）</td></tr>';
+    if ($('abuseMeta') && d.config) {
+      $('abuseMeta').textContent = '当前规则：' + d.config.max + ' 次 / ' + d.config.windowSec + ' 秒 · ' +
+        (d.config.enabled ? '已启用' : '已禁用');
+    }
+  } catch (e) { if ($('wlMsg')) $('wlMsg').textContent = '读取失败：' + e.message; }
+}
+async function loadAbuse() {
+  if (!$('abuseRows')) return;
+  try {
+    const d = await api('/api/admin/abuse?limit=50');
+    $('abuseRows').innerHTML = (d.abuse || []).map(function (r) {
+      const until = r.banned_until ? new Date(r.banned_until) : null;
+      const permanent = Boolean(r.blacklist_note);
+      const active = permanent || (until && until.getTime() > Date.now());
+      const state = permanent ? '<span class="pill off">永久拉黑</span>' : active ? '<span class="pill">临时封禁</span>' : '<span class="pill ok">已恢复</span>';
+      return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="num">' + esc(String(r.strikes || 0)) + '</td>' +
+        '<td class="small">' + (until ? until.toLocaleString('zh-CN') : '—') + '</td>' +
+        '<td>' + state + '</td>' +
+        '<td><button class="btn" data-abuse-unban="' + esc(r.ip) + '">解封</button></td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">暂时没有超频记录</td></tr>';
+  } catch (e) { if ($('abuseMeta')) $('abuseMeta').textContent = '读取失败：' + e.message; }
+}
+if ($('wlAdd')) $('wlAdd').onclick = async function () {
+  const ip = $('wlIp').value.trim();
+  if (!ip) { $('wlMsg').textContent = '请填 IP'; return; }
+  $('wlMsg').textContent = '';
+  try {
+    await api('/api/admin/whitelist', { method: 'POST', body: JSON.stringify({ ip: ip, note: $('wlNote').value.trim() }) });
+    toast('已加入白名单 ' + ip);
+    $('wlIp').value = ''; $('wlNote').value = '';
+    await loadWhitelist();
+  } catch (e) { $('wlMsg').textContent = '失败：' + e.message; }
+};
+if ($('abuseRefresh')) $('abuseRefresh').onclick = function () { loadWhitelist(); loadAbuse(); };
+
 if ($('vRefresh')) $('vRefresh').onclick = function () { loadVisitors(1); };
 if ($('vIp')) $('vIp').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadVisitors(1); });
 if ($('vPath')) $('vPath').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadVisitors(1); });
@@ -932,24 +1037,59 @@ function setSyncBusy(busy) {
     if (el) el.disabled = busy;
   });
 }
+let syncRunsExpanded = false;
 async function loadSyncRuns() {
   try {
     const d = await api('/api/admin/sync/runs?limit=20');
-    $('syncRunRows').innerHTML = (d.runs || []).map(function (r) {
+    const all = d.runs || [];
+    const shown = syncRunsExpanded ? all : all.slice(0, 5);
+    if ($('syncRunsToggle')) $('syncRunsToggle').textContent = syncRunsExpanded ? '收起' : '展开全部';
+    $('syncRunRows').innerHTML = shown.map(function (r) {
       const running = r.status === 'running';
       const dur = r.finished_at && r.started_at
         ? Math.max(1, Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000)) + ' 秒'
         : (running ? '运行中' : '—');
       const pill = running ? '<span class="pill">运行中</span>' : r.status === 'ok' ? '<span class="pill ok">成功</span>' : '<span class="pill off">失败</span>';
-      const tail = String(r.output || '').trim().split('\n').filter(Boolean).slice(-2).join(' · ');
+      // 只取第一行做摘要，太长就截断；完整内容在悬停提示里
+      const full = String(r.output || '').trim();
+      const firstLine = full.split('\n').map(function (s) { return s.trim(); }).filter(Boolean)[0] || '';
+      const summary = firstLine.length > 90 ? firstLine.slice(0, 90) + '…' : firstLine;
       return '<tr><td class="muted small">' + when(r.started_at) + '</td>' +
         '<td class="small">' + esc(r.mode === 'catalog' ? '导入目录' : '增量同步') + '</td>' +
         '<td>' + pill + (r.exit_code != null ? ' <span class="small muted">exit ' + r.exit_code + '</span>' : '') + '</td>' +
         '<td class="num small">' + esc(dur) + '</td>' +
-        '<td class="small" title="' + esc(String(r.output || '').slice(-4000)) + '">' + (tail ? esc(tail.slice(0, 220)) : '<span class="muted">—</span>') + '</td></tr>';
+        '<td class="small" title="' + esc(full.slice(-4000)) + '">' +
+        (summary ? '<span class="trunc">' + esc(summary) + '</span>' : '<span class="muted">—</span>') + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="muted">还没有同步记录</td></tr>';
   } catch (e) { /* 表未建时忽略 */ }
 }
+if ($('syncRunsToggle')) $('syncRunsToggle').onclick = function () {
+  syncRunsExpanded = !syncRunsExpanded;
+  loadSyncRuns();
+};
+// ---- 定时任务状态：调度器会写 data/scheduler-status.json，这里展示间隔与下次运行 ----
+async function loadSyncSchedule() {
+  const el = $('syncSchedule');
+  if (!el) return;
+  try {
+    const d = await api('/api/admin/sync/status');
+    const s = d.schedule;
+    if (!s || !Array.isArray(s.jobs) || !s.jobs.length) {
+      el.textContent = '定时任务：未检测到调度器（手动同步仍可用；容器内由 src/scheduler.js 负责定时采集）';
+      return;
+    }
+    const steam = s.jobs.find(function (j) { return j.name === 'steam'; });
+    const next = steam && steam.nextRunAt ? new Date(steam.nextRunAt).toLocaleTimeString('zh-CN', { hour12: false }) : null;
+    const runningNames = s.jobs.filter(function (j) { return j.running; }).map(function (j) { return j.name; });
+    el.textContent = '定时任务运行中：' + s.jobs.map(function (j) { return j.name + ' 每 ' + j.intervalMin + ' 分钟'; }).join(' · ') +
+      (next ? ' · steam 下次 ' + next : '') +
+      (runningNames.length ? ' · 正在执行：' + runningNames.join(',') : '');
+  } catch (e) {
+    el.textContent = '定时任务状态读取失败：' + e.message;
+  }
+}
+if ($('syncScheduleRefresh')) $('syncScheduleRefresh').onclick = loadSyncSchedule;
+
 // 记录本轮是否真的看到过"运行中"：只有从运行中转为结束才自动刷新，避免进页面时就重复拉一遍
 let sawSyncRunning = false;
 async function pollSyncStatus() {

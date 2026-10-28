@@ -8,6 +8,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createLogger, serializeError } from './log.js';
 import { hasNotifier } from './notify.js';
 import { openStore } from './store/index.js';
@@ -177,6 +178,37 @@ export function describeSchedule(jobs) {
 }
 
 /**
+ * 把调度器状态写到文件，Web 进程读它来展示「定时任务 / 下次运行」。
+ * 跨进程通信不值得上 IPC：一个小 JSON 足够，读不到就当没有。
+ */
+export function writeStatusFile(jobs, { lastRunMs, health, running, tickMs = 60000, file = process.env.SCHEDULER_STATUS_FILE || 'data/scheduler-status.json' } = {}) {
+  try {
+    const now = Date.now();
+    const payload = {
+      updatedAt: new Date(now).toISOString(),
+      tickMs,
+      jobs: jobs.map((j) => {
+        const last = lastRunMs?.get?.(j.name) ?? null;
+        const h = health?.get?.(j.name) ?? {};
+        return {
+          name: j.name,
+          intervalMin: j.intervalMin,
+          lastRunAt: last ? new Date(last).toISOString() : null,
+          nextRunAt: new Date((last ?? now) + j.intervalMin * 60_000).toISOString(),
+          running: Boolean(running?.has?.(j.name)),
+          failures: Number(h.failures ?? 0),
+          openUntil: h.openUntil ? new Date(h.openUntil).toISOString() : null,
+        };
+      }),
+    };
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(payload, null, 2));
+  } catch {
+    /* 状态文件写失败不影响调度 */
+  }
+}
+
+/**
  * 调度器自己的通用参数要透传给每个子任务，否则 `scheduler.js --db pglite:...`
  * 这种用法下子任务会找不到库（Docker 里靠 DATABASE_URL 侥幸不出问题，本地必踩）。
  */
@@ -292,6 +324,7 @@ export async function main() {
       tickMs: TICK_MS,
       setupCompleted: initialized.completed,
     });
+    writeStatusFile(jobs, { lastRunMs, health, running, tickMs: TICK_MS });
 
     while (!stopping) {
       // 设置页保存后 revision +1：重新水合 env 并重建任务表，无需重启容器
@@ -327,6 +360,7 @@ export async function main() {
         const { code } = await runJob(job);
         running.delete(job.name);
         lastRunMs.set(job.name, Date.now());
+        writeStatusFile(jobs, { lastRunMs, health, running, tickMs: TICK_MS });
 
         // 采集成功后顺手重建静态页（失败不影响主任务状态）
         const followUp = followUpArgs(job.name, code, process.env);
@@ -363,8 +397,7 @@ export async function main() {
   }
 }
 
-const invokedDirectly = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
-if (invokedDirectly) {
+const invokedDirectly = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;if (invokedDirectly) {
   main().catch((err) => {
     const logger = createLogger({ prefix: 'scheduler' });
     logger.fatal('scheduler.crash', { err: serializeError(err) });

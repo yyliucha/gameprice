@@ -14,6 +14,7 @@ import { join, extname, resolve, sep } from 'node:path';
 import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
 import * as images from './images.js';
+import * as ratelimit from './ratelimit.js';
 import { createBackup, listBackups } from './backup.js';
 import { versionInfo } from './version.js';
 import { VERSION } from './settings.js';
@@ -135,8 +136,14 @@ export function createApiServer({
     const token = cookies[COOKIE] ?? null;
 
     try {
-      // ---- 访问者 IP + 黑名单（整站拦截，静态资源也一样拦）----
+      // ---- 基础安全响应头（所有响应都带）----
+      applySecurityHeaders(req, res);
+
+      // ---- 访问者 IP + 黑名单 + 频率限制（整站拦截，静态资源也一样拦）----
       const ip = visitors.clientIp(req);
+
+      // 白名单：不计数、不受黑名单限制
+      const whitelisted = ratelimit.isWhitelisted(ip);
 
       // 管理员放行：避免把自己拉黑后连控制台都进不去
       let adminBypass = false;
@@ -148,7 +155,46 @@ export function createApiServer({
           adminBypass = false;
         }
       }
-      const hit = ip && !adminBypass ? visitors.blockedBy(ip) : null;
+
+      // 频率限制：白名单/管理员不参与三振；内网/本机（反代、健康检查）不计数
+      if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip)) {
+        const banned = ratelimit.bannedUntil(ip);
+        if (banned) {
+          const mins = Math.max(1, Math.ceil((banned - Date.now()) / 60000));
+          logger?.info('rate.blocked', { ip, path, untilMs: banned });
+          res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(mins * 60) });
+          res.end('请求过于频繁，请 ' + mins + ' 分钟后再试');
+          db.insertVisitorLog(q, {
+            ip,
+            remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
+            region: visitors.cachedRegion(ip),
+            path,
+            method: req.method ?? 'GET',
+            userAgent: req.headers['user-agent'],
+            status: 429,
+          }).catch(() => {});
+          return;
+        }
+        const verdict = await ratelimit.hit(q, ip);
+        if (verdict.limited) {
+          logger?.warn('rate.banned', { ip, path, strikes: verdict.strikes, reason: verdict.reason, permanent: verdict.permanent });
+          if (verdict.permanent) visitors.refreshBlocklist(q).catch(() => {});
+          res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+          res.end(verdict.reason);
+          db.insertVisitorLog(q, {
+            ip,
+            remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
+            region: visitors.cachedRegion(ip),
+            path,
+            method: req.method ?? 'GET',
+            userAgent: req.headers['user-agent'],
+            status: 429,
+          }).catch(() => {});
+          return;
+        }
+      }
+
+      const hit = ip && !adminBypass && !whitelisted ? visitors.blockedBy(ip) : null;
       if (hit) {
         logger?.warn('block.ip_denied', { ip, path, rule: hit });
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
@@ -289,13 +335,13 @@ export function createApiServer({
           res,
           200,
           { user: { id: found.id, username: found.username, role: found.role } },
-          { 'set-cookie': `${COOKIE}=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800` },
+          { 'set-cookie': sessionCookie(req, sessionToken, 604800) },
         );
       }
 
       if (path === '/api/logout' && req.method === 'POST') {
         await db.deleteSession(q, token);
-        return json(res, 200, { ok: true }, { 'set-cookie': `${COOKIE}=; Path=/; HttpOnly; Max-Age=0` });
+        return json(res, 200, { ok: true }, { 'set-cookie': sessionCookie(req, '', 0) });
       }
 
       // ---- 当前用户与偏好 ----
@@ -995,11 +1041,19 @@ export function createApiServer({
         if (!requireAdmin()) return;
         const running = Boolean(syncChild);
         const last = await db.listSyncRuns(q, { limit: 1 }).catch(() => []);
+        let schedule = null;
+        try {
+          const file = process.env.SCHEDULER_STATUS_FILE ?? 'data/scheduler-status.json';
+          schedule = JSON.parse(readFileSync(file, 'utf8'));
+        } catch {
+          schedule = null;
+        }
         return json(res, 200, {
           running,
           run: running ? syncRun : null,
           output: syncOutput.slice(-6000),
           last: last[0] ?? null,
+          schedule,
         });
       }
 
@@ -1377,6 +1431,52 @@ export function createApiServer({
         return json(res, 200, { removed });
       }
 
+      // ---- 管理员：白名单（不受频率限制与黑名单影响）----
+      if (path === '/api/admin/whitelist' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { ips: await db.listWhitelist(q), config: ratelimit.currentConfig() });
+      }
+
+      if (path === '/api/admin/whitelist' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const ip = visitors.normalizeBanInput(body.ip);
+        if (!ip) return json(res, 400, { error: 'IP 格式不正确（支持 1.2.3.4 或 1.2.3.0/24）' });
+        const row = await db.addWhitelistIp(q, { ip, note: String(body.note ?? '').trim().slice(0, 200) || null });
+        ratelimit.addWhitelist(ip);
+        logger?.info('api.ip_whitelisted', { ip, by: user.username });
+        return json(res, 200, { ip: row });
+      }
+
+      const wlMatch = path.match(/^\/api\/admin\/whitelist\/([^/]+)$/);
+      if (wlMatch && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const target = decodeURIComponent(wlMatch[1]);
+        const removed = await db.removeWhitelistIp(q, target);
+        ratelimit.removeWhitelist(target);
+        logger?.info('api.ip_whitelist_removed', { ip: target, removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
+      // ---- 管理员：超频/临时封禁记录 + 手动解封 ----
+      if (path === '/api/admin/abuse' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, {
+          abuse: await db.listAbuse(q, { limit: Number(url.searchParams.get('limit') ?? 50) }),
+          config: ratelimit.currentConfig(),
+        });
+      }
+
+      const abuseUnban = path.match(/^\/api\/admin\/abuse\/([^/]+)$/);
+      if (abuseUnban && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const target = decodeURIComponent(abuseUnban[1]);
+        const removed = await ratelimit.unban(q, target);
+        await visitors.refreshBlocklist(q).catch(() => {});
+        logger?.info('api.abuse_unbanned', { ip: target, removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
       return json(res, 404, { error: 'not found' });
     } catch (err) {
       logger?.error('api.error', { path, message: String(err.message).slice(0, 200) });
@@ -1395,6 +1495,28 @@ function isLoggablePath(path) {
   if (/\.(png|jpe?g|gif|webp|svg|ico|css|js|map|woff2?|ttf|otf|eot|json|xml|txt|md)$/i.test(path)) return false;
   if (path.startsWith('/img/')) return false;
   return true;
+}
+
+/** 基础安全响应头：防嗅探、防点击劫持、限制 referrer 与权限。 */
+function applySecurityHeaders(req, res) {
+  try {
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
+    res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
+    const proto = String(req.headers['x-forwarded-proto'] ?? '').toLowerCase();
+    const https = proto === 'https' || Boolean(req.socket?.encrypted);
+    if (https) res.setHeader('strict-transport-security', 'max-age=15552000; includeSubDomains');
+  } catch {
+    /* 头部设置失败不影响请求 */
+  }
+}
+
+/** 会话 Cookie：HTTPS 时加 Secure（本地 http 调试不受影响）。 */
+function sessionCookie(req, value, maxAgeSec) {
+  const proto = String(req.headers['x-forwarded-proto'] ?? '').toLowerCase();
+  const https = proto === 'https' || Boolean(req.socket?.encrypted);
+  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${https ? '; Secure' : ''}`;
 }
 
 function serveStatic(res, outDir, pathname) {
@@ -1456,6 +1578,18 @@ export function startApiServer({
         await visitors.refreshBlocklist(query);
       } catch (err) {
         logger?.warn('block.init_failed', { message: String(err.message).slice(0, 120) });
+      }
+      try {
+        // 频率限制与白名单：内存计数 + 启动时从库里回填白名单/未到期封禁
+        ratelimit.configure({
+          enabled: process.env.RATE_LIMIT_ENABLED !== '0',
+          max: Number(process.env.RATE_LIMIT_MAX ?? 60),
+          windowSec: Number(process.env.RATE_LIMIT_WINDOW_SEC ?? 60),
+        });
+        const loaded = await ratelimit.loadState(query);
+        logger?.info('rate.init', { ...ratelimit.currentConfig(), ...loaded });
+      } catch (err) {
+        logger?.warn('rate.init_failed', { message: String(err.message).slice(0, 120) });
       }
       try {
         // 服务重启后残留的 running 记录标失败，避免同步按钮永远禁用
