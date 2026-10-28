@@ -2,6 +2,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.24.0] - 2026-10-28
+
+增量同步顺带下载封面图。
+
+### 新增
+
+- `sync steamall` 在写完元数据/价格后，**顺手把本次同步游戏的封面图下载到本地**
+  （默认尺寸 `capsule_sm_120` + `header`，每张间隔 200ms；失败只记日志不影响同步结果）
+- 同步结束会打印「封面图：成功 N 张，失败 M 张」，并写进同步记录的结果摘要
+- 参数：`--images 0` 关闭、`--image-sleep` 调节间隔、`--image-sizes` 指定尺寸；
+  环境变量 `SYNC_IMAGES_ENABLED=0` 可全局关闭（关掉后仍由 4 小时的补图任务兜底）
 ## [0.23.3] - 2026-10-28
 
 前台区分「新史低」与「史低」。

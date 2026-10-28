@@ -431,6 +431,36 @@ async function cmdSyncSteamAll() {
     syncNote = `元数据 ${items.length} 条（无可入库价格）`;
   }
 
+  // 增量同步顺带补封面图：前台不用再等 4 小时的补图任务；--images 0 可关，--image-sleep 控制节奏
+  const withImages = String(flag('images', '1')) !== '0' && process.env.SYNC_IMAGES_ENABLED !== '0';
+  if (withImages && items.length) {
+    const images = await import('./images.js');
+    const sizes = String(flag('image-sizes', 'capsule_sm_120,header'))
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const imageSleep = Math.max(0, Number(flag('image-sleep', '200')) || 0);
+    let imgOk = 0;
+    let imgFailed = 0;
+    for (const item of items) {
+      const appid = Number(item.steamAppid);
+      if (!Number.isFinite(appid) || appid <= 0) continue;
+      for (const size of sizes) {
+        if (!images.isImageSize(size)) continue;
+        try {
+          const r = await images.downloadImage(appid, size, { fetchBuffer, logger, timeoutMs: 12000 });
+          if (r.ok) imgOk += 1;
+          else imgFailed += 1;
+        } catch (err) {
+          imgFailed += 1;
+          logger.warn('sync.image_failed', { appid, size, message: String(err.message).slice(0, 160) });
+        }
+        if (imageSleep) await sleep(imageSleep);
+      }
+    }
+    console.log('封面图：成功 ' + imgOk + ' 张，失败 ' + imgFailed + ' 张');
+    syncNote = (syncNote ? syncNote + '；' : '') + '封面图 ' + imgOk + ' 张';
+  }
   // 价格简报：本次同步产生的涨跌（价格快照带 prev_price_cents 后才统计得到）
   const priceSummary = await printSyncPriceReport(startedMs, 5);
   if (priceSummary) syncNote = (syncNote ? syncNote + '；' : '') + priceSummary;
@@ -1897,7 +1927,7 @@ async function main() {
   seed                 从 data/games.json 导入游戏
   add-sku <id...>      往 data/skus.json 加杉果 SKU（可 --appid 关联 Steam）
   sync steam           拉 Steam 国区价格（需能访问 store.steampowered.com）
-  sync steamall        补元数据/说明/价格（--limit 200 --sleep 2 --concurrency 4，并发抓取）
+  sync steamall        补元数据/说明/价格 + 封面图（--limit 200 --sleep 2 --concurrency 4 --images 0 可关）
   sync sonkwo          按 SKU 抓杉果价格
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）
   sync gog             按英文名查 GOG 商店（catalog 接口，只接受精确标题）
