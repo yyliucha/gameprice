@@ -22,6 +22,11 @@
 .stg-source{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--hover,#f8fafc);color:var(--muted,#64748b)}
 .stg-clear{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted,#64748b);margin-top:5px;cursor:pointer}
 .stg-clear input{width:13px;height:13px}
+.stg-row{display:flex;gap:8px;align-items:center;max-width:560px}
+.stg-row input{flex:1;min-width:0}
+.stg-reveal{flex:none;padding:8px 12px;border-radius:9px;border:1px solid var(--border,#e5e7eb);background:var(--hover,#f8fafc);color:var(--fg,#0f172a);font-size:13px;cursor:pointer;font-family:inherit}
+.stg-reveal:hover{background:var(--panel,#fff)}
+.stg-reveal.on{border-color:var(--accent,#0ea5e9);color:var(--accent,#0ea5e9)}
 .stg-empty{color:var(--muted,#64748b);font-size:13px;padding:8px 0}
 `;
     document.head.appendChild(style);
@@ -60,6 +65,7 @@
       wrap.appendChild(label);
 
       let input;
+      let appended = false;
       if (field.type === 'enum') {
         input = document.createElement('select');
         for (const opt of field.options || []) {
@@ -78,10 +84,53 @@
           if (field.max != null) input.max = String(field.max);
           input.value = value == null ? '' : String(value);
         } else if (field.type === 'secret') {
+          // 密钥默认不回显；已配置时给「查看」按钮，点开才按需拉明文（后端记审计日志）
           input.type = 'password';
           input.autocomplete = 'new-password';
-          input.placeholder = secretMeta && secretMeta.hasValue ? '已设置，留空保持不变' : '未设置';
+          input.placeholder = secretMeta && secretMeta.hasValue ? '已设置：点「查看」显示，或直接输入新值' : '未设置';
           input.value = '';
+          if (secretMeta && secretMeta.hasValue) {
+            const row = el('div', 'stg-row');
+            row.appendChild(input);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'stg-reveal';
+            btn.textContent = '查看';
+            btn.title = '仅在点击时显示明文（会记录一次查看日志）';
+            btn.addEventListener('click', async () => {
+              if (btn.dataset.state === 'shown') {
+                if (!input.dataset.dirty) input.value = '';
+                input.type = 'password';
+                input.dataset.dirty = '';
+                btn.dataset.state = '';
+                btn.textContent = '查看';
+                btn.classList.remove('on');
+                return;
+              }
+              btn.disabled = true;
+              btn.textContent = '读取中…';
+              try {
+                const res = await fetch('/api/admin/settings/value?key=' + encodeURIComponent(field.key), { credentials: 'same-origin' });
+                const d = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+                input.value = d.value ?? '';
+                input.type = 'text';
+                input.dataset.dirty = '';
+                btn.dataset.state = 'shown';
+                btn.textContent = '隐藏';
+                btn.classList.add('on');
+              } catch (err) {
+                input.placeholder = '读取失败：' + err.message;
+              } finally {
+                btn.disabled = false;
+                if (btn.dataset.state !== 'shown') btn.textContent = '查看';
+              }
+            });
+            input.addEventListener('input', () => { input.dataset.dirty = '1'; });
+            row.appendChild(btn);
+            wrap.appendChild(row);
+            appended = true;
+          }
         } else {
           input.type = 'text';
           input.value = value == null ? '' : String(value);
@@ -89,7 +138,7 @@
       }
       input.dataset.key = field.key;
       input.dataset.type = field.type;
-      wrap.appendChild(input);
+      if (!appended) wrap.appendChild(input);
 
       if (field.type === 'secret' && options.allowClear) {
         const clearLabel = el('label', 'stg-clear');

@@ -40,6 +40,16 @@ export async function handleSettingsRoutes({ path, req, res, q, store, logger = 
       return json(res, 200, { ok: true, changed: saved.changed, keys: saved.keys, ...view }), true;
     }
 
+    if (path === '/api/admin/settings/value' && req.method === 'GET') {
+      // 单个敏感字段的明文查看（管理员显式操作，记审计日志，不做批量返回）
+      const key = String(new URL(req.url, 'http://localhost').searchParams.get('key') ?? '');
+      const field = settings.SETTING_MAP.get(key);
+      if (!field || !field.secret) return json(res, 400, { error: '只能查看敏感字段' }), true;
+      const read = await settings.readSettings(q);
+      logger?.info('settings.revealed', { key, by: user?.username ?? null });
+      return json(res, 200, { key, value: read.values[key] ?? '', source: read.sources[key] ?? null }), true;
+    }
+
     return json(res, 404, { error: 'not found' }), true;
   } catch (err) {
     const message = String(err.message ?? '');

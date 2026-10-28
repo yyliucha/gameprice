@@ -566,6 +566,47 @@ test('备份接口、价格历史 CSV、区服筛选、日志时间范围', asyn
   }
 });
 
+test('系统设置：敏感字段默认不回显，可单独查看明文，非敏感字段拒绝查看', async () => {
+  const { store, q, srv, base } = await setup();
+  const savedProxy = process.env.STEAM_PROXY;
+  const settings = await import('../src/settings.js');
+  try {
+    // 生产环境由启动流程建表；测试里直接起服务，这里补一次
+    await settings.ensureSettingsSchema(store);
+    const admin = await login(base, 'admin', 'admin123456');
+
+    // 保存一个代理（敏感字段）
+    const saved = await fetch(`${base}/api/admin/settings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: admin.cookie },
+      body: JSON.stringify({ values: { 'network.steamProxy': 'http://127.0.0.1:7890' } }),
+    });
+    assert.equal(saved.status, 200);
+
+    // 列表接口不回显明文，只给 hasValue
+    const view = await (await fetch(`${base}/api/admin/settings`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(view.values['network.steamProxy'], '', '列表里密钥不回显');
+    assert.equal(view.secrets['network.steamProxy'].hasValue, true);
+
+    // 单独查看明文
+    const reveal = await fetch(`${base}/api/admin/settings/value?key=network.steamProxy`, { headers: { cookie: admin.cookie } });
+    assert.equal(reveal.status, 200);
+    assert.equal((await reveal.json()).value, 'http://127.0.0.1:7890');
+
+    // 非敏感字段不允许走这个接口
+    const bad = await fetch(`${base}/api/admin/settings/value?key=alerts.smtp.port`, { headers: { cookie: admin.cookie } });
+    assert.equal(bad.status, 400);
+
+    // 匿名 401
+    assert.equal((await fetch(`${base}/api/admin/settings/value?key=network.steamProxy`)).status, 401);
+  } finally {
+    if (savedProxy === undefined) delete process.env.STEAM_PROXY;
+    else process.env.STEAM_PROXY = savedProxy;
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');
