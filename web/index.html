@@ -183,6 +183,10 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
       </div>
       <input id="lnewp" type="password" placeholder="新密码（忘记密码时填）" class="hide">
     </div>
+    <div class="bar" id="capBar">
+      <img id="capImg" alt="验证码" title="点击换一张" style="height:40px;width:120px;border-radius:8px;cursor:pointer;background:#0f172a">
+      <input id="capAns" placeholder="验证码" autocomplete="off" style="width:110px">
+    </div>
     <div class="bar" style="justify-content:flex-end;margin-top:8px">
       <button class="btn" id="cancelLogin" type="button">取消</button>
       <button class="btn primary" id="doLogin" type="button">登录</button>
@@ -523,7 +527,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 });
 
 const dlg = document.getElementById('loginDlg');
-document.getElementById('loginBtn').addEventListener('click', () => dlg.showModal());
+document.getElementById('loginBtn').addEventListener('click', () => { loadCaptcha(); dlg.showModal(); });
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' });
   await me();
@@ -562,14 +566,33 @@ document.getElementById('sendCode').onclick=async function(){
     msg.textContent = res.ok ? (b.hint||'验证码已发送') : (b.error||'发送失败');
   }catch(e){ msg.textContent='发送失败：'+e.message; }
 };
+// 登录验证码：打开弹窗/点击图片时取一张，提交时带上 token
+let capToken = '';
+async function loadCaptcha() {
+  try {
+    const r = await fetch('/api/captcha', { credentials: 'same-origin' });
+    const d = await r.json();
+    capToken = d.token || '';
+    const img = document.getElementById('capImg');
+    if (img && d.svg) img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(d.svg);
+  } catch { /* 忽略 */ }
+}
+document.getElementById('capImg').onclick = loadCaptcha;
+
 document.getElementById('doLogin').onclick=async function(){
   const msg=document.getElementById('msg'); msg.textContent='';
   try{
     if(loginMode==='pwd'){
       const res=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({ username:document.getElementById('lu').value.trim(), password:document.getElementById('lp').value })});
+        body:JSON.stringify({ username:document.getElementById('lu').value.trim(), password:document.getElementById('lp').value,
+          captchaToken: capToken, captchaAnswer: (document.getElementById('capAns')||{}).value || '' })});
       const b=await res.json();
-      if(!res.ok){ msg.textContent=b.error||'登录失败'; return; }
+      if(!res.ok){
+        msg.textContent=b.error||'登录失败';
+        document.getElementById('capAns').value='';
+        loadCaptcha();
+        return;
+      }
       document.getElementById('loginDlg').close(); await me(); return;
     }
     const payload={ email:document.getElementById('le').value.trim(), code:document.getElementById('lc').value.trim(), purpose: resetMode?'reset':'login' };

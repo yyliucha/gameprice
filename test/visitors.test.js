@@ -6,6 +6,9 @@ import * as db from '../src/store/pg.js';
 import { startApiServer } from '../src/server.js';
 import * as visitors from '../src/visitors.js';
 
+// 测试里关掉登录验证码
+process.env.CAPTCHA_ENABLED = '0';
+
 async function waitFor(fn, { timeoutMs = 3000, stepMs = 50 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last;

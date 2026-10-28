@@ -99,6 +99,11 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       <strong>管理员登录</strong>
       <div class="row"><input id="u" placeholder="用户名" autocomplete="username"></div>
       <div class="row"><input id="p" type="password" placeholder="密码" autocomplete="current-password"></div>
+      <div class="row" style="gap:8px;align-items:center">
+        <img id="capImg" alt="验证码" title="点击换一张" style="height:44px;width:132px;border-radius:8px;cursor:pointer;background:#0f172a">
+        <input id="capAns" placeholder="验证码" autocomplete="off" style="width:120px">
+        <button class="btn small" id="capRefresh" type="button">换一张</button>
+      </div>
       <div class="row"><button id="login" class="btn primary">登录</button></div>
       <div id="msg" class="small" style="color:var(--warn);min-height:18px"></div>
     </div>
@@ -1511,12 +1516,41 @@ async function saveSettings() {
 if ($('settingsSave')) $('settingsSave').onclick = saveSettings;
 if ($('settingsReload')) $('settingsReload').onclick = loadSettings;
 
+// ---- 登录验证码 ----
+let capToken = '';
+async function loadCaptcha() {
+  try {
+    const r = await fetch('/api/captcha', { credentials: 'same-origin' });
+    const d = await r.json();
+    capToken = d.token || '';
+    const img = $('capImg');
+    if (img && d.svg) img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(d.svg);
+  } catch (e) { /* 网络抖动忽略 */ }
+}
+if ($('capImg')) $('capImg').onclick = loadCaptcha;
+if ($('capRefresh')) $('capRefresh').onclick = loadCaptcha;
+loadCaptcha();
+
 $('login').onclick = async function () {
   $('msg').textContent = '';
   try {
-    await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('u').value, password: $('p').value }) });
+    await api('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('u').value,
+        password: $('p').value,
+        captchaToken: capToken,
+        captchaAnswer: ($('capAns') || {}).value || '',
+      }),
+    });
     await boot();
-  } catch (err) { $('msg').textContent = err.message; }
+  } catch (err) {
+    $('msg').textContent = err.message;
+    if (/验证码/.test(err.message)) {
+      if ($('capAns')) $('capAns').value = '';
+      loadCaptcha();
+    }
+  }
 };
 $('logout').onclick = async function () { await api('/api/logout', { method: 'POST' }); await boot(); };
 

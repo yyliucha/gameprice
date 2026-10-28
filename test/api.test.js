@@ -6,6 +6,9 @@ import * as db from '../src/store/pg.js';
 import { startApiServer } from '../src/server.js';
 import { ingestOffers } from '../src/ingest.js';
 
+// 测试里默认关掉登录验证码（专门有一个用例打开它验证拦截）
+process.env.CAPTCHA_ENABLED = '0';
+
 async function setup() {
   const store = await openStore('pglite:', {});
   await db.migrate(store);
@@ -736,6 +739,41 @@ test('频率限制：同一公网 IP 超频返回 429，白名单可豁免', asy
     else process.env.RATE_LIMIT_MAX = oldMax;
     if (oldWin === undefined) delete process.env.RATE_LIMIT_WINDOW_SEC;
     else process.env.RATE_LIMIT_WINDOW_SEC = oldWin;
+    await srv.close();
+    await store.close();
+  }
+});
+
+test('登录验证码：可获取 SVG，开启后缺验证码的登录被拦截', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    // 获取验证码：返回 token 与 SVG，且 token 落库
+    const cap = await (await fetch(`${base}/api/captcha`)).json();
+    assert.ok(cap.token, '应有 token');
+    assert.match(String(cap.svg), /<svg/);
+    assert.ok(cap.expiresInSec > 0);
+    const rows = (await q('select count(*)::int as n from login_challenges')).rows[0].n;
+    assert.ok(rows >= 1, '验证码应落库');
+
+    // 开启验证码后，不带验证码的登录必须 400 且不消耗密码尝试
+    process.env.CAPTCHA_ENABLED = '1';
+    const noCap = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123456' }),
+    });
+    assert.equal(noCap.status, 400);
+    assert.match((await noCap.json()).error, /验证码/);
+
+    // 错误验证码也不放行
+    const badCap = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123456', captchaToken: cap.token, captchaAnswer: 'ZZZZ' }),
+    });
+    assert.equal(badCap.status, 400);
+  } finally {
+    process.env.CAPTCHA_ENABLED = '0';
     await srv.close();
     await store.close();
   }

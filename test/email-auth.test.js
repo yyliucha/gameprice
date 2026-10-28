@@ -4,6 +4,9 @@ import net from 'node:net';
 import { openStore } from '../src/store/index.js';
 import * as db from '../src/store/pg.js';
 import { startApiServer } from '../src/server.js';
+
+// 测试里关掉登录验证码
+process.env.CAPTCHA_ENABLED = '0';
 import {
   generateCode,
   hashCode,

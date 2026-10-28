@@ -5,6 +5,9 @@ import { openStore } from '../src/store/index.js';
 import * as db from '../src/store/pg.js';
 import { startApiServer } from '../src/server.js';
 
+// 测试里关掉登录验证码
+process.env.CAPTCHA_ENABLED = '0';
+
 test('同步记录：插入 → 完成 → 列表 → 重启中断标记', async () => {
   const store = await openStore('pglite:', {});
   try {

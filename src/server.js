@@ -15,6 +15,7 @@ import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
 import * as images from './images.js';
 import * as ratelimit from './ratelimit.js';
+import * as captcha from './captcha.js';
 import { createBackup, listBackups } from './backup.js';
 import { versionInfo } from './version.js';
 import { VERSION } from './settings.js';
@@ -322,8 +323,22 @@ export function createApiServer({
       }
 
       // ---- 登录 / 登出 ----
+      // ---- 图形验证码（登录前置，匿名可拿；缓存禁止）----
+      if (path === '/api/captcha' && req.method === 'GET') {
+        const cap = await captcha.issue(q);
+        return json(res, 200, cap, { 'cache-control': 'no-store' });
+      }
+
       if (path === '/api/login' && req.method === 'POST') {
         const body = await readBody(req);
+        // 验证码校验放在密码之前：没通过就不会消耗一次密码尝试，也不会泄露账号是否存在
+        if (captcha.enabled()) {
+          const okCaptcha = await captcha.verify(q, body.captchaToken, body.captchaAnswer);
+          if (!okCaptcha) {
+            logger?.warn('api.login_captcha_failed', { ip, username: String(body.username ?? '').slice(0, 32) });
+            return json(res, 400, { error: '验证码错误或已过期，请重新输入' });
+          }
+        }
         const found = await db.findUserByName(q, String(body.username ?? ''));
         if (!found || found.disabled || !db.verifyPassword(String(body.password ?? ''), found.password_hash)) {
           logger?.warn('api.login_failed', { username: String(body.username ?? '').slice(0, 32), disabled: Boolean(found?.disabled) });
