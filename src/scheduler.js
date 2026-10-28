@@ -27,7 +27,15 @@ export function jobsFromEnv(env = process.env) {
   return [
     {
       name: 'steam',
-      args: ['sync', 'steamall'], // 元数据 + 说明 + 价格，一次同步全部 Steam 游戏
+      // 元数据 + 说明 + 价格：并发抓取（默认 4 路），每路间隔控制总速率
+      args: [
+        'sync',
+        'steamall',
+        '--concurrency',
+        String(num(env.STEAM_CONCURRENCY, 4)),
+        '--sleep',
+        String(num(env.STEAM_SLEEP_SEC, 2)),
+      ],
       intervalMin: num(env.STEAM_INTERVAL_MIN, 60),
       initialDelaySec: num(env.STEAM_INITIAL_DELAY_SEC, 30),
       enabled: env.STEAM_ENABLED !== '0',

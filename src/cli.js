@@ -32,6 +32,7 @@ import * as settings from './settings.js';
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
 const humble = { ...humbleDescriptor, searchOffer: humbleSearch };
 import { fetchText, fetchBuffer, sleep } from './http.js';
+import { runPool } from './pool.js';
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
@@ -334,6 +335,8 @@ async function cmdSyncSteamAll() {
   const startedMs = Date.now();
   const limit = Number(flag('limit', '200')) || 200;
   const sleepMs = Math.max(0, Number(flag('sleep', '2')) || 0) * 1000;
+  // 并发抓取：默认 4 路，配合每路 sleep 控制总速率（--concurrency 1 即回到串行）
+  const concurrency = Math.max(1, Math.min(Number(flag('concurrency', 4)) || 4, 16));
   const rows = await withStore(async (store) => {
     const r = await store.query(
       "select g.steam_appid from games g where g.steam_appid is not null " +
@@ -348,19 +351,27 @@ async function cmdSyncSteamAll() {
   const appids = rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
   if (!appids.length) throw new Error('库里没有带 appid 的游戏：先 node src/cli.js import steam --appids ...');
 
-  console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格）`);
+  console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格，并发 ${concurrency}）`);
   const backend = String(flag('backend', 'official'));
   const items = [];
-  for (let i = 0; i < appids.length; i += 1) {
-    try {
-      const one = await fetchMetadata([appids[i]], { backend, logger });
-      if (one.items?.length) items.push(...one.items);
-    } catch (err) {
-      logger.warn('sync.item_failed', { appid: appids[i], message: String(err.message).slice(0, 160) });
-    }
-    if (sleepMs) await sleep(sleepMs);
-    if ((i + 1) % 25 === 0) console.log("  进度 " + (i + 1) + " / " + appids.length);
-  }
+  await runPool(
+    appids,
+    concurrency,
+    async (appid) => {
+      try {
+        const one = await fetchMetadata([appid], { backend, logger });
+        if (one.items?.length) items.push(...one.items);
+      } catch (err) {
+        logger.warn('sync.item_failed', { appid, message: String(err.message).slice(0, 160) });
+      }
+      if (sleepMs) await sleep(sleepMs);
+    },
+    {
+      onProgress: (done, total) => {
+        if (done % 25 === 0 || done === total) console.log(`  进度 ${done} / ${total}`);
+      },
+    },
+  );
   console.log(`元数据来源 ${backend}，取到 ${items.length} 条`);
 
   let named = 0;
@@ -1671,6 +1682,7 @@ async function main() {
   seed                 从 data/games.json 导入游戏
   add-sku <id...>      往 data/skus.json 加杉果 SKU（可 --appid 关联 Steam）
   sync steam           拉 Steam 国区价格（需能访问 store.steampowered.com）
+  sync steamall        补元数据/说明/价格（--limit 200 --sleep 2 --concurrency 4，并发抓取）
   sync sonkwo          按 SKU 抓杉果价格
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）
   sync gog             按英文名查 GOG 商店（catalog 接口，只接受精确标题）

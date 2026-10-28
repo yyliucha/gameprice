@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.7] - 2026-10-28
+
+`sync steamall` 并发抓取提速。
+
+### 新增
+
+- **并发池**（`src/pool.js`）：固定 worker 数循环取活，天然限流；单项失败隔离、结果保序
+- `sync steamall` 新增 `--concurrency`（默认 **4**，上限 16），配合 `--sleep` 控制总速率；
+  `--concurrency 1` 回到原来的串行行为
+- 调度器的 steam 任务显式传 `--concurrency`/`--sleep`，可用 `STEAM_CONCURRENCY` / `STEAM_SLEEP_SEC` 调整
+
+### 测试
+
+- 新增 `test/pool.test.js` 4 项：并发上限、结果顺序、错误隔离、空列表/非法并发
+
 ## [0.19.6] - 2026-10-28
 
 前台「到价提醒」入口（关注列表此前只能 CLI 操作）。
