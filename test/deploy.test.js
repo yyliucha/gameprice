@@ -138,7 +138,7 @@ test('Steam 登录只在后台：前台不得出现登录入口，控制台必�
 
 test('Docker Hub 零配置 compose：镜像 + 自带 db + 命名卷 + 首次初始化', () => {
   const doc = parse(read('compose.hub.yaml'));
-  assert.equal(doc.services.app.image, 'yyliucha/steamdeals:latest');
+  assert.equal(doc.services.app.image, 's1065420329/steamdeals:latest');
   assert.equal(doc.services.app.build, undefined, 'Hub compose 不应要求本地源码构建');
   assert.ok(doc.services.db, '零配置模式必须自带 db');
   assert.match(doc.services.app.ports.join(' '), /\$\{WEB_PORT:-8090\}:8080/);
@@ -156,7 +156,7 @@ test('Docker Hub 零配置 compose：镜像 + 自带 db + 命名卷 + 首次初�
 
 test('Docker Hub 外部数据库 compose：DATABASE_URL 直接写在 compose 文件里', () => {
   const doc = parse(read('compose.hub.external-db.yaml'));
-  assert.equal(doc.services.app.image, 'yyliucha/steamdeals:latest');
+  assert.equal(doc.services.app.image, 's1065420329/steamdeals:latest');
   assert.equal(doc.services.db, undefined, '外部库模式不能启动 db');
   const raw = doc.services.app.environment.DATABASE_URL;
   assert.equal(raw, 'postgres://user:password@host:5432/steamdeals?sslmode=require');
@@ -194,7 +194,7 @@ test('TCR 发布工作流：只推 amd64、带 PostgreSQL 镜像、用 Secrets �
 
 test('发布工作流：多架构构建、Docker Hub 镜像名、先跑测试与冒烟', () => {
   const wf = read('.github/workflows/docker-hub.yml');
-  assert.match(wf, /yyliucha\/steamdeals/);
+  assert.match(wf, /s1065420329\/steamdeals/);
   assert.match(wf, /linux\/amd64,linux\/arm64/);
   assert.match(wf, /docker\/build-push-action/);
   assert.match(wf, /npm test/);

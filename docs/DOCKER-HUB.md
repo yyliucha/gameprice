@@ -1,6 +1,6 @@
 # Docker Hub 部署
 
-镜像：`yyliucha/steamdeals:latest`（多架构：`linux/amd64` / `linux/arm64`）。
+镜像：`s1065420329/steamdeals:latest`（多架构：`linux/amd64` / `linux/arm64`）。
 
 **部署不需要 `.env`，也不需要改 docker-compose 文件里的业务配置。** 第一次打开页面会进入 `/setup`，创建管理员并填写数据源/代理/提醒；这些配置写到 PostgreSQL，之后在「控制台 → 系统设置」修改。
 
@@ -57,7 +57,7 @@ http://服务器IP:8090
 
 这个 compose 文件：
 
-- 使用镜像 `yyliucha/steamdeals:latest`
+- 使用镜像 `s1065420329/steamdeals:latest`
 - 自带 `postgres:15-alpine`，数据库端口不发布到宿主机
 - 用命名卷 `appdata` / `logs` / `pgdata`，不需要 `mkdir` 或 `chown`
 - 只向应用注入 `DATABASE_URL`、`TZ`、可选 `SETUP_TOKEN`，没有任何业务配置
@@ -106,7 +106,7 @@ docker run -d --name steamdeals \
   -e TZ=Asia/Shanghai \
   -v steamdeals_data:/app/data \
   -v steamdeals_logs:/app/logs \
-  yyliucha/steamdeals:latest all
+  s1065420329/steamdeals:latest all
 ```
 
 ## 首次初始化

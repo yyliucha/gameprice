@@ -89,7 +89,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: yyliucha/steamdeals
+          images: s1065420329/steamdeals
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

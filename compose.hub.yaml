@@ -30,7 +30,7 @@ services:
       start_period: 20s
 
   app:
-    image: yyliucha/steamdeals:latest
+    image: s1065420329/steamdeals:latest
     restart: unless-stopped
     command: ["all"]
     ports:

@@ -217,7 +217,7 @@
 ### 变更
 
 - **Docker 命名统一为 `steamdeals`**：compose 项目名、PostgreSQL 库名/用户、命名卷、源码镜像 tag、
-  文档示例全部从 `gameprice` 切换；Docker Hub 镜像仍是 `yyliucha/steamdeals`
+  文档示例全部从 `gameprice` 切换；Docker Hub 镜像仍是 `s1065420329/steamdeals`
 - **「全部」页签过滤掉「不感兴趣」与「已拥有」**（之前只隐藏已拥有）；
   已拥有只在「已拥有」里出现，不感兴趣只在「不感兴趣」里出现
 - 旧 `hide_uninterested` 字段保留兼容：`tab=on` 时自动置 true
@@ -298,7 +298,7 @@ Docker Hub 零配置部署：业务配置落库 + 首次 `/setup` 初始化 + �
 - **调度器热加载**：初始化完成前等待，不采集；轮询 revision，设置变更后重新水合 env 并重建任务表
 - **Docker Hub**：`compose.hub.yaml`（自带 PostgreSQL、命名卷、零 `.env`）与
   `compose.hub.external-db.yaml`（已有库，连接串写在 compose 命令里）
-- **发布工作流**：GitHub Actions 多架构构建 `linux/amd64,linux/arm64`，测试 + 容器冒烟 + 推送 `yyliucha/steamdeals`
+- **发布工作流**：GitHub Actions 多架构构建 `linux/amd64,linux/arm64`，测试 + 容器冒烟 + 推送 `s1065420329/steamdeals`
 - **文档**：`docs/DOCKER-HUB.md`，README/DEPLOY/QUICKSTART/WEB 同步更新
 
 ### 变更

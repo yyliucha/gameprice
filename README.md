@@ -190,7 +190,7 @@ cli.js 生成 runId
 
 ### 方式一：Docker Hub（零配置，推荐）
 
-镜像：`yyliucha/steamdeals:latest`。**不需要 `.env`，也不需要改业务配置。**
+镜像：`s1065420329/steamdeals:latest`。**不需要 `.env`，也不需要改业务配置。**
 
 ```bash
 docker compose -f compose.hub.yaml up -d

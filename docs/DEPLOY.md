@@ -8,7 +8,7 @@
 
 ## Docker Hub（推荐，零配置）
 
-镜像：`yyliucha/steamdeals:latest`。完整说明见 **[DOCKER-HUB.md](DOCKER-HUB.md)**。
+镜像：`s1065420329/steamdeals:latest`。完整说明见 **[DOCKER-HUB.md](DOCKER-HUB.md)**。
 
 ```bash
 # 自带 PostgreSQL，不建 .env、不 chown

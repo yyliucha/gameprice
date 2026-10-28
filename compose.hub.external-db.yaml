@@ -13,7 +13,7 @@ name: steamdeals
 
 services:
   app:
-    image: yyliucha/steamdeals:latest
+    image: s1065420329/steamdeals:latest
     restart: unless-stopped
     command: ["all"]
     ports:
