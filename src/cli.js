@@ -30,7 +30,7 @@ import * as settings from './settings.js';
 // 统一成 { code, name, kind, ..., searchOffer } 的形状，供 syncByTitle 复用
 const gog = { ...gogDescriptor, searchOffer: gogSearch };
 const humble = { ...humbleDescriptor, searchOffer: humbleSearch };
-import { fetchText, fetchBuffer, sleep } from './http.js';
+import { fetchText, fetchJson, fetchBuffer, sleep } from './http.js';
 import { runPool } from './pool.js';
 import { createBackup } from './backup.js';
 
@@ -1383,6 +1383,27 @@ async function cmdDiagnose() {
   await net('img:cf-proxy', 'https://cdn.cloudflare.steamstatic.com' + imgPath);
   await net('img:ak-direct', 'https://cdn.akamai.steamstatic.com' + imgPath);
   await net('img:cf-direct', 'https://cdn.cloudflare.steamstatic.com' + imgPath, { forceDirect: true });
+
+  // Steam Web API Key 校验：store/api/appdetails 是免 key 的，key 只用于个人资料/游戏库/目录，
+  // 所以同步成功不代表 key 有效——这里用 GetPlayerSummaries 单独验一次。
+  const apiKey = String(process.env.STEAM_API_KEY ?? '').trim();
+  if (!apiKey) {
+    add('steam.api_key', false, '未配置 STEAM_API_KEY（Steam 登录/游戏库同步不可用，采集不受影响）');
+  } else {
+    try {
+      const res = await fetchJson(
+        `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${encodeURIComponent(apiKey)}&steamids=76561198000000000`,
+        { logger, label: 'diagnose.api_key', retries: 0, timeoutMs: 12000 },
+      );
+      const players = res.json?.response?.players;
+      const text = JSON.stringify(res.json ?? {}).slice(0, 120);
+      if (Array.isArray(players)) add('steam.api_key', true, `可用（HTTP ${res.status}，玩家查询正常返回）`);
+      else add('steam.api_key', false, `返回结构异常：${text}`);
+    } catch (err) {
+      const body = err.body ? ` body=${String(err.body).slice(0, 120)}` : '';
+      add('steam.api_key', false, `${String(err.message).slice(0, 120)}${body}（403 通常就是 key 无效）`);
+    }
+  }
 
   const failed = checks.filter((c) => !c.ok);
   console.log('\n检查项：');

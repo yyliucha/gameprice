@@ -2,6 +2,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.20.1] - 2026-10-28
+
+`diagnose` 增加 Steam Web API Key 校验。
+
+### 新增
+
+- `diagnose` 新增 `steam.api_key` 检查（`ISteamUser/GetPlayerSummaries`）：
+  `store/api/appdetails` 是免 key 的，同步成功不能证明 key 有效；这项单独验证
+  403 / 结构异常会明确提示 key 无效
+
 ## [0.20.0] - 2026-10-28
 
 收尾四件：区服筛选、单款历史 CSV、后台备份入口、日志时间范围。
