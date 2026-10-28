@@ -52,6 +52,7 @@ tr:hover td{background:var(--hover)}
 .pill.low{border-color:color-mix(in srgb,var(--good) 55%,var(--border));background:var(--good-bg);color:var(--good)}
 .tag{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--good-bg);color:var(--good);font-size:11.5px;font-weight:700;margin-left:6px}
 .tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tag.newlow{background:rgba(249,115,22,.16);color:#f97316}
 dialog{border:1px solid var(--border);border-radius:14px;padding:20px;background:var(--panel);color:var(--fg);box-shadow:var(--shadow);width:320px}
 dialog::backdrop{background:rgba(0,0,0,.35)}
 /* 详情弹窗：桌面宽版；表格不折行，窄屏横向滚动（之前 320px 太窄，表头和内容全被挤成竖排） */
@@ -357,6 +358,9 @@ function render() {
     const others = all.filter((o) => o.platform !== 'steam').sort((a, b) => a.price - b.price);
     const gap = others.length ? others[0].price : null;
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
+    // 新史低：当前价低于「今天之前」的历史最低（当天快照不算），用橙色标签区分
+    const isNewLow = g.prev_hist_low != null && g.current_low != null && g.current_low < g.prev_hist_low;
+    const lowTag = isNewLow ? '<span class="tag newlow">新史低</span>' : lowTag;
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     // 不感兴趣：给个低调标签，避免"点了没反应"的错觉
     const uninterested = g.interested === false ? '<span class="tag" style="background:var(--hover);color:var(--muted)">不感兴趣</span>' : '';
@@ -372,7 +376,7 @@ function render() {
       : '';
     const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
-      '<td>' + cover + '<div class="name">' + link + (atLow ? '<span class="tag">史低</span>' : '') + typeTag + owned + uninterested + '</div>' + en + '</td>' +
+      '<td>' + cover + '<div class="name">' + link + lowTag + typeTag + owned + uninterested + '</div>' + en + '</td>' +
       (function(){
         var steam = null;
         for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];

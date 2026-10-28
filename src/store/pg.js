@@ -696,6 +696,11 @@ const GAME_SELECT = `select g.id,
                join platforms p on p.code = d.platform_code
               where d.game_id = g.id and d.region = $1
                 and p.kind in ${OFFICIAL_KINDS}) as hist_low,
+            -- 新史低判定：今天之前的最低价（不含当天），当前价低于它才算「新史低」
+            (select min(d.min_price_cents) from daily_prices d
+               join platforms p on p.code = d.platform_code
+              where d.game_id = g.id and d.region = $1 and d.day < current_date
+                and p.kind in ${OFFICIAL_KINDS}) as prev_hist_low,
             (select count(*)::int from daily_prices d
               where d.game_id = g.id and d.region = $1) as day_count,
             (select max(o.last_seen_at) from offers o
