@@ -295,6 +295,53 @@ test('游戏同步统计与筛选：待同步数量、pending/done 过滤', asyn
   }
 });
 
+test('服务端搜索与分页：分页元数据、关键词全库搜索、折扣排序', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    // 造 30 款带日价格与 Steam 报价的游戏（折扣 20% ~ 49%）
+    for (let i = 0; i < 30; i += 1) {
+      const appid = 700000 + i;
+      await q("insert into games (steam_appid, name, description) values ($1, $2, '说明')", [appid, '测试游戏 ' + i]);
+      const gid = (await q('select id from games where steam_appid = $1', [appid])).rows[0].id;
+      await q(
+        "insert into offers (game_id, platform_code, product_type, region, currency, price_cents, original_cents, discount_pct, in_stock) " +
+          "values ($1,'steam','official_direct','cn','CNY',$2,2000,$3,true)",
+        [gid, 1000 + i * 10, 20 + i],
+      );
+      await q(
+        "insert into daily_prices (game_id, platform_code, region, day, min_price_cents, currency) values ($1,'steam','cn', current_date, $2, 'CNY')",
+        [gid, 1000 + i * 10],
+      );
+    }
+
+    const p1 = await (await fetch(`${base}/api/games?page=1&pageSize=10`)).json();
+    assert.equal(p1.total, 31, '30 款新游戏 + 初始 1 款');
+    assert.equal(p1.page, 1);
+    assert.equal(p1.pageSize, 10);
+    assert.equal(p1.pages, 4);
+    assert.equal(p1.games.length, 10);
+    assert.equal(p1.games[0].discount, 49, '默认按折扣降序');
+    assert.ok(p1.games[0].discount >= p1.games[1].discount);
+
+    const p2 = await (await fetch(`${base}/api/games?page=2&pageSize=10`)).json();
+    assert.equal(p2.page, 2);
+    assert.notDeepEqual(p1.games.map((g) => g.id), p2.games.map((g) => g.id), '第二页数据不同');
+
+    // 全库搜索：不在第一页的游戏也能搜到
+    const hit = await (await fetch(`${base}/api/games?q=${encodeURIComponent('测试游戏 29')}`)).json();
+    assert.equal(hit.total, 1);
+    assert.equal(hit.games[0].name, '测试游戏 29');
+
+    // 按价格升序
+    const byPrice = await (await fetch(`${base}/api/games?sort=price&pageSize=200`)).json();
+    assert.equal(byPrice.games[0].current_low, 1000, '最便宜的排在前面');
+    assert.equal(byPrice.games.length, 31);
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');

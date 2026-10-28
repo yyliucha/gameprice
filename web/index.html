@@ -170,7 +170,8 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 <script>
 const state = {
   pageSize: 50,
-  page: 1, games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
+  page: 1, total: 0, pages: 1, q: '',
+  games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
 
 // 访客偏好存在浏览器本地：不涉及账号、不上传服务端。
 // 登录后以服务端偏好为准，但界面位置（tab/排序）仍然本地记忆。
@@ -248,36 +249,17 @@ const TYPE_LABELS = {
 };
 const typeLabelOf = (raw) => TYPE_LABELS[String(raw ?? '').toLowerCase()] ?? (raw ? String(raw) : null);
 
-function visible(game) {
-  if (state.tab === 'owned') return game.owned === true;          // 「已拥有」只看已拥有
-  if (game.owned === true) return false;                           // 其余页签不展示已拥有
-  if (state.tab === 'off') return game.interested === false;       // 「不感兴趣」只看不感兴趣
-  if (state.tab === 'on') return game.interested !== false;        // 「感兴趣」排除不感兴趣
-  // 「全部」= 过滤掉不感兴趣与已拥有（按用户要求）
-  return game.interested !== false;
-}
-
-function sorted(list) {
-  const rows = [...list];
-  if (state.sort === 'price') rows.sort((a, b) => (a.current_low ?? Infinity) - (b.current_low ?? Infinity));
-  else if (state.sort === 'name') rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
-  // 稳定排序：同折扣同价时按名称，避免分页时顺序跳动
-  else rows.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0) || (a.current_low ?? Infinity) - (b.current_low ?? Infinity) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
-  return rows;
+/** 翻页：服务端分页，页码变了重新拉数据。 */
+function goPage(n) {
+  const pages = state.pages || 1;
+  state.page = Math.min(Math.max(Number(n) || 1, 1), pages);
+  load().then(function () { window.scrollTo({ top: 0, behavior: 'smooth' }); }).catch(function () { /* 忽略 */ });
 }
 
 function render() {
-  const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
-  const matched = (g) => !kw || [g.name, g.name_en].some((v) => String(v || '').toLowerCase().includes(kw));
-  const filtered = sorted(state.games.filter(visible).filter(matched));
-  const PAGE_SIZE = state.pageSize || 50;
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  if (!state.page || state.page > totalPages) state.page = totalPages;
-  if (state.page < 1) state.page = 1;
-  const start = (state.page - 1) * PAGE_SIZE;
-  const list = filtered.slice(start, start + PAGE_SIZE);
+  const totalPages = state.pages || 1;
   const info = document.getElementById('pgInfo');
-  if (info) info.textContent = '共 ' + filtered.length + ' 款 · 第 ' + state.page + ' / ' + totalPages + ' 页 · 本页 ' + list.length + ' 条';
+  if (info) info.textContent = '共 ' + (state.total || 0) + ' 款 · 第 ' + state.page + ' / ' + totalPages + ' 页 · 本页 ' + state.games.length + ' 条';
   const nums = document.getElementById('pgNums');
   if (nums) {
     const from = Math.max(1, state.page - 3);
@@ -289,7 +271,7 @@ function render() {
     }
     nums.innerHTML = html;
     nums.querySelectorAll('button[data-pg]').forEach(function (btn) {
-      btn.onclick = function () { state.page = Number(btn.dataset.pg); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+      btn.onclick = function () { goPage(Number(btn.dataset.pg)); };
     });
   }
   if (document.getElementById('pgPrev')) document.getElementById('pgPrev').disabled = state.page <= 1;
@@ -297,11 +279,11 @@ function render() {
   if (document.getElementById('pgNext')) document.getElementById('pgNext').disabled = state.page >= totalPages;
   if (document.getElementById('pgLast')) document.getElementById('pgLast').disabled = state.page >= totalPages;
   const tbody = document.getElementById('rows');
-  if (!list.length) {
+  if (!state.games.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="muted">这个分类下没有游戏</td></tr>';
     return;
   }
-  tbody.innerHTML = list.map((g) => {
+  tbody.innerHTML = state.games.map((g) => {
     const all = Array.isArray(g.all_offers) ? g.all_offers : [];
     // 固定展示顺序：Steam 永远第一，其余按价格升序、同价按平台名 —— 每次渲染都一致
     const offers = all.slice().sort((a, b) => {
@@ -354,39 +336,54 @@ function render() {
 let lastGamesSig = '';
 let lastLoadAt = 0;
 let lastCount = null;
+/** 当前页签对应的服务端过滤参数（全部 = 排除不感兴趣与已拥有）。 */
+function tabParams() {
+  const tab = state.tab;
+  return {
+    interest: tab === 'off' ? 'off' : tab === 'owned' ? 'all' : 'on',
+    owned: tab === 'owned' ? 'only' : 'exclude',
+  };
+}
+/** 拉取当前页（服务端搜索 / 排序 / 分页）。 */
 async function load(background) {
-  const res = await fetch('/api/games?limit=500&owned=include');
+  const p = tabParams();
+  const qs = new URLSearchParams({
+    page: String(state.page || 1),
+    pageSize: String(state.pageSize || 50),
+    sort: state.sort,
+    interest: p.interest,
+    owned: p.owned,
+  });
+  if (state.q) qs.set('q', state.q);
+  const res = await fetch('/api/games?' + qs.toString());
   const data = await res.json();
   state.games = data.games ?? [];
-  // 真实数量（库内 / 有价格）：列表最多 500 条，数量要靠 count 接口
+  state.total = Number(data.total ?? state.games.length);
+  state.pages = Number(data.pages ?? 1);
+  state.page = Number(data.page ?? state.page);
+  // 真实数量（库内 / 有价格）
   try {
     const c = await fetch('/api/games/count');
     if (c.ok) lastCount = await c.json();
   } catch {
     /* 拿不到数量不影响列表 */
   }
-  // 签名包含数量与每款的展示字段：价格/名称/屏蔽/**感兴趣/已拥有**/类型，
-  // 任何一项变化都会触发重渲染（之前漏了 interested/owned，导致标记后列表不刷新）
-  const sig = state.games.map(function (g) {
-    return [
-      g.id,
-      g.current_low,
-      g.steam_price,
-      g.name,
-      g.blocked ? 1 : 0,
-      g.interested === false ? 0 : 1,
-      g.owned ? 1 : 0,
-      g.app_type || '',
-    ].join(':');
-  }).join('|');
+  // 签名：页号/总数 + 每款的展示字段，任何变化都重渲染
+  const sig = [state.page, state.total, state.sort, state.tab, state.q].join('~') + '|' +
+    state.games.map(function (g) {
+      return [
+        g.id, g.current_low, g.steam_price, g.name, g.blocked ? 1 : 0,
+        g.interested === false ? 0 : 1, g.owned ? 1 : 0, g.app_type || '',
+      ].join(':');
+    }).join('|');
   lastLoadAt = Date.now();
   const meta = document.getElementById('meta');
   if (meta) {
     const t = new Date(lastLoadAt).toLocaleTimeString('zh-CN', { hour12: false });
     const count = lastCount
       ? '库内 ' + lastCount.catalog + ' 款 · 有价格 ' + lastCount.priced + ' 款'
-      : '共 ' + state.games.length + ' 款';
-    meta.textContent = count + ' · 更新于 ' + t + (background ? '（自动刷新）' : '');
+      : '共 ' + state.total + ' 款';
+    meta.textContent = count + ' · 第 ' + state.page + ' / ' + (state.pages || 1) + ' 页 · 更新于 ' + t + (background ? '（自动刷新）' : '');
   }
   if (sig !== lastGamesSig) {
     lastGamesSig = sig;
@@ -415,7 +412,11 @@ async function me() {
     // 未登录：按浏览器缓存恢复
     applyLocal();
   }
-  if (state.games && state.games.length) render();
+  if (state.games.length) {
+    // 登录态变化会改变过滤条件（已拥有/不感兴趣），回到第一页重新拉
+    state.page = 1;
+    load().catch(function () { /* 忽略 */ });
+  }
 }
 
 /** 后台：用户列表 + 浏览统计。仅管理员可见。 */
@@ -454,13 +455,15 @@ document.getElementById('tabs').addEventListener('click', (e) => {
     state.tab = tab;
     [...document.querySelectorAll('[data-tab]')].forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     persistPrefs();
-    render();
+    state.page = 1;
+    load().catch(function () { /* 忽略 */ });
   }
   if (sort) {
     state.sort = sort;
     [...document.querySelectorAll('[data-sort]')].forEach((b) => b.classList.toggle('on', b.dataset.sort === sort));
     persistPrefs();
-    render();
+    state.page = 1;
+    load().catch(function () { /* 忽略 */ });
   }
 });
 
@@ -646,8 +649,13 @@ me().then(load);
   const box = document.getElementById('q');
   if (!box) return;
   box.addEventListener('input', function () {
+    // 搜索走服务端（全库），300ms 防抖后回到第一页重新拉数据
     clearTimeout(window.__qTimer);
-    window.__qTimer = setTimeout(render, 150);
+    window.__qTimer = setTimeout(function () {
+      state.q = box.value.trim();
+      state.page = 1;
+      load().catch(function () { /* 忽略 */ });
+    }, 300);
   });
 })();
 
@@ -659,47 +667,29 @@ me().then(load);
 })();
 
 (function pagers() {
+  // 号码按钮由 render() 绑定；这里只处理上一页/下一页/跳转/每页条数
   const prev = document.getElementById('pgPrev');
   const next = document.getElementById('pgNext');
   const go = document.getElementById('pgGo');
-  if (prev) prev.onclick = function () { state.page = Math.max(1, (state.page || 1) - 1); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  if (next) next.onclick = function () { state.page = (state.page || 1) + 1; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  if (prev) prev.onclick = function () { goPage((state.page || 1) - 1); };
+  if (next) next.onclick = function () { goPage((state.page || 1) + 1); };
   if (go) go.onclick = function () {
     const n = Number((document.getElementById('pgJump') || {}).value || 1);
-    if (n > 0) { state.page = n; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (n > 0) goPage(n);
+  };
+  const first = document.getElementById('pgFirst');
+  const last = document.getElementById('pgLast');
+  if (first) first.onclick = function () { goPage(1); };
+  if (last) last.onclick = function () { goPage(state.pages || 1); };
+  const sel = document.getElementById('pgSize');
+  if (sel) sel.onchange = function () {
+    state.pageSize = Number(sel.value) || 50;
+    state.page = 1;
+    load().catch(function () { /* 忽略 */ });
   };
 })();
 
-// 分页：事件委托，避免重渲染丢失绑定
-(function frontPagerDelegate() {
-  ['pgPrev','pgNext','pgFirst','pgLast','pgGo'].forEach(function (id) {
-    const el = document.getElementById(id);
-    if (el) el.onclick = null;
-  });
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    const total = (function () {
-      const kw = ((document.getElementById('q') || {}).value || '').trim().toLowerCase();
-      const matched = function (g) { return !kw || [g.name, g.name_en].some(function (v) { return String(v || "").toLowerCase().includes(kw); }); };
-      return sorted(state.games.filter(visible).filter(matched)).length;
-    })();
-    const size = state.pageSize || 50;
-    const pages = Math.max(1, Math.ceil(total / size));
-    const go = function (n) { state.page = Math.min(Math.max(n, 1), pages); render(); window.scrollTo({ top: 0, behavior: "smooth" }); };
-    if (btn.dataset.pg) return go(Number(btn.dataset.pg));
-    if (btn.id === 'pgPrev') return go((state.page || 1) - 1);
-    if (btn.id === 'pgNext') return go((state.page || 1) + 1);
-    if (btn.id === 'pgFirst') return go(1);
-    if (btn.id === 'pgLast') return go(pages);
-    if (btn.id === 'pgGo') {
-      const n = Number((document.getElementById('pgJump') || {}).value || 1);
-      if (n > 0) go(n);
-    }
-  });
-  const sel = document.getElementById('pgSize');
-  if (sel) sel.onchange = function () { state.pageSize = Number(sel.value) || 50; state.page = 1; render(); };
-})();
+// 分页：号码按钮由 render() 绑定，其余在 pagers() 里绑定（服务端分页）
 
 // 前台实时更新：每 10 秒与后端比对一次，后台同步的新价格/新游戏会自动出现；
 // 页面切回可见时立即刷一次，避免后台挂着错过更新。

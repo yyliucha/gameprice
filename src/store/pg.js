@@ -567,6 +567,11 @@ const GAME_SELECT = `select g.id,
                join platforms p on p.code = o.platform_code
               where o.game_id = g.id and o.region = $1 and o.in_stock
                 and p.kind in ${OFFICIAL_KINDS}) as current_original,
+            -- 折扣力度（官方渠道在售报价里的最大折扣），前台"折扣"列与排序都靠它
+            (select max(o.discount_pct) from offers o
+               join platforms p on p.code = o.platform_code
+              where o.game_id = g.id and o.region = $1 and o.in_stock
+                and p.kind in ${OFFICIAL_KINDS}) as discount,
             (select min(d.min_price_cents) from daily_prices d
                join platforms p on p.code = d.platform_code
               where d.game_id = g.id and d.region = $1
@@ -619,6 +624,56 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
     [region, limit],
   );
   return r.rows;
+}
+
+/**
+ * 服务端搜索 + 分页 + 排序（前台列表用）。
+ * 返回 { rows, total, page, pageSize, pages }。
+ * 关键词在前端只过滤页面内数据的时代已经结束：现在能搜全库。
+ */
+export async function gameSearch(
+  q,
+  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude' } = {},
+) {
+  const kw = String(keyword ?? '').trim();
+  const size = Math.min(Math.max(Number(pageSize) || 50, 5), 200);
+  const pg = Math.max(1, Number(page) || 1);
+  const offset = (pg - 1) * size;
+
+  const conds = [
+    'exists (select 1 from daily_prices d where d.game_id = g.id and d.region = $1)',
+    'not g.deleted',
+    "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
+      "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%') or cast(g.steam_appid as text) = $2)",
+  ];
+  if (interest === 'on') conds.push('g.interested = true');
+  if (interest === 'off') conds.push('g.interested = false');
+  if (owned === 'exclude') conds.push('g.owned = false');
+  if (owned === 'only') conds.push('g.owned = true');
+  if (blocked === 'exclude') conds.push('g.blocked = false');
+  if (blocked === 'only') conds.push('g.blocked = true');
+  const where = 'where ' + conds.join(' and ');
+
+  const priceExpr = `(select min(o.price_cents) from offers o
+     join platforms p on p.code = o.platform_code
+    where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS})`;
+  const discountExpr = `(select max(o.discount_pct) from offers o
+     join platforms p on p.code = o.platform_code
+    where o.game_id = g.id and o.region = $1 and o.in_stock and p.kind in ${OFFICIAL_KINDS})`;
+  const order =
+    sort === 'price'
+      ? `${priceExpr} asc nulls last, name asc`
+      : sort === 'name'
+        ? 'name asc'
+        : `${discountExpr} desc nulls last, ${priceExpr} asc nulls last, name asc`;
+
+  const total = Number(
+    (await q(`select count(*)::int as n from games g ${where}`, [region, kw])).rows[0]?.n ?? 0,
+  );
+  const rows = (
+    await q(`${GAME_SELECT} from games g ${where} order by ${order} limit $3 offset $4`, [region, kw, size, offset])
+  ).rows;
+  return { rows, total, page: pg, pageSize: size, pages: Math.max(1, Math.ceil(total / size)) };
 }
 
 /** 单个游戏的每日最低价（跨官方平台取最小），按天升序。 */

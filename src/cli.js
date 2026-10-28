@@ -43,6 +43,8 @@ const flag = (name, fallback = null) => {
 };
 
 const runId = `run-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`;
+// 同步结束时写进 sync_runs.output 的一行摘要（控制台「同步记录」的结果列显示它）
+let syncNote = '';
 const logger = createLogger({
   level: String(flag('level', process.env.LOG_LEVEL ?? 'info')),
   dir: String(flag('log-dir', process.env.LOG_DIR ?? 'logs')),
@@ -404,17 +406,21 @@ async function cmdSyncSteamAll() {
     const dlcCount = items.filter((i) => i.appType === 'dlc').length;
     logger.info('sync.steamall.done', { appids: appids.length, items: items.length, dlc: dlcCount, described, priced, ...stats });
     console.log(`完成：${items.length} 条元数据（其中 DLC ${dlcCount} 款；说明 ${described} 条）、${priced} 条 Steam 价格（新增 ${stats.inserted}）`);
+    syncNote = `元数据 ${items.length} 条（说明 ${described}）、Steam 价格 ${priced} 条（新增 ${stats.inserted}）`;
   } else if (!items.length) {
     logger.warn('sync.steamall.empty', { appids: appids.length, backend });
     console.log('完成：0 条元数据 —— 拉取全部失败。先排查网络/代理：');
     console.log('  docker compose exec app node src/cli.js diagnose   # 看 net:steam 一行');
     console.log('  日志里搜 steam.meta.failed 可看到每个 appid 的失败原因');
+    syncNote = '0 条元数据（拉取全部失败，先看 diagnose 的 net:steam）';
   } else {
     console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
+    syncNote = `元数据 ${items.length} 条（无可入库价格）`;
   }
 
   // 价格简报：本次同步产生的涨跌（价格快照带 prev_price_cents 后才统计得到）
-  await printSyncPriceReport(startedMs, 5);
+  const priceSummary = await printSyncPriceReport(startedMs, 5);
+  if (priceSummary) syncNote = (syncNote ? syncNote + '；' : '') + priceSummary;
 }
 
 /** 打印某个时间窗内的价格变动简报；失败只警告，不影响同步结果。 */
@@ -425,7 +431,7 @@ async function printSyncPriceReport(sinceMs, limit = 5) {
     );
     if (!rep.changed) {
       console.log('本次没有价格变动');
-      return;
+      return '价格无变动';
     }
     console.log(`\n本次价格变动：降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条`);
     for (const d of rep.topDrops) {
@@ -436,8 +442,10 @@ async function printSyncPriceReport(sinceMs, limit = 5) {
       console.log(`  ↑ ¥${(r.was / 100).toFixed(2)} → ¥${(r.now_price / 100).toFixed(2)}  ${r.name} · ${r.platform_name}`);
     }
     logger.info('sync.price_report', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises });
+    return `降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条`;
   } catch (err) {
     logger.warn('sync.price_report_failed', { message: String(err.message).slice(0, 160) });
+    return '';
   }
 }
 
@@ -1566,6 +1574,53 @@ async function cmdSyncAll() {
   if (!ok) throw new Error('所有采集源都失败了，检查日志');
 }
 
+/** 本次同步的任务号（控制台触发时由 env 传入，这时不重复建记录）。 */
+function syncRunEnvId() {
+  const id = Number(process.env.SYNC_RUN_ID);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/** 建一条同步记录（定时任务/命令行手动跑都会留痕，控制台能看到）。 */
+async function beginSyncRunRecord(mode) {
+  const existing = syncRunEnvId();
+  if (existing) return { id: existing, own: false };
+  try {
+    const id = await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      const run = await db.insertSyncRun(q, { mode, args: args.join(' ') });
+      return run.id;
+    });
+    return { id, own: true };
+  } catch (err) {
+    logger.warn('sync.run_begin_failed', { mode, message: String(err.message).slice(0, 160) });
+    return { id: null, own: false };
+  }
+}
+
+async function finishSyncRunRecord(run, status, note = '') {
+  if (!run?.own || !run.id) return; // 控制台触发的任务由 web 进程负责收尾
+  try {
+    await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      await db.finishSyncRun(q, run.id, { status, output: note ? String(note).slice(0, 2000) : null });
+    });
+  } catch (err) {
+    logger.warn('sync.run_finish_failed', { runId: run.id, message: String(err.message).slice(0, 160) });
+  }
+}
+
+/** 同步命令的"记录"包装：开始时落库、结束/异常时补状态。 */
+async function runSyncTracked(mode, fn) {
+  const run = await beginSyncRunRecord(mode);
+  try {
+    await fn();
+    await finishSyncRunRecord(run, 'ok', syncNote || null);
+  } catch (err) {
+    await finishSyncRunRecord(run, 'failed', String(err.message).slice(0, 500));
+    throw err;
+  }
+}
+
 async function main() {
   // 先把库里的业务设置水合到 process.env（sync itad 等命令在 withStore 之前就会读 Key）
   if (command === 'sync' || (commands[command] && !NO_HYDRATE.has(command))) {
@@ -1574,13 +1629,14 @@ async function main() {
   if (command === 'sync') {
     const target = args[1];
     if (target === 'all') return cmdSyncAll();
-    if (target === 'steam') return cmdSyncSteam();
-    if (target === 'steamall') return cmdSyncSteamAll();
-    if (target === 'catalog') return cmdImportSteamCatalog(); // 全量目录，一次请求 // 元数据 + 说明 + 价格，全部 Steam 游戏
-    if (target === 'sonkwo') return cmdSyncSonkwo();
-    if (target === 'itad') return cmdSyncItad();
-    if (target === 'gog') return cmdSyncGog();
-    if (target === 'humble') return cmdSyncHumble();
+    // 各源同步都留一条记录（定时任务也能在控制台「同步记录」里看到）
+    if (target === 'steam') return runSyncTracked('steam', cmdSyncSteam);
+    if (target === 'steamall') return runSyncTracked('steamall', cmdSyncSteamAll);
+    if (target === 'catalog') return runSyncTracked('catalog', cmdImportSteamCatalog);
+    if (target === 'sonkwo') return runSyncTracked('sonkwo', cmdSyncSonkwo);
+    if (target === 'itad') return runSyncTracked('itad', cmdSyncItad);
+    if (target === 'gog') return runSyncTracked('gog', cmdSyncGog);
+    if (target === 'humble') return runSyncTracked('humble', cmdSyncHumble);
     throw new Error('用法: node src/cli.js sync all|steam|steamall|catalog|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];

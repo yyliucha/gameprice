@@ -316,24 +316,43 @@ export function createApiServer({
         return json(res, 200, { priced: priced.rows[0]?.n ?? 0, catalog: catalog.rows[0]?.n ?? 0 });
       }
 
-      // ---- 游戏列表（匿名可读）----
+      // ---- 游戏列表（匿名可读）：服务端搜索 + 分页 + 排序 ----
       if (path === '/api/games' && req.method === 'GET') {
-        const interest = url.searchParams.get('interest') ?? 'all';
-        const ownedParam = url.searchParams.get('owned') ?? 'exclude';
-        const blockedParam = url.searchParams.get('blocked') ?? 'exclude';
-        const sort = url.searchParams.get('sort') ?? 'discount';
-        const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 500);
-        const rows = await db.gameOverview(q, { region: url.searchParams.get('region') ?? 'cn', limit });
-        const filtered = rows.filter((g) => {
-          if (blockedParam === 'exclude' && g.blocked === true) return false;
-          if (blockedParam === 'only' && g.blocked !== true) return false;
-          if (ownedParam === 'exclude' && g.owned === true) return false;
-          if (ownedParam === 'only' && g.owned !== true) return false;
-          if (interest === 'on') return g.interested !== false;
-          if (interest === 'off') return g.interested === false;
-          return true;
+        const oneOf = (key, allowed, fallback) => {
+          const v = String(url.searchParams.get(key) ?? '').trim();
+          return allowed.includes(v) ? v : fallback;
+        };
+        const interest = oneOf('interest', ['all', 'on', 'off'], 'all');
+        const ownedParam = oneOf('owned', ['exclude', 'only', 'include'], 'exclude');
+        const blockedParam = oneOf('blocked', ['exclude', 'only', 'include'], 'exclude');
+        const sort = oneOf('sort', ['discount', 'price', 'name'], 'discount');
+        const keyword = String(url.searchParams.get('q') ?? '').slice(0, 80);
+        const pageSize = Math.min(
+          Math.max(Number(url.searchParams.get('pageSize') ?? url.searchParams.get('limit') ?? 50) || 50, 5),
+          200,
+        );
+        const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+        const result = await db.gameSearch(q, {
+          region: url.searchParams.get('region') ?? 'cn',
+          page,
+          pageSize,
+          keyword,
+          sort,
+          interest,
+          owned: ownedParam,
+          blocked: blockedParam,
         });
-        return json(res, 200, { games: sortGames(filtered, sort), total: rows.length, sort, owned: ownedParam });
+        return json(res, 200, {
+          games: result.rows,
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+          pages: result.pages,
+          sort,
+          owned: ownedParam,
+          interest,
+          q: keyword,
+        });
       }
 
       // ---- 单个游戏（匿名可读）----
@@ -762,7 +781,11 @@ export function createApiServer({
         const run = await db.insertSyncRun(q, { mode, args: args.join(' ') });
         const { spawn } = await import('node:child_process');
         const fsMod = await import('node:fs');
-        const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        // SYNC_RUN_ID 让子进程复用这一条记录，避免重复建行
+        const child = spawn(process.execPath, args, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, SYNC_RUN_ID: String(run.id) },
+        });
         syncChild = child;
         syncRun = { id: run.id, mode, args: args.join(' '), startedAt: run.startedAt };
         syncOutput = '';
