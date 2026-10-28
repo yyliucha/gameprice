@@ -115,6 +115,11 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     <button class="chip" data-tab="off">不感兴趣</button>
     <button class="chip" data-tab="owned">已拥有</button>
     <input id="q" placeholder="搜索游戏（中文 / 英文）" style="max-width:250px;margin-left:8px">
+    <select id="typeFilter" class="chip" style="padding:5px 8px">
+      <option value="all">全部类型</option>
+      <option value="game">游戏</option>
+      <option value="dlc">DLC</option>
+    </select>
     <span class="spacer"></span>
     <button class="chip" data-sort="discount">折扣</button>
     <button class="chip" data-sort="price">价格</button>
@@ -188,7 +193,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 <script>
 const state = {
   pageSize: 50,
-  page: 1, total: 0, pages: 1, q: '',
+  page: 1, total: 0, pages: 1, q: '', type: 'all',
   games: [], tab: 'all', sort: 'discount', user: null, prefs: null };
 
 // 访客偏好存在浏览器本地：不涉及账号、不上传服务端。
@@ -389,6 +394,7 @@ async function load(background) {
     owned: p.owned,
   });
   if (state.q) qs.set('q', state.q);
+  if (state.type && state.type !== 'all') qs.set('type', state.type);
   const res = await fetch('/api/games?' + qs.toString());
   const data = await res.json();
   state.games = data.games ?? [];
@@ -750,6 +756,13 @@ me().then(load);
       state.page = 1;
       load().catch(function () { /* 忽略 */ });
     }, 300);
+  });
+  // 类型筛选（游戏 / DLC）：同样走服务端
+  const typeSel = document.getElementById('typeFilter');
+  if (typeSel) typeSel.addEventListener('change', function () {
+    state.type = typeSel.value || 'all';
+    state.page = 1;
+    load().catch(function () { /* 忽略 */ });
   });
 })();
 

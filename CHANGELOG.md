@@ -2,6 +2,20 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.8] - 2026-10-28
+
+采集健康度覆盖全部源；前台支持按类型（游戏 / DLC）筛选。
+
+### 新增
+
+- **`fetch_runs` 覆盖全部同步源**：`steamall / catalog / sonkwo / itad / gog / humble` 每次同步都写一行
+  （`sync steam` 原本就有，避免重复写入）；`stats` 命令与排障能直接看到每个源的采集健康度
+- **类型筛选**：`GET /api/games?type=game|dlc|all`；前台筛选栏新增「全部类型 / 游戏 / DLC」下拉
+
+### 测试
+
+- `api.test.js` 新增：type 过滤（游戏/DLC/默认/非法值回落）
+
 ## [0.19.7] - 2026-10-28
 
 `sync steamall` 并发抓取提速。

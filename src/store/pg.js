@@ -744,7 +744,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
  */
 export async function gameSearch(
   q,
-  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null } = {},
+  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all' } = {},
 ) {
   const kw = String(keyword ?? '').trim();
   const size = Math.min(Math.max(Number(pageSize) || 50, 5), 200);
@@ -767,6 +767,8 @@ export async function gameSearch(
   if (owned === 'only') conds.push(`${col('owned')} = true`);
   if (blocked === 'exclude') conds.push('g.blocked = false');
   if (blocked === 'only') conds.push('g.blocked = true');
+  // 类型筛选：game / dlc（app_type 入库时已统一小写）
+  if (typeFilter === 'game' || typeFilter === 'dlc') conds.push(`lower(coalesce(g.app_type, '')) = '${typeFilter}'`);
   const where = 'where ' + conds.join(' and ');
 
   const priceExpr = `(select min(o.price_cents) from offers o

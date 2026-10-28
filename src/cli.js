@@ -1642,14 +1642,49 @@ async function finishSyncRunRecord(run, status, note = '') {
   }
 }
 
-/** 同步命令的"记录"包装：开始时落库、结束/异常时补状态。 */
-async function runSyncTracked(mode, fn) {
+/** 采集健康度（fetch_runs）：每个源的同步都留一行，`stats` 命令与排障能直接看。 */
+async function beginFetchRunRecord(platformCode) {
+  try {
+    return await withStore(async (store) => db.startFetchRun((sql, p) => store.query(sql, p), platformCode));
+  } catch (err) {
+    logger.warn('fetch_run.begin_failed', { platformCode, message: String(err.message).slice(0, 160) });
+    return null;
+  }
+}
+
+async function finishFetchRunRecord(id, { status, note = '', stats = null }) {
+  if (!id) return;
+  try {
+    await withStore(async (store) =>
+      db.finishFetchRun((sql, p) => store.query(sql, p), id, {
+        status,
+        note: note ? String(note).slice(0, 500) : null,
+        requests: stats?.requests ?? 0,
+        total: stats?.total ?? 0,
+        ok: stats?.ok ?? 0,
+        skipped: stats?.skipped ?? 0,
+        failed: stats?.failed ?? 0,
+      }),
+    );
+  } catch (err) {
+    logger.warn('fetch_run.finish_failed', { id, message: String(err.message).slice(0, 160) });
+  }
+}
+
+/**
+ * 同步命令的"记录"包装：sync_runs（任务级）+ fetch_runs（采集健康度）各留一条。
+ * 注意 sync steam 自己已经写 fetch_runs，传 { fetchRun: false } 避免重复。
+ */
+async function runSyncTracked(mode, fn, { fetchRun = true } = {}) {
   const run = await beginSyncRunRecord(mode);
+  const fetchRunId = fetchRun ? await beginFetchRunRecord(mode) : null;
   try {
     await fn();
     await finishSyncRunRecord(run, 'ok', syncNote || null);
+    await finishFetchRunRecord(fetchRunId, { status: 'ok', note: syncNote });
   } catch (err) {
     await finishSyncRunRecord(run, 'failed', String(err.message).slice(0, 500));
+    await finishFetchRunRecord(fetchRunId, { status: 'failed', note: String(err.message).slice(0, 300) });
     throw err;
   }
 }
@@ -1663,7 +1698,7 @@ async function main() {
     const target = args[1];
     if (target === 'all') return cmdSyncAll();
     // 各源同步都留一条记录（定时任务也能在控制台「同步记录」里看到）
-    if (target === 'steam') return runSyncTracked('steam', cmdSyncSteam);
+    if (target === 'steam') return runSyncTracked('steam', cmdSyncSteam, { fetchRun: false });
     if (target === 'steamall') return runSyncTracked('steamall', cmdSyncSteamAll);
     if (target === 'catalog') return runSyncTracked('catalog', cmdImportSteamCatalog);
     if (target === 'sonkwo') return runSyncTracked('sonkwo', cmdSyncSonkwo);

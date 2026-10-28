@@ -326,6 +326,7 @@ export function createApiServer({
         const ownedParam = oneOf('owned', ['exclude', 'only', 'include'], 'exclude');
         const blockedParam = oneOf('blocked', ['exclude', 'only', 'include'], 'exclude');
         const sort = oneOf('sort', ['discount', 'price', 'name'], 'discount');
+        const typeFilter = oneOf('type', ['all', 'game', 'dlc'], 'all');
         const keyword = String(url.searchParams.get('q') ?? '').slice(0, 80);
         const pageSize = Math.min(
           Math.max(Number(url.searchParams.get('pageSize') ?? url.searchParams.get('limit') ?? 50) || 50, 5),
@@ -342,6 +343,7 @@ export function createApiServer({
           owned: ownedParam,
           blocked: blockedParam,
           userId: user?.id ?? null,
+          typeFilter,
         });
         return json(res, 200, {
           games: result.rows,
@@ -353,6 +355,7 @@ export function createApiServer({
           owned: ownedParam,
           interest,
           q: keyword,
+          type: typeFilter,
         });
       }
 

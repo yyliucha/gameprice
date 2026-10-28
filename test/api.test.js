@@ -483,6 +483,43 @@ test('到价提醒：管理员增删查、appid 解析、普通用户 403、匿�
   }
 });
 
+test('类型筛选：只看游戏 / 只看 DLC', async () => {
+  const { store, q, srv, base } = await setup();
+  try {
+    // 初始游戏标成 game；再造一个 DLC（带日价格与 Steam 报价）
+    await q("update games set app_type = 'game' where steam_appid = 413150");
+    const dlcId = (await q("insert into games (steam_appid, name, app_type, description) values (990001, '测试 DLC', 'dlc', '说明') returning id")).rows[0].id;
+    await q(
+      "insert into offers (game_id, platform_code, product_type, region, currency, price_cents, discount_pct, in_stock) values ($1,'steam','official_direct','cn','CNY',500,0,true)",
+      [dlcId],
+    );
+    await q(
+      "insert into daily_prices (game_id, platform_code, region, day, min_price_cents, currency) values ($1,'steam','cn', current_date, 500, 'CNY')",
+      [dlcId],
+    );
+
+    const onlyDlc = await (await fetch(`${base}/api/games?type=dlc`)).json();
+    assert.equal(onlyDlc.total, 1);
+    assert.equal(onlyDlc.games[0].name, '测试 DLC');
+    assert.equal(onlyDlc.type, 'dlc');
+
+    const onlyGame = await (await fetch(`${base}/api/games?type=game`)).json();
+    assert.equal(onlyGame.total, 1);
+    assert.equal(onlyGame.games[0].steam_appid, 413150);
+
+    const all = await (await fetch(`${base}/api/games`)).json();
+    assert.equal(all.total, 2, '默认不过滤类型');
+
+    // 非法值回落 all
+    const fallback = await (await fetch(`${base}/api/games?type=weird`)).json();
+    assert.equal(fallback.type, 'all');
+    assert.equal(fallback.total, 2);
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('密码哈希：加盐、可校验、不存明文', async () => {
   const a = db.hashPassword('secret123');
   const b = db.hashPassword('secret123');
