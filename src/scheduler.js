@@ -115,6 +115,14 @@ export function jobsFromEnv(env = process.env) {
       initialDelaySec: num(env.IMAGES_INITIAL_DELAY_SEC, 1200),
       enabled: env.IMAGES_ENABLED !== '0',
     },
+    {
+      name: 'report',
+      // 价格报表推送：只在配置了提醒通道时启用（--notify 内部还会再判断一次）
+      args: ['report', 'price', '--hours', '24', '--notify'],
+      intervalMin: num(env.REPORT_INTERVAL_MIN, 1440),
+      initialDelaySec: num(env.REPORT_INITIAL_DELAY_SEC, 900),
+      enabled: env.REPORT_ENABLED !== '0' && hasNotifier(env),
+    },
   ].filter((j) => j.enabled && j.intervalMin > 0);
 }
 

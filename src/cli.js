@@ -1456,6 +1456,40 @@ async function cmdReport() {
     console.log('\n近 ' + daily.length + ' 天趋势：');
     for (const d of daily) console.log(`  ${d.day}  降价 ${d.drops} / 涨价 ${d.rises}（共 ${d.changed}）`);
   }
+
+  // --notify：把报表推到已配置的提醒通道（webhook / 企微 / 邮件）
+  if (flag('notify', false) === true) {
+    const channels = channelsFromEnv();
+    if (!channels.length) {
+      console.log('\n没有配置任何提醒通道，跳过推送（ALERT_WEBHOOK_URL / WECOM_WEBHOOK_URL / SMTP_HOST+ALERT_EMAIL_TO）');
+    } else {
+      const fmt = (x) => `¥${(x / 100).toFixed(2)}`;
+      const lines = [
+        `SteamDeals 价格报表（近 ${rep.hours} 小时）`,
+        `降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条 / 新史低 ${rep.newLows} 条`,
+      ];
+      for (const d of rep.topDrops.slice(0, 5)) {
+        const pct = d.was > 0 ? Math.round((d.drop_cents / d.was) * 100) : 0;
+        lines.push(`↓ ${fmt(d.was)} → ${fmt(d.now_price)}（-${pct}%）${d.name} · ${d.platform_name}`);
+      }
+      for (const r of rep.topRises.slice(0, 3)) {
+        lines.push(`↑ ${fmt(r.was)} → ${fmt(r.now_price)}  ${r.name} · ${r.platform_name}`);
+      }
+      if (daily.length) lines.push('近 7 天：' + daily.map((d) => `${d.day} 降${d.drops}/涨${d.rises}`).join('；'));
+      const text = lines.join('\n');
+      const result = await deliver(channels, {
+        text,
+        payload: { type: 'steamdeals.price_report', text },
+        subject: 'SteamDeals 价格报表',
+        logger,
+      });
+      for (const r of result.results) {
+        console.log(`  ${r.ok ? '✔' : '✘'} ${r.channel}  ${r.ok ? `HTTP ${r.status ?? ''}` : (r.error ?? `errcode=${r.errcode}`)}`);
+      }
+      console.log(result.ok ? '报表已推送。' : '报表推送失败，见日志 notify.* 事件。');
+      if (!result.ok) process.exitCode = 1;
+    }
+  }
   logger.info('report.price', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises, newLows: rep.newLows });
 }
 
@@ -1736,7 +1770,7 @@ async function main() {
   notify-test          给所有已配置的提醒通道发一条测试消息（部署自检）
   history <appid>      价格轨迹（--days 90）
   stats                数据量 + 采集健康度
-  report price         价格涨跌报表（--hours 24 --limit 10）
+  report price         价格涨跌报表（--hours 24 --limit 10 --notify 推送到提醒通道 --csv）
   logs                 查日志（--level error --event http --since 60 --limit 50）
   diagnose             环境/数据库/网络自检，报告落盘
 

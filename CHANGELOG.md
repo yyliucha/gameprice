@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.9] - 2026-10-28
+
+价格报表主动推送。
+
+### 新增
+
+- **`report price --notify`**：把报表（降/涨价条数、新史低、Top 涨跌、近 7 天趋势）推到已配置的
+  webhook / 企业微信 / 邮件通道
+- **调度器 `report` 任务**：配置了任意提醒通道后自动启用，默认每天推一次
+  （`REPORT_ENABLED=0` 关闭，`REPORT_INTERVAL_MIN` 调间隔）
+
+### 测试
+
+- `scheduler.test.js` 新增：无通道时不建任务、有通道时参数正确、`REPORT_ENABLED=0` 可关
+
 ## [0.19.8] - 2026-10-28
 
 采集健康度覆盖全部源；前台支持按类型（游戏 / DLC）筛选。

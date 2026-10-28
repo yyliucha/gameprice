@@ -17,6 +17,21 @@ test('默认任务表（含 gog / humble / discover / backup / alerts / images�
   assert.deepEqual(jobs[5].args, ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12']);
   assert.deepEqual(jobs[6].args, ['backup']);
   assert.deepEqual(jobs[9].args, ['images', 'pull', '--limit', '200', '--sleep', '300']);
+  // steam 任务带并发参数
+  assert.deepEqual(jobs[0].args, ['sync', 'steamall', '--concurrency', '4', '--sleep', '2']);
+});
+
+test('配置了提醒通道才会启用价格报表推送任务', () => {
+  const off = jobsFromEnv({});
+  assert.ok(!off.some((j) => j.name === 'report'), '没有通道时不该有 report 任务');
+
+  const on = jobsFromEnv({ ALERT_WEBHOOK_URL: 'https://example.com/hook' });
+  const report = on.find((j) => j.name === 'report');
+  assert.ok(report, '有通道时应启用');
+  assert.deepEqual(report.args, ['report', 'price', '--hours', '24', '--notify']);
+
+  const disabled = jobsFromEnv({ ALERT_WEBHOOK_URL: 'https://example.com/hook', REPORT_ENABLED: '0' });
+  assert.ok(!disabled.some((j) => j.name === 'report'), 'REPORT_ENABLED=0 可关闭');
 });
 
 test('没配任何提醒通道时 alerts 只做只读检查，不标记已通知', () => {
