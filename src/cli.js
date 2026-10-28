@@ -1403,27 +1403,49 @@ async function cmdDiagnose() {
 
 async function cmdReport() {
   const sub = String(args[1] ?? 'price');
-  if (sub !== 'price') throw new Error('用法: node src/cli.js report price [--hours 24] [--limit 10]');
+  if (sub !== 'price') {
+    throw new Error('用法: node src/cli.js report price [--hours 24] [--limit 10] [--csv] [--days 7]');
+  }
   const hours = Number(flag('hours', 24));
   const limit = Number(flag('limit', 10));
-  const rep = await withStore((store) => db.priceChanges((sql, p) => store.query(sql, p), { hours, limit }));
-  console.log(`近 ${rep.hours} 小时价格变动：降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条（共 ${rep.changed} 条）`);
-  if (!rep.changed) {
-    console.log('（没有变动：要么价格没变，要么快照是在加入 prev_price_cents 之前写的）');
+
+  // CSV 输出：重定向到文件即可用 Excel 打开
+  if (flag('csv', false) === true) {
+    const rows = await withStore((store) => db.priceChangeRows((sql, p) => store.query(sql, p), { hours }));
+    const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    console.log('appid,name,platform,platform_name,old_price,new_price,drop_pct,captured_at');
+    for (const r of rows) {
+      const pct = r.was > 0 ? (((r.was - r.now_price) / r.was) * 100).toFixed(1) : '';
+      console.log([r.steam_appid ?? '', r.name, r.platform, r.platform_name,
+        (r.was / 100).toFixed(2), (r.now_price / 100).toFixed(2), pct,
+        String(r.captured_at).slice(0, 19).replace('T', ' ')].map(cell).join(','));
+    }
     return;
   }
-  const fmt = (x) => `¥${(x / 100).toFixed(2)}`;
-  const when = (t) => String(t).slice(0, 16).replace('T', ' ');
-  console.log('\n降价 Top：');
-  for (const d of rep.topDrops) {
-    const pct = d.was > 0 ? Math.round((d.drop_cents / d.was) * 100) : 0;
-    console.log(`  ${fmt(d.was)} → ${fmt(d.now_price)}  -${pct}%  ${d.name} · ${d.platform_name}  ${when(d.captured_at)}`);
+
+  const rep = await withStore((store) => db.priceChanges((sql, p) => store.query(sql, p), { hours, limit }));
+  const daily = await withStore((store) => db.priceChangesByDay((sql, p) => store.query(sql, p), { days: Number(flag('days', 7)) }));
+  console.log(`近 ${rep.hours} 小时价格变动：降价 ${rep.drops} 条 / 涨价 ${rep.rises} 条 / 新史低 ${rep.newLows} 条（共 ${rep.changed} 条）`);
+  if (!rep.changed) {
+    console.log('（没有变动：要么价格没变，要么快照是在加入 prev_price_cents 之前写的）');
+  } else {
+    const fmt = (x) => `¥${(x / 100).toFixed(2)}`;
+    const when = (t) => String(t).slice(0, 16).replace('T', ' ');
+    console.log('\n降价 Top：');
+    for (const d of rep.topDrops) {
+      const pct = d.was > 0 ? Math.round((d.drop_cents / d.was) * 100) : 0;
+      console.log(`  ${fmt(d.was)} → ${fmt(d.now_price)}  -${pct}%  ${d.name} · ${d.platform_name}  ${when(d.captured_at)}`);
+    }
+    console.log('\n涨价 Top：');
+    for (const r of rep.topRises) {
+      console.log(`  ${fmt(r.was)} → ${fmt(r.now_price)}  ${r.name} · ${r.platform_name}  ${when(r.captured_at)}`);
+    }
   }
-  console.log('\n涨价 Top：');
-  for (const r of rep.topRises) {
-    console.log(`  ${fmt(r.was)} → ${fmt(r.now_price)}  ${r.name} · ${r.platform_name}  ${when(r.captured_at)}`);
+  if (daily.length) {
+    console.log('\n近 ' + daily.length + ' 天趋势：');
+    for (const d of daily) console.log(`  ${d.day}  降价 ${d.drops} / 涨价 ${d.rises}（共 ${d.changed}）`);
   }
-  logger.info('report.price', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises });
+  logger.info('report.price', { hours: rep.hours, changed: rep.changed, drops: rep.drops, rises: rep.rises, newLows: rep.newLows });
 }
 
 const commands = {

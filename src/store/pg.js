@@ -416,14 +416,101 @@ export async function priceChanges(q, { hours = 24, sinceMs = null, limit = 10 }
     [span],
   );
   const row = counts.rows[0] ?? { drops: 0, rises: 0, changed: 0 };
+  // 新史低：本窗口内降价的游戏里，现价 ≤ 该游戏历史最低（日聚合最小值）的条数
+  const lows = await q(
+    `with latest as (
+       select distinct on (s.offer_id) s.offer_id, s.price_cents, s.prev_price_cents
+         from price_snapshots s
+        where s.captured_at > now() - $1::interval
+          and s.prev_price_cents is not null
+          and s.prev_price_cents <> s.price_cents
+        order by s.offer_id, s.captured_at desc, s.id desc
+     )
+     select count(*)::int as n
+       from latest l
+       join offers o on o.id = l.offer_id
+       join games g on g.id = o.game_id
+      where l.prev_price_cents > l.price_cents
+        and not g.deleted
+        and l.price_cents <= coalesce((
+              select min(dp.min_price_cents)
+                from daily_prices dp
+                join platforms pp on pp.code = dp.platform_code
+               where dp.game_id = g.id and pp.kind in ${OFFICIAL_KINDS}
+            ), l.price_cents)`,
+    [span],
+  );
   return {
     hours: Math.round((spanSec / 3600) * 10) / 10,
     changed: Number(row.changed ?? 0),
     drops: Number(row.drops ?? 0),
     rises: Number(row.rises ?? 0),
+    newLows: Number(lows.rows[0]?.n ?? 0),
     topDrops: drops,
     topRises: rises,
   };
+}
+
+/** 按天统计价格变动（近 N 天），用于日报/周报趋势。 */
+export async function priceChangesByDay(q, { days = 7 } = {}) {
+  const span = String(Math.min(Math.max(Number(days) || 7, 1), 365)) + ' days';
+  const r = await q(
+    `select d.day::text as day,
+            count(*) filter (where d.prev > d.cur)::int as drops,
+            count(*) filter (where d.prev < d.cur)::int as rises,
+            count(*)::int as changed
+       from (
+         select date_trunc('day', s.captured_at)::date as day,
+                s.price_cents as cur, s.prev_price_cents as prev
+           from price_snapshots s
+          where s.captured_at > now() - $1::interval
+            and s.prev_price_cents is not null
+            and s.prev_price_cents <> s.price_cents
+       ) d
+      group by d.day
+      order by d.day desc`,
+    [span],
+  );
+  return r.rows.map((x) => ({
+    day: x.day,
+    drops: Number(x.drops ?? 0),
+    rises: Number(x.rises ?? 0),
+    changed: Number(x.changed ?? 0),
+  }));
+}
+
+/** 窗口内的全部价格变动明细（CSV 导出用，最多 5000 条）。 */
+export async function priceChangeRows(q, { hours = 24, sinceMs = null, limit = 5000 } = {}) {
+  const spanSec = Math.max(
+    1,
+    sinceMs
+      ? Math.round((Date.now() - Number(sinceMs)) / 1000)
+      : Math.round(Math.min(Math.max(Number(hours) || 24, 1), 24 * 30) * 3600),
+  );
+  const r = await q(
+    `with latest as (
+       select distinct on (s.offer_id)
+              s.offer_id, s.price_cents, s.prev_price_cents, s.captured_at
+         from price_snapshots s
+        where s.captured_at > now() - $1::interval
+          and s.prev_price_cents is not null
+          and s.prev_price_cents <> s.price_cents
+        order by s.offer_id, s.captured_at desc, s.id desc
+     )
+     select g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            p.code as platform, p.name as platform_name,
+            l.prev_price_cents as was, l.price_cents as now_price,
+            l.captured_at
+       from latest l
+       join offers o on o.id = l.offer_id
+       join games g on g.id = o.game_id
+       join platforms p on p.code = o.platform_code
+      where not g.deleted
+      order by l.captured_at desc
+      limit $2`,
+    [String(spanSec) + ' seconds', Math.min(Math.max(Number(limit) || 5000, 1), 5000)],
+  );
+  return r.rows;
 }
 
 export async function upsertDaily(q, { gameId, platformCode, region, priceCents, currency }) {

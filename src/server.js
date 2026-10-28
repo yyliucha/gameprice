@@ -1127,12 +1127,46 @@ export function createApiServer({
         return json(res, 200, { images: images.imageStats() });
       }
 
-      // ---- 管理员：价格变动报表（涨跌榜）----
+      // ---- 管理员：价格变动报表（涨跌榜 + 按天趋势 + CSV 导出）----
       if (path === '/api/admin/reports/price' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const hours = Number(url.searchParams.get('hours') ?? 24);
         const limit = Number(url.searchParams.get('limit') ?? 10);
-        return json(res, 200, { report: await db.priceChanges(q, { hours, limit }) });
+        const days = Number(url.searchParams.get('days') ?? 7);
+        return json(res, 200, {
+          report: await db.priceChanges(q, { hours, limit }),
+          daily: await db.priceChangesByDay(q, { days }),
+        });
+      }
+
+      if (path === '/api/admin/reports/price.csv' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const hours = Number(url.searchParams.get('hours') ?? 24);
+        const rows = await db.priceChangeRows(q, { hours });
+        const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+        const lines = ['appid,name,platform,platform_name,old_price,new_price,drop_pct,captured_at'];
+        for (const r of rows) {
+          const pct = r.was > 0 ? (((r.was - r.now_price) / r.was) * 100).toFixed(1) : '';
+          lines.push([
+            r.steam_appid ?? '',
+            r.name,
+            r.platform,
+            r.platform_name,
+            (r.was / 100).toFixed(2),
+            (r.now_price / 100).toFixed(2),
+            pct,
+            String(r.captured_at).slice(0, 19).replace('T', ' '),
+          ].map(cell).join(','));
+        }
+        // 带 BOM：Excel 直接打开中文不乱码
+        const body = '\uFEFF' + lines.join('\r\n');
+        res.writeHead(200, {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': 'attachment; filename="price-changes.csv"',
+          'cache-control': 'no-store',
+        });
+        res.end(body);
+        return;
       }
 
       // ---- 管理员：IP 黑名单 ----

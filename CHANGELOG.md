@@ -2,6 +2,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.2] - 2026-10-28
+
+价格报表增强：新史低、按天趋势、CSV 导出。
+
+### 新增
+
+- **新史低统计**：报表里新增 `newLows`——窗口内降价的游戏里，现价 ≤ 历史最低（日聚合）的条数
+- **按天趋势**（`GET /api/admin/reports/price?days=7` 的 `daily`）：近 N 天每天降价/涨价/合计条数；
+  控制台「数据统计 → 近 7 天变动趋势」
+- **CSV 导出**：`GET /api/admin/reports/price.csv?hours=24`（管理员，带 BOM 便于 Excel 打开中文）；
+  控制台价格变动卡片有「导出 CSV」按钮；CLI 支持 `report price --csv`（重定向到文件）
+- `report price` 命令同时打印新史低与近 N 天趋势
+
+### 测试
+
+- `api.test.js` 补新史低、按天趋势数组、CSV 内容与匿名 401 断言
+
 ## [0.19.1] - 2026-10-28
 
 前台服务端搜索/分页；同步任务（含定时）全部落记录；折扣字段上线。

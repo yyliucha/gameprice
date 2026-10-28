@@ -226,13 +226,26 @@ test('价格变动报表：快照带前价，涨跌榜与统计正确', async ()
     await q("insert into price_snapshots (offer_id, price_cents, discount_pct, in_stock, raw_hash) values ($1, 4800, 0, true, 'h0')", [offer.id]);
     await q("insert into price_snapshots (offer_id, price_cents, discount_pct, in_stock, raw_hash, prev_price_cents) values ($1, 3000, 37, true, 'h1', 4800)", [offer.id]);
 
-    const rep = (await (await fetch(`${base}/api/admin/reports/price?hours=24`, { headers: { cookie: admin.cookie } })).json()).report;
+    const repBody = await (await fetch(`${base}/api/admin/reports/price?hours=24&days=7`, { headers: { cookie: admin.cookie } })).json();
+    const rep = repBody.report;
     assert.equal(rep.changed, 1);
     assert.equal(rep.drops, 1);
     assert.equal(rep.rises, 0);
     assert.equal(rep.topDrops[0].was, 4800);
     assert.equal(rep.topDrops[0].now_price, 3000);
     assert.equal(rep.topDrops[0].steam_appid, 413150);
+    // setup 里 daily_prices 记录 4800，现价 3000 低于它 → 算新史低
+    assert.equal(rep.newLows, 1, '降价到历史最低以下算新史低');
+    assert.ok(Array.isArray(repBody.daily), '按天趋势要返回数组');
+
+    // CSV 导出
+    const csv = await fetch(`${base}/api/admin/reports/price.csv?hours=24`, { headers: { cookie: admin.cookie } });
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get('content-type') || '', /text\/csv/);
+    const csvText = await csv.text();
+    assert.match(csvText, /old_price,new_price/);
+    assert.match(csvText, /星露谷物语/);
+    assert.equal((await fetch(`${base}/api/admin/reports/price.csv`)).status, 401, '匿名不能导出');
 
     assert.equal((await fetch(`${base}/api/admin/reports/price`)).status, 401, '匿名不能看价格报表');
 

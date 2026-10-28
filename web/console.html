@@ -337,9 +337,18 @@ textarea{width:100%;min-height:100px;resize:vertical}
         <h2>价格变动（近 24 小时）</h2>
         <div class="card pad">
           <div class="row" id="priceReportSummary" style="gap:18px"><span class="muted">加载中…</span></div>
+          <div class="row" style="margin-top:6px">
+            <a class="btn" id="priceCsv" href="/api/admin/reports/price.csv?hours=24" target="_blank" rel="noopener">导出 CSV（近 24 小时）</a>
+            <span class="small muted">CSV 含 appid/名称/平台/原价/现价/降幅/时间</span>
+          </div>
         </div>
         <div class="card" style="margin-top:10px">
           <table><thead><tr><th>游戏</th><th>平台</th><th class="num">原价</th><th class="num">现价</th><th class="num">变化</th><th>时间</th></tr></thead><tbody id="priceChangeRows"></tbody></table>
+        </div>
+
+        <h2>近 7 天变动趋势</h2>
+        <div class="card">
+          <table><thead><tr><th>日期</th><th class="num">降价</th><th class="num">涨价</th><th class="num">合计</th></tr></thead><tbody id="priceDailyRows"></tbody></table>
         </div>
 
         <h2>封面图缓存</h2>
@@ -1131,16 +1140,17 @@ async function loadStats() {
   } catch (e) { /* ignore */ }
 }
 
-/** 价格变动报表：近 24 小时涨跌榜（来源：带前价的 price_snapshots）。 */
+/** 价格变动报表：近 24 小时涨跌榜 + 新史低 + 近 7 天趋势（来源：带前价的 price_snapshots）。 */
 async function loadPriceReport() {
   const summary = $('priceReportSummary');
   try {
-    const d = await api('/api/admin/reports/price?hours=24&limit=10');
+    const d = await api('/api/admin/reports/price?hours=24&limit=10&days=7');
     const r = d.report || {};
     if (summary) {
       summary.innerHTML =
         '<span>降价 <strong class="lv-error">' + (r.drops || 0) + '</strong> 条</span>' +
         '<span>涨价 <strong>' + (r.rises || 0) + '</strong> 条</span>' +
+        '<span>新史低 <strong class="lv-warn">' + (r.newLows || 0) + '</strong> 条</span>' +
         '<span>共 <strong>' + (r.changed || 0) + '</strong> 条变动</span>' +
         '<span class="small muted">只统计带前价的新快照</span>';
     }
@@ -1155,6 +1165,11 @@ async function loadPriceReport() {
         '<td class="num">' + (down ? '<span class="lv-error">-' : '<span class="lv-warn">+') + pct + '%</span></td>' +
         '<td class="muted small">' + when(x.captured_at) + '</td></tr>';
     }).join('') || '<tr><td colspan="6" class="muted">近 24 小时没有价格变动（或快照没有前价数据）</td></tr>';
+
+    $('priceDailyRows').innerHTML = (d.daily || []).map(function (x) {
+      return '<tr><td class="muted small">' + esc(x.day) + '</td>' +
+        '<td class="num">' + x.drops + '</td><td class="num">' + x.rises + '</td><td class="num">' + x.changed + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">近 7 天没有变动数据</td></tr>';
   } catch (e) {
     if (summary) summary.innerHTML = '<span class="lv-error">读取失败：' + esc(e.message) + '</span>';
   }
