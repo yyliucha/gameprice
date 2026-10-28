@@ -1474,6 +1474,88 @@ async function cmdDiagnose() {
   console.log(`\n${failed.length ? `${failed.length} 项异常` : '全部通过'}，报告已写入 ${file}`);
 }
 
+/**
+ * 代理专项排查：TCP → CONNECT（带/不带认证）→ 真正经代理访问 Steam。
+ * 三层的失败原因完全不同（防火墙 / 白名单 / 认证 / 协议不对），必须分开看。
+ */
+async function cmdProxyCheck() {
+  const net = await import('node:net');
+  const { describeProxy, parseProxy } = await import('./proxy.js');
+  const info = describeProxy(process.env);
+  const steamUrl = parseProxy(process.env.STEAM_PROXY ?? process.env.steam_proxy ?? '');
+  console.log('配置：Steam 专用代理 = ' + (steamUrl ?? '（未配置）'));
+  console.log('      通用出网代理 = ' + (info.others.via === 'direct' ? '（未配置）' : info.others.proxy));
+  if (!steamUrl) {
+    console.log('\n没有配置 Steam 专用代理：Steam 目前直连（国内通常不可达 api.steampowered.com）。');
+    return;
+  }
+
+  const u = new URL(steamUrl);
+  const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+  const host = u.hostname;
+
+  // 1) TCP：主机端口通不通
+  const tcp = await new Promise((resolve) => {
+    const s = net.connect({ host, port, timeout: 6000 });
+    s.once('connect', () => { s.destroy(); resolve({ ok: true }); });
+    s.once('timeout', () => { s.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    s.once('error', (e) => resolve({ ok: false, error: e.code || e.message }));
+  });
+  console.log('\n1) TCP ' + host + ':' + port + ' → ' + (tcp.ok ? '✔ 通' : '✘ ' + tcp.error));
+  if (!tcp.ok) {
+    console.log('   → 端口不通：防火墙/安全组拦了出站，或代理端口不是 ' + port + '。');
+    return;
+  }
+
+  // 2) HTTP CONNECT：能不能建隧道（这里才看得出 407/403）
+  const connectTest = (withAuth) =>
+    new Promise((resolve) => {
+      const headers = { host: 'store.steampowered.com:443' };
+      if (withAuth) {
+        const cred = decodeURIComponent(u.username) + ':' + decodeURIComponent(u.password);
+        headers['proxy-authorization'] = 'Basic ' + Buffer.from(cred).toString('base64');
+      }
+      const req = request(
+        { host, port, method: 'CONNECT', path: 'store.steampowered.com:443', headers, timeout: 8000 },
+        (res) => { res.resume(); resolve({ error: '代理把 CONNECT 当普通请求处理了，返回 HTTP ' + res.statusCode }); },
+      );
+      let settled = false;
+      req.on('connect', (res, sock) => { settled = true; sock.destroy(); resolve({ status: res.statusCode }); });
+      req.on('timeout', () => { req.destroy(); if (!settled) resolve({ error: 'timeout（8s 无响应）' }); });
+      req.on('error', (e) => { if (!settled) resolve({ error: e.code || e.message }); });
+      req.end();
+    });
+  const plain = await connectTest(false);
+  const explain = (r) => {
+    if (r.status === 200) return '✔ 200（隧道已建立）';
+    if (r.status === 407) return '✘ 407 需要账号密码 → 填 http://账号:密码@' + host + ':' + port;
+    if (r.status === 403) return '✘ 403 代理拒绝该目标（可能是 IP 白名单/目标限制）';
+    if (r.status) return '✘ HTTP ' + r.status;
+    return '✘ ' + r.error;
+  };
+  console.log('2) CONNECT store.steampowered.com:443 → ' + explain(plain));
+  if (u.username) console.log('   CONNECT（带认证）→ ' + explain(await connectTest(true)));
+
+  // 3) 真正经代理拿一次 Steam 数据（含 TLS 与证书校验）
+  try {
+    const res = await fetchText('https://store.steampowered.com/api/appdetails?appids=413150&cc=cn&l=schinese', {
+      label: 'proxy-check',
+      logger,
+      retries: 0,
+      timeoutMs: 15000,
+    });
+    console.log('3) 经代理访问 Steam → ✔ HTTP ' + res.status + '，' + res.bytes + ' 字节');
+  } catch (err) {
+    const cause = err.cause ? String(err.cause.message ?? err.cause) : '';
+    console.log('3) 经代理访问 Steam → ✘ ' + err.message + (cause ? '（cause: ' + cause + '）' : ''));
+  }
+
+  console.log('\n结论对照：');
+  console.log('  407 → 设置里补账号密码；403/隧道被关 → 把本机公网 IP 加进代理白名单');
+  console.log('  立即断开/乱码 → 这个端口多半是 SOCKS5，不是 HTTP 代理');
+  console.log('  certificate/ssl → 代理地址写了 https:// 而实际是 http 代理，改成 http://');
+}
+
 async function cmdReport() {
   const sub = String(args[1] ?? 'price');
   if (sub !== 'price') {
@@ -1580,6 +1662,7 @@ const commands = {
   stats: cmdStats,
   logs: cmdLogs,
   diagnose: cmdDiagnose,
+  'proxy-check': cmdProxyCheck,
   images: cmdImages,
   report: cmdReport,
 };
@@ -1835,6 +1918,7 @@ async function main() {
   report price         价格涨跌报表（--hours 24 --limit 10 --notify 推送到提醒通道 --csv）
   logs                 查日志（--level error --event http --since 60 --limit 50）
   diagnose             环境/数据库/网络自检，报告落盘
+  proxy-check          代理专项排查：TCP → CONNECT → 经代理访问 Steam
 
 通用参数：--db <target> --level <trace|debug|info|warn|error> --log-dir <dir>
 环境变量：DATABASE_URL / ITAD_API_KEY / LOG_LEVEL / LOG_DIR
