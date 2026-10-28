@@ -70,18 +70,27 @@ export async function verifyCallback(url, { logger = null } = {}) {
   const params = new URLSearchParams(url.search);
   params.set('openid.mode', 'check_authentication');
   let text = '';
-  try {
-    text = await fetchText(OPENID_ENDPOINT, {
+  const post = (extra) =>
+    fetchText(OPENID_ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
       timeoutMs: 20000,
       retries: 1,
       logger,
+      ...extra,
     });
+  try {
+    text = await post({});
   } catch (err) {
-    logger?.warn('steam.openid_failed', { message: String(err.message).slice(0, 160) });
-    return null;
+    // 代理可能把 steamcommunity 的连接重置：再直连试一次（国内直连有时反而通）
+    logger?.warn('steam.openid_retry_direct', { message: String(err.message).slice(0, 120) });
+    try {
+      text = await post({ forceDirect: true, retries: 0 });
+    } catch (err2) {
+      logger?.warn('steam.openid_failed', { message: String(err2.message).slice(0, 160) });
+      return null;
+    }
   }
   if (!/is_valid\s*:\s*true/.test(text)) {
     logger?.warn('steam.openid_invalid', { snippet: String(text).slice(0, 120) });

@@ -2,6 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.24.1] - 2026-10-28
+
+Steam 登录：OpenID 校验失败时自动改直连重试。
+
+### 修复
+
+- 代理把 `steamcommunity.com` 连接重置（`ECONNRESET`）时，OpenID 校验再**直连重试一次**，
+  并在日志里记 `steam.openid_retry_direct`；两次都失败才提示「Steam 校验失败」
+- `diagnose` 增加 `proxy:connect:community`（专门验证 `steamcommunity.com:443` 的隧道）
 ## [0.24.0] - 2026-10-28
 
 增量同步顺带下载封面图。

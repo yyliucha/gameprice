@@ -1429,6 +1429,7 @@ async function cmdDiagnose() {
     for (const [name, target] of [
       ['proxy:connect', 'store.steampowered.com:443'],
       ['proxy:connect:api', 'api.steampowered.com:443'],
+      ['proxy:connect:community', 'steamcommunity.com:443'],
     ]) {
       const r = await probeProxyConnect(steamRoute.url, target);
       add(name, r.ok, `${r.detail}${shown ? `；代理 ${shown}` : ''}`);
