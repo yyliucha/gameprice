@@ -360,7 +360,7 @@ function render() {
     const atLow = g.hist_low != null && g.current_low != null && g.current_low <= g.hist_low;
     // 新史低：当前价低于「今天之前」的历史最低（当天快照不算），用橙色标签区分
     const isNewLow = g.prev_hist_low != null && g.current_low != null && g.current_low < g.prev_hist_low;
-    const lowTag = isNewLow ? '<span class="tag newlow">新史低</span>' : lowTag;
+    const lowTag = isNewLow ? '<span class="tag newlow">新史低</span>' : (atLow ? '<span class="tag">史低</span>' : '');
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     // 不感兴趣：给个低调标签，避免"点了没反应"的错觉
     const uninterested = g.interested === false ? '<span class="tag" style="background:var(--hover);color:var(--muted)">不感兴趣</span>' : '';

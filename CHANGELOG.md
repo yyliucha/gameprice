@@ -2,6 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.24.5] - 2026-10-28
+
+修复前台列表卡在「加载中…」。
+
+### 修复
+
+- 0.23.3 引入的「新史低」标签有一处变量自引用（`lowTag` 初始化时引用自己），
+  导致列表渲染抛 ReferenceError、页面一直停在「加载中…」——已改为
+  `isNewLow ? 新史低 : (atLow ? 史低 : 空)`
 ## [0.24.4] - 2026-10-28
 
 Steam 限流（429/403）处理：更长退避 + 触发中止。
