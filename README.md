@@ -477,6 +477,7 @@ node test/humble.test.js     # 9 项：slug 生成、JSON-LD 解析、名称校�
 node test/steam-meta.test.js # 15 项：appid 解析、双后端归一化、官方不可用时自动回落
 node test/proxy.test.js      # 10 项：代理决策、NO_PROXY、密码脱敏、本地代理真实转发
 node test/http-error.test.js # 8 项：代理隧道错误翻译（407/403/502）、code=0 不误判、真实 ProxyAgent
+node test/favicon.test.js    # 4 项：三个页面的图标引用一致且文件存在、SVG/ICO/PNG 格式合法
 node test/serve.test.js      # 5 项：路径穿越防护、内容类型、GET/HEAD/405
 node test/discover.test.js   # 9 项：扫描区间、连续空壳停止、404 容错、合并去重
 node test/match.test.js      # 11 项：名称归一化、bigram 相似度、候选挑选、阈值分级
@@ -495,6 +496,8 @@ node test/visitors.test.js   # 5 项：IP/CIDR 校验、记录落库与过滤、
 node test/sync-runs.test.js  # 2 项：同步任务记录生命周期、重启中断标记、状态接口权限
 node test/pool.test.js       # 4 项：并发上限、结果顺序、单项失败隔离
 node test/version.test.js    # 4 项：版本比较、release/tag 回退、缓存与强制刷新
+node test/ratelimit.test.js  # 4 项：发信限流逐级封禁、白名单豁免、手动解封
+node test/store-browse.test.js # 5 项：GetItems 批量请求体、字段映射、分批与缺 key 回退
 node test/images.test.js     # 4 项：封面缓存路径安全、原子写、下载失败兜底
 node test/settings.test.js   # 8 项：设置定义、密钥加密、env 兜底与水合、SMTP 特殊存储
 node test/setup.test.js      # 4 项：首次初始化流程与 SETUP_TOKEN
@@ -503,7 +506,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **258 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **271 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

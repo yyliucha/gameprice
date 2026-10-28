@@ -2,6 +2,22 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.25.1] - 2026-10-28
+
+站点图标：补上 SteamDeals 的 favicon（品牌渐变 + 百分号），三个页面统一引用。
+
+### 新增
+
+- **`web/favicon.svg`**：64×64 圆角方块，`#22d3ee → #4f46e5` 品牌渐变 + 白色百分号（与前台 logo 同一个渐变）
+- **`web/favicon.ico`**：32×32 PNG 压缩 ICO，老浏览器和 `/favicon.ico` 默认请求不再 404
+- **`web/apple-touch-icon.png`**：180×180 全出血方图，iOS「添加到主屏幕」用
+- 前台 / 控制台 / 初始化三个页面都加了 `rel="icon"` 与 `apple-touch-icon`；
+  初始化未完成时也放行图标，`/setup` 页标签页图标不再被 302 掉
+
+### 测试
+
+- 新增 `test/favicon.test.js`：三个页面引用一致且文件存在、SVG/ICO/PNG 格式合法性（含 ICO 头部与内嵌 PNG 校验）
+
 ## [0.25.0] - 2026-10-28
 
 批量回填全量游戏的元数据与国区价格。

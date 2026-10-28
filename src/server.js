@@ -237,7 +237,14 @@ export function createApiServer({
       // ---- 首次初始化拦截：完成前只允许 /setup、设置页静态资源和 /api/setup/* ----
       const setupState = getSetupState ? await getSetupState() : { completed: true };
       if (!setupState.completed) {
-        if (path === '/setup' || path === '/settings-ui.js') {
+        // 图标也要放行：否则 /setup 自身的 favicon 请求会被 302 成 HTML，标签页图标就丢了
+        if (
+          path === '/setup' ||
+          path === '/settings-ui.js' ||
+          path === '/favicon.svg' ||
+          path === '/favicon.ico' ||
+          path === '/apple-touch-icon.png'
+        ) {
           return serveStatic(res, outDir, path);
         }
         if (path.startsWith('/api/setup/')) {

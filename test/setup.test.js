@@ -65,6 +65,18 @@ test('未初始化：页面 302 到 /setup，API 返回 428，/setup 可访问',
     assert.equal(setup.status, 200);
     assert.match(await setup.text(), /初始化系统/);
 
+    // 初始化页也要有标签图标：favicon 被 302 成 HTML 的话浏览器只能显示白板
+    for (const [icon, type] of [
+      ['/favicon.svg', 'image/svg+xml'],
+      ['/favicon.ico', 'image/x-icon'],
+      ['/apple-touch-icon.png', 'image/png'],
+    ]) {
+      const res = await fetch(base + icon);
+      assert.equal(res.status, 200, `${icon} 初始化前也要能取到`);
+      assert.equal(res.headers.get('content-type'), type);
+      assert.ok((await res.arrayBuffer()).byteLength > 0);
+    }
+
     const status = await (await fetch(base + '/api/setup/status')).json();
     assert.equal(status.completed, false);
     assert.equal(status.hasAdmin, false);
