@@ -247,7 +247,8 @@ export async function fetchText(url, opts = {}) {
 
       if (!retryable) break;
       if (attempt < retries) {
-        const delayMs = 500 * (attempt + 1);
+        // 429/403 是 Steam 边缘的限流信号：0.5 秒重试只会加重封禁，退避到 20 秒
+        const delayMs = err.status === 429 || err.status === 403 ? 20_000 : 500 * (attempt + 1);
         logger?.info('http.retry', { label, requestId, attempt: attempt + 1, delayMs, status: err.status ?? null });
         await sleep(delayMs);
       }

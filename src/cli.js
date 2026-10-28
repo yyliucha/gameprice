@@ -356,6 +356,7 @@ async function cmdSyncSteamAll() {
   console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格，并发 ${concurrency}）`);
   const backend = String(flag('backend', 'official'));
   const items = [];
+  let blocked = 0; // 连续 403/429 计数：被限流时及时中止，避免把 IP 越打越黑
   await runPool(
     appids,
     concurrency,
@@ -364,6 +365,14 @@ async function cmdSyncSteamAll() {
         const one = await fetchMetadata([appid], { backend, logger });
         if (one.items?.length) items.push(...one.items);
       } catch (err) {
+        const status = Number(err.status) || 0;
+        if (status === 403 || status === 429) {
+          blocked += 1;
+          logger.warn('sync.rate_limited', { appid, status, blocked });
+          if (blocked >= 5) {
+            throw new Error(`Steam 返回 ${status}（出口 IP 被限流），本轮已中止：降低 limit/并发，等 1~2 小时再试`);
+          }
+        }
         logger.warn('sync.item_failed', { appid, message: String(err.message).slice(0, 160) });
       }
       if (sleepMs) await sleep(sleepMs);
