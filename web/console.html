@@ -319,7 +319,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <button class="btn" id="abuseRefresh">刷新</button>
           </div>
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频</th><th class="num">路径封禁</th><th>来源</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
-          <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限先临时限流 10/30 分钟，并记入「待审核」，<strong>不再自动永久封禁</strong>。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）只记录，由管理员在「待审核」里决定封 IP / 封设备 / 忽略。白名单 IP 不计数。</p>
+          <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限自动封禁：<strong>第 1 次 10 分钟 → 第 2 次 30 分钟 → 第 3 次封到当天结束（次日 0 点自动恢复）</strong>，<strong>每天最多 3 次</strong>、跨天重置，<strong>不会自动写永久黑名单</strong>，每次封禁都记入「待审核」。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）只记录，由管理员在「待审核」里决定封 IP / 封设备 / 忽略。白名单 IP 不计数。</p>
         </div>
 
         </div>
@@ -357,7 +357,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
         </div>
 
         <div id="visReviews" class="hide">
-          <h2>异常请求审核（只记录，不自动封）</h2>
+          <h2>异常请求审核（自动封禁记录 / 扫描器路径）</h2>
           <div class="card pad">
             <div class="row" style="justify-content:space-between">
               <span class="small muted" id="reviewMeta">加载中…</span>
@@ -1351,7 +1351,7 @@ async function loadAbuse() {
       const permanent = Boolean(r.blacklist_note);
       const active = permanent || (until && until.getTime() > Date.now());
       const state = permanent ? '<span class="pill off">永久拉黑</span>' : active ? '<span class="pill">临时封禁</span>' : '<span class="pill ok">已恢复</span>';
-      const source = r.ban_source === 'path' ? '路径规则' : r.ban_source === 'rate' ? '频率限制' : '—';
+      const source = r.ban_source === 'path' ? '路径规则' : r.ban_source === 'rate' ? '频率限制' : r.ban_source === 'rate-day' ? '频率限制（当天封禁）' : '—';
       return '<tr><td class="mono small">' + esc(r.ip) + '</td>' +
         '<td class="num">' + esc(String(r.strikes || 0)) + '</td>' +
         '<td class="num">' + esc(String(r.path_strikes || 0)) + '</td>' +

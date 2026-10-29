@@ -154,6 +154,75 @@ test('超频：临时限流 429 + 待审核，不写永久黑名单', async () =
   }
 });
 
+test('超频三振：10 分钟 → 30 分钟 → 封到当天结束，次日重新从 10 分钟起算', async () => {
+  const { q, base, close } = await boot({ RATE_LIMIT_MAX: '2' });
+  try {
+    // 封禁期内再打 3 次就升一档，避免测试发几百个请求
+    ratelimit.configure({ max: 2, windowSec: 60, blockedEscalate: 3 });
+    const ip = '198.51.100.31';
+    const hit = () => get(base, ip, '/');
+
+    await hit();
+    await hit();
+    assert.equal((await hit()).status, 429, '第 3 次超限');
+    let row = (await q('select strikes, banned_until from ip_abuse where ip = $1', [ip])).rows[0];
+    assert.equal(row.strikes, 1);
+    const firstMin = Math.round((new Date(row.banned_until).getTime() - Date.now()) / 60000);
+    assert.ok(firstMin >= 9 && firstMin <= 10, '第一次应封约 10 分钟，实际 ' + firstMin);
+
+    for (let i = 0; i < 3; i += 1) await hit();
+    row = (await q('select strikes, banned_until from ip_abuse where ip = $1', [ip])).rows[0];
+    assert.equal(row.strikes, 2);
+    const secondMin = Math.round((new Date(row.banned_until).getTime() - Date.now()) / 60000);
+    assert.ok(secondMin >= 29 && secondMin <= 30, '第二次应封约 30 分钟，实际 ' + secondMin);
+
+    let third = null;
+    for (let i = 0; i < 3; i += 1) third = await hit();
+    assert.equal(third.status, 429);
+    assert.match(await third.text(), /明天 0 点/, '第 3 次要明确告知封到当天结束');
+    row = (await q('select strikes, banned_until from ip_abuse where ip = $1', [ip])).rows[0];
+    assert.equal(row.strikes, 3);
+    const midnight = new Date();
+    midnight.setHours(24, 0, 0, 0);
+    assert.ok(
+      Math.abs(new Date(row.banned_until).getTime() - midnight.getTime()) <= 5000,
+      '第三次应封到次日 0 点，实际 ' + row.banned_until,
+    );
+    assert.equal((await q('select count(*)::int as n from ip_blacklist')).rows[0].n, 0, '不能自动写永久黑名单');
+
+    // 当天封顶 3 次：继续请求不再升级/累加，且重启后能从 ban_source 恢复“当天封禁”状态
+    const reviewsBefore = (await q("select count(*)::int as n from abuse_reviews where ip = $1", [ip])).rows[0].n;
+    for (let i = 0; i < 6; i += 1) await hit();
+    row = (await q('select strikes from ip_abuse where ip = $1', [ip])).rows[0];
+    assert.equal(row.strikes, 3, '一天最多 3 次，封顶后不再累加');
+    assert.equal(
+      (await q("select count(*)::int as n from abuse_reviews where ip = $1", [ip])).rows[0].n,
+      reviewsBefore,
+      '当天封禁后不再产生新的待审核记录',
+    );
+    ratelimit.resetState();
+    await ratelimit.loadState(q);
+    const restored = await hit();
+    assert.equal(restored.status, 429);
+    assert.match(await restored.text(), /今天已被封禁/, '重启后仍应恢复为“当天封禁”');
+
+    // 模拟“第二天”：把这次封禁改成昨天、清空内存，再超限一次 → 应重新从第 1 次（10 分钟）起算
+    await q("update ip_abuse set banned_until = now() - interval '1 second', strike_day = current_date - 1 where ip = $1", [ip]);
+    ratelimit.resetState();
+    await ratelimit.loadState(q);
+    ratelimit.configure({ max: 2, windowSec: 60, blockedEscalate: 3 });
+    await hit();
+    await hit();
+    assert.equal((await hit()).status, 429);
+    row = (await q('select strikes, banned_until from ip_abuse where ip = $1', [ip])).rows[0];
+    assert.equal(row.strikes, 1, '新的一天应重新从第 1 次算');
+    const againMin = Math.round((new Date(row.banned_until).getTime() - Date.now()) / 60000);
+    assert.ok(againMin >= 9 && againMin <= 10, '次日第一次应重新封 10 分钟，实际 ' + againMin);
+  } finally {
+    await close();
+  }
+});
+
 test('管理员审批：封 IP 后整站 403，浏览器拿到多语言提示页（含申诉邮箱）', async () => {
   const { q, base, close } = await boot({}, { admin: true });
   try {

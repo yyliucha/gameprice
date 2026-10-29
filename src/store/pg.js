@@ -156,9 +156,10 @@ create table if not exists ip_whitelist (
   created_at timestamptz not null default now()
 );
 
--- 超频三振计数与临时封禁到期（第 3 次自动写进 ip_blacklist）。
--- path_strikes 是"扫描/非法路径"的独立计数：只封 1h/24h，永不自动永久。
+-- 超频三振计数与封禁到期：第 1 次 10 分钟、第 2 次 30 分钟、第 3 次封到当天结束（次日 0 点恢复）。
+-- path_strikes 是"扫描/非法路径"的独立计数：只记录，不自动封。
 -- ban_source 记录当前封禁来自哪套规则（rate / path），重启后据此决定要不要三振升级。
+-- strike_day 记最后一次三振的日期：跨天后 strikes 归零，重新从 10 分钟起算。
 create table if not exists ip_abuse (
   ip           text primary key,
   strikes      int not null default 0,
@@ -168,6 +169,7 @@ create table if not exists ip_abuse (
 alter table ip_abuse add column if not exists path_strikes int not null default 0;
 alter table ip_abuse add column if not exists last_path_strike timestamptz;
 alter table ip_abuse add column if not exists ban_source text;
+alter table ip_abuse add column if not exists strike_day date;
 
 -- 登录图形验证码：一次性、5 分钟过期（答案不返回给前端）
 create table if not exists login_challenges (

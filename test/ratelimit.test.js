@@ -7,8 +7,10 @@ function fakeQ() {
   const abuse = new Map();
   const blacklist = new Set();
   const whitelist = new Set();
+  const stats = { inserts: 0 };
   const q = async (sql, params) => {
     if (/insert into ip_abuse/.test(sql)) {
+      stats.inserts += 1;
       const ip = params[0];
       const next = (abuse.get(ip) ?? 0) + 1;
       abuse.set(ip, next);
@@ -25,13 +27,13 @@ function fakeQ() {
     if (/select ip, banned_until/.test(sql)) return { rows: [] };
     return { rows: [], rowCount: 0 };
   };
-  return { q, abuse, blacklist, whitelist };
+  return { q, abuse, blacklist, whitelist, stats };
 }
 
-test('未超限放行；超限第一次封 10 分钟、第二次 30 分钟；此后只续临时封禁并标记待审核，不自动永久', async () => {
+test('超频：第 1 次封 10 分钟、第 2 次 30 分钟、第 3 次封到当天结束（次日 0 点恢复），不写永久黑名单', async () => {
   ratelimit.resetState();
   ratelimit.configure({ enabled: true, max: 5, windowSec: 60, blockedEscalate: 5 });
-  const { q, blacklist } = fakeQ();
+  const { q, blacklist, stats } = fakeQ();
   const ip = '203.0.113.9';
 
   for (let i = 0; i < 5; i += 1) {
@@ -53,13 +55,35 @@ test('未超限放行；超限第一次封 10 分钟、第二次 30 分钟；此
   const mins2 = Math.round((second.until - Date.now()) / 60000);
   assert.ok(mins2 >= 29 && mins2 <= 30, '第二次应封约 30 分钟，实际 ' + mins2);
 
-  // 再继续 5 次 → 只续 30 分钟，绝不写永久黑名单
+  // 再继续 5 次 → 第 3 档：封到当天结束（次日 0 点）
   let third = null;
   for (let i = 0; i < 5; i += 1) third = await ratelimit.hit(q, ip);
   assert.equal(third.strikes, 3);
-  assert.equal(third.permanent, false, '不再自动永久');
+  assert.equal(third.permanent, false, '永不自动永久');
   assert.equal(third.needsReview, true);
+  const midnight = new Date();
+  midnight.setHours(24, 0, 0, 0);
+  assert.ok(Math.abs(third.until - midnight.getTime()) <= 5000, '第三次应封到次日 0 点，实际 ' + new Date(third.until).toISOString());
+  assert.match(third.reason, /明天 0 点/);
   assert.equal(blacklist.has(ip), false, '自动流程不能写永久黑名单');
+
+  // 已经封到当天结束：当天最多就这 3 次，继续请求不再升级、不再累加
+  const insertsAfterThird = stats.inserts;
+  for (let i = 0; i < 5; i += 1) {
+    const v = await ratelimit.hit(q, ip);
+    assert.equal(v.limited, true);
+    assert.equal(Boolean(v.escalated), false, '当天封禁后不再升级');
+  }
+  assert.equal(stats.inserts, insertsAfterThird, '每天封顶 3 次，之后不再累计');
+});
+
+test('nextMidnight：返回本地时区次日 0 点', () => {
+  const now = new Date(2026, 9, 29, 23, 59, 30).getTime();
+  const next = new Date(ratelimit.nextMidnight(now));
+  assert.equal(next.getFullYear(), 2026);
+  assert.equal(next.getMonth(), 9);
+  assert.equal(next.getDate(), 30);
+  assert.equal(next.getHours(), 0);
 });
 
 test('白名单不计数、不限流', async () => {
