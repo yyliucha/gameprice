@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>访问受限 · __SITE_NAME__</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e5e7eb;
+  --brand:#4f46e5;--danger:#dc2626;--shadow:0 1px 2px rgba(15,23,42,.06),0 18px 40px -24px rgba(15,23,42,.35);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0b1020;--panel:#121a2e;--fg:#e6eaf2;--muted:#93a0b8;--border:#22304d;--brand:#818cf8;--danger:#f87171;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 18px 40px -24px rgba(0,0,0,.8);
+}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  background:radial-gradient(1200px 500px at 50% -10%,color-mix(in srgb,var(--brand) 14%,transparent),transparent),var(--bg);
+  color:var(--fg);font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.card{width:100%;max-width:620px;background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:30px 30px 26px;box-shadow:var(--shadow)}
+.head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.logo{width:38px;height:38px;border-radius:11px;flex:none;background:linear-gradient(135deg,#22d3ee,#4f46e5);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px}
+.brand{font-weight:700;letter-spacing:-.01em}
+.top{display:flex;justify-content:flex-end;margin:-6px 0 10px}
+h1{font-size:23px;margin:8px 0 6px;letter-spacing:-.01em}
+.badge{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 35%,transparent)}
+p{margin:10px 0;color:var(--muted)}
+.meta{margin:16px 0;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.meta div{display:flex;gap:12px;padding:9px 14px;font-size:13px;border-bottom:1px solid var(--border)}
+.meta div:last-child{border-bottom:none}
+.meta dt{color:var(--muted);flex:none;min-width:96px}
+.meta dd{margin:0;word-break:break-all}
+.appeal{margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--brand) 5%,transparent)}
+.appeal h2{font-size:15px;margin:0 0 6px}
+.appeal p{margin:6px 0;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:9px 16px;border-radius:10px;background:var(--brand);color:#fff;text-decoration:none;font-weight:600;font-size:14px}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--border);font-weight:500}
+.tip{font-size:12px;color:var(--muted);margin-top:8px}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;font-size:12px;color:var(--muted)}
+select{font:inherit;font-size:12px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--fg)}
+code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color-mix(in srgb,var(--fg) 7%,transparent);padding:1px 6px;border-radius:6px}
+</style>
+</head>
+<body data-site="__SITE_NAME__" data-email="__APPEAL_EMAIL__" data-until="__UNTIL__" data-reason="__REASON__" data-code="__CODE__">
+<main class="card" role="main">
+  <div class="top">
+    <select id="lang" aria-label="Language">
+      <option value="zh-CN">简体中文</option>
+      <option value="zh-TW">繁體中文</option>
+      <option value="en">English</option>
+      <option value="ja">日本語</option>
+      <option value="ko">한국어</option>
+      <option value="ru">Русский</option>
+      <option value="es">Español</option>
+      <option value="fr">Français</option>
+      <option value="de">Deutsch</option>
+    </select>
+  </div>
+  <div class="head">
+    <div class="logo" aria-hidden="true">%</div>
+    <div class="brand" id="siteName">__SITE_NAME__</div>
+  </div>
+  <span class="badge" id="badge">403</span>
+  <h1 data-i18n="title">访问受限</h1>
+  <p data-i18n="lead">你的网络或设备暂时被本站限制访问。</p>
+
+  <div class="meta">
+    <div><dt data-i18n="reasonLabel">原因</dt><dd id="reason">—</dd></div>
+    <div><dt data-i18n="untilLabel">限制解除时间</dt><dd id="until">—</dd></div>
+    <div><dt data-i18n="codeLabel">申诉编号</dt><dd><code id="code">—</code></dd></div>
+  </div>
+
+  <div class="appeal">
+    <h2 data-i18n="appealTitle">如果你认为这是误判</h2>
+    <p data-i18n="appealLead">请发送邮件申诉，附上申诉编号和大致时间，管理员会人工复核。</p>
+    <a class="btn" id="appealBtn" href="#" data-i18n="appealButton">发送申诉邮件</a>
+    <p class="tip" id="noEmail" hidden data-i18n="noEmail">管理员还没有配置申诉邮箱，请联系站点管理员。</p>
+    <p class="tip" data-i18n="appealTip">申诉时请说明你当时的操作（例如正在浏览列表 / 使用脚本 / 共享网络），复核会更快。</p>
+  </div>
+
+  <div class="foot">
+    <span id="footNote" data-i18n="foot">访问被拒绝 · 403</span>
+    <a class="btn ghost" href="/" id="homeLink" data-i18n="home">返回首页</a>
+  </div>
+</main>
+
+<script>
+(function () {
+  var I18N = {
+    'zh-CN': {
+      title: '访问受限', lead: '你的网络或设备暂时被本站限制访问。',
+      reasonLabel: '原因', untilLabel: '限制解除时间', codeLabel: '申诉编号',
+      appealTitle: '如果你认为这是误判', appealLead: '请发送邮件申诉，附上申诉编号和大致时间，管理员会人工复核。',
+      appealButton: '发送申诉邮件', noEmail: '管理员还没有配置申诉邮箱，请联系站点管理员。',
+      appealTip: '申诉时请说明你当时的操作（例如正在浏览列表 / 使用脚本 / 共享网络），复核会更快。',
+      foot: '访问被拒绝 · 403', home: '返回首页', never: '需管理员审核后解除',
+      subject: '解封申诉', body: '申诉编号：', bodyTime: '时间：', bodyReason: '原因：', bodyAsk: '请说明：我在做什么、是否使用脚本/共享网络。', langLabel: '语言'
+    },
+    'zh-TW': {
+      title: '存取受限', lead: '你的網路或裝置暫時被本站限制存取。',
+      reasonLabel: '原因', untilLabel: '限制解除時間', codeLabel: '申訴編號',
+      appealTitle: '如果你認為這是誤判', appealLead: '請寄送郵件申訴，附上申訴編號與大約時間，管理員會人工複核。',
+      appealButton: '寄送申訴郵件', noEmail: '管理員尚未設定申訴信箱，請聯絡站點管理員。',
+      appealTip: '申訴時請說明你當時的操作（例如瀏覽列表 / 使用腳本 / 共用網路），複核會更快。',
+      foot: '存取被拒絕 · 403', home: '返回首頁', never: '需管理員審核後解除',
+      subject: '解封申訴', body: '申訴編號：', bodyTime: '時間：', bodyReason: '原因：', bodyAsk: '請說明：我在做什麼、是否使用腳本/共用網路。', langLabel: '語言'
+    },
+    en: {
+      title: 'Access restricted', lead: 'Your network or device is temporarily blocked from this site.',
+      reasonLabel: 'Reason', untilLabel: 'Blocked until', codeLabel: 'Appeal code',
+      appealTitle: 'Think this is a mistake?', appealLead: 'Send us an email with the appeal code and approximate time; an administrator will review it manually.',
+      appealButton: 'Send appeal email', noEmail: 'The administrator has not configured an appeal email address yet.',
+      appealTip: 'Mention what you were doing (browsing the list / using scripts / shared network) to speed up the review.',
+      foot: 'Access denied · 403', home: 'Back to home', never: 'Until an administrator reviews it',
+      subject: 'Ban appeal', body: 'Appeal code: ', bodyTime: 'Time: ', bodyReason: 'Reason: ', bodyAsk: 'Please describe what I was doing, and whether scripts or a shared network were used.', langLabel: 'Language'
+    },
+    ja: {
+      title: 'アクセス制限', lead: 'このサイトへのアクセスが一時的に制限されています。',
+      reasonLabel: '理由', untilLabel: '解除予定', codeLabel: '異議申立番号',
+      appealTitle: '誤りだと思う場合', appealLead: '異議申立番号とおおよその時刻を添えてメールをお送りください。管理者が確認します。',
+      appealButton: '異議申立メールを送る', noEmail: '管理者が異議申立先メールを未設定です。',
+      appealTip: 'その時の操作（一覧の閲覧 / スクリプト / 共有ネットワーク）を書いていただくと確認が早くなります。',
+      foot: 'アクセス拒否 · 403', home: 'ホームへ戻る', never: '管理者の確認後に解除',
+      subject: 'アクセス制限の異議申立', body: '異議申立番号：', bodyTime: '時刻：', bodyReason: '理由：', bodyAsk: '当時の操作、スクリプトや共有ネットワークの利用有無をご記載ください。', langLabel: '言語'
+    },
+    ko: {
+      title: '접근 제한', lead: '이 사이트에 대한 접근이 일시적으로 제한되었습니다.',
+      reasonLabel: '사유', untilLabel: '해제 예정', codeLabel: '이의신청 번호',
+      appealTitle: '오해라고 생각하시나요?', appealLead: '이의신청 번호와 대략적인 시간을 적어 이메일을 보내주세요. 관리자가 직접 확인합니다.',
+      appealButton: '이의신청 메일 보내기', noEmail: '관리자가 이의신청 이메일을 아직 설정하지 않았습니다.',
+      appealTip: '당시 하던 작업(목록 보기 / 스크립트 / 공유 네트워크)을 적어주시면 확인이 빠릅니다.',
+      foot: '접근 거부 · 403', home: '홈으로', never: '관리자 확인 후 해제',
+      subject: '차단 이의신청', body: '이의신청 번호: ', bodyTime: '시간: ', bodyReason: '사유: ', bodyAsk: '당시 하던 일과 스크립트/공유 네트워크 사용 여부를 알려주세요.', langLabel: '언어'
+    },
+    ru: {
+      title: 'Доступ ограничен', lead: 'Ваша сеть или устройство временно заблокированы на этом сайте.',
+      reasonLabel: 'Причина', untilLabel: 'Разблокировка', codeLabel: 'Код апелляции',
+      appealTitle: 'Считаете это ошибкой?', appealLead: 'Отправьте письмо с кодом апелляции и примерным временем — администратор проверит вручную.',
+      appealButton: 'Отправить апелляцию', noEmail: 'Почта для апелляций ещё не настроена администратором.',
+      appealTip: 'Укажите, что вы делали (просмотр списка / скрипты / общая сеть) — это ускорит проверку.',
+      foot: 'Доступ запрещён · 403', home: 'На главную', never: 'До проверки администратором',
+      subject: 'Апелляция на блокировку', body: 'Код апелляции: ', bodyTime: 'Время: ', bodyReason: 'Причина: ', bodyAsk: 'Опишите, что я делал, использовались ли скрипты или общая сеть.', langLabel: 'Язык'
+    },
+    es: {
+      title: 'Acceso restringido', lead: 'Tu red o dispositivo está bloqueado temporalmente en este sitio.',
+      reasonLabel: 'Motivo', untilLabel: 'Bloqueado hasta', codeLabel: 'Código de apelación',
+      appealTitle: '¿Crees que es un error?', appealLead: 'Envíanos un correo con el código de apelación y la hora aproximada; un administrador lo revisará manualmente.',
+      appealButton: 'Enviar correo de apelación', noEmail: 'El administrador aún no ha configurado un correo de apelación.',
+      appealTip: 'Indica qué estabas haciendo (ver la lista / usar scripts / red compartida) para acelerar la revisión.',
+      foot: 'Acceso denegado · 403', home: 'Volver al inicio', never: 'Hasta que un administrador lo revise',
+      subject: 'Apelación de bloqueo', body: 'Código de apelación: ', bodyTime: 'Hora: ', bodyReason: 'Motivo: ', bodyAsk: 'Describe qué estaba haciendo y si usaba scripts o una red compartida.', langLabel: 'Idioma'
+    },
+    fr: {
+      title: 'Accès restreint', lead: 'Votre réseau ou appareil est temporairement bloqué sur ce site.',
+      reasonLabel: 'Motif', untilLabel: 'Blocage jusqu’à', codeLabel: 'Code de recours',
+      appealTitle: 'Vous pensez qu’il s’agit d’une erreur ?', appealLead: 'Envoyez un e-mail avec le code de recours et l’heure approximative ; un administrateur vérifiera manuellement.',
+      appealButton: 'Envoyer le recours', noEmail: 'L’administrateur n’a pas encore configuré d’adresse e-mail de recours.',
+      appealTip: 'Précisez ce que vous faisiez (parcourir la liste / scripts / réseau partagé) pour accélérer la vérification.',
+      foot: 'Accès refusé · 403', home: 'Retour à l’accueil', never: 'Jusqu’à validation par un administrateur',
+      subject: 'Recours contre le blocage', body: 'Code de recours : ', bodyTime: 'Heure : ', bodyReason: 'Motif : ', bodyAsk: 'Décrivez ce que je faisais, et si des scripts ou un réseau partagé étaient utilisés.', langLabel: 'Langue'
+    },
+    de: {
+      title: 'Zugriff eingeschränkt', lead: 'Dein Netzwerk oder Gerät ist vorübergehend für diese Seite gesperrt.',
+      reasonLabel: 'Grund', untilLabel: 'Gesperrt bis', codeLabel: 'Einspruchs-Code',
+      appealTitle: 'Du hältst das für einen Fehler?', appealLead: 'Sende eine E-Mail mit dem Einspruchs-Code und der ungefähren Uhrzeit; ein Administrator prüft es manuell.',
+      appealButton: 'Einspruch per E-Mail', noEmail: 'Der Administrator hat noch keine Einspruchs-E-Mail eingerichtet.',
+      appealTip: 'Beschreibe, was du gemacht hast (Liste ansehen / Skripte / gemeinsames Netzwerk), damit die Prüfung schneller geht.',
+      foot: 'Zugriff verweigert · 403', home: 'Zur Startseite', never: 'Bis zur Prüfung durch einen Administrator',
+      subject: 'Einspruch gegen Sperre', body: 'Einspruchs-Code: ', bodyTime: 'Zeit: ', bodyReason: 'Grund: ', bodyAsk: 'Bitte beschreiben: was ich gemacht habe und ob Skripte oder ein gemeinsames Netzwerk genutzt wurden.', langLabel: 'Sprache'
+    }
+  };
+
+  var body = document.body;
+  var site = body.dataset.site || 'SteamDeals';
+  var email = (body.dataset.email || '').trim();
+  var untilIso = body.dataset.until || '';
+  var reason = body.dataset.reason || '';
+  var code = body.dataset.code || '';
+  var select = document.getElementById('lang');
+
+  function pickLang() {
+    var saved = '';
+    try { saved = localStorage.getItem('gp_ban_lang') || ''; } catch (e) {}
+    if (saved && I18N[saved]) return saved;
+    var list = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en']);
+    for (var i = 0; i < list.length; i += 1) {
+      var tag = String(list[i] || '').toLowerCase();
+      if (tag.indexOf('zh') === 0) return /hant|tw|hk|mo/.test(tag) ? 'zh-TW' : 'zh-CN';
+      if (tag.indexOf('ja') === 0) return 'ja';
+      if (tag.indexOf('ko') === 0) return 'ko';
+      if (tag.indexOf('ru') === 0) return 'ru';
+      if (tag.indexOf('es') === 0) return 'es';
+      if (tag.indexOf('fr') === 0) return 'fr';
+      if (tag.indexOf('de') === 0) return 'de';
+      if (tag.indexOf('en') === 0) return 'en';
+    }
+    return 'en';
+  }
+
+  function formatUntil(t) {
+    if (!untilIso) return t.never;
+    var d = new Date(untilIso);
+    if (isNaN(d.getTime())) return t.never;
+    try { return new Intl.DateTimeFormat(select.value, { dateStyle: 'medium', timeStyle: 'short' }).format(d); }
+    catch (e) { return d.toLocaleString(); }
+  }
+
+  function apply(lang) {
+    var t = I18N[lang] || I18N.en;
+    document.documentElement.lang = lang;
+    select.value = lang;
+    try { localStorage.setItem('gp_ban_lang', lang); } catch (e) {}
+    document.title = t.title + ' · ' + site;
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      var key = el.getAttribute('data-i18n');
+      if (t[key]) el.textContent = t[key];
+    });
+    document.getElementById('siteName').textContent = site;
+    document.getElementById('reason').textContent = reason || '—';
+    document.getElementById('until').textContent = formatUntil(t);
+    document.getElementById('code').textContent = code || '—';
+
+    var btn = document.getElementById('appealBtn');
+    var noEmail = document.getElementById('noEmail');
+    var addr = String(email || '').replace(/[^A-Za-z0-9._%+@-]/g, '');
+    if (addr) {
+      var subject = '[' + site + '] ' + t.subject + ' ' + code;
+      var mail = t.body + code + '\n' + t.bodyTime + (untilIso ? untilIso : '—') + '\n' + t.bodyReason + (reason || '—') + '\n\n' + t.bodyAsk;
+      btn.href = 'mailto:' + addr + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mail);
+      btn.hidden = false;
+      noEmail.hidden = true;
+    } else {
+      btn.hidden = true;
+      noEmail.hidden = false;
+    }
+  }
+
+  select.addEventListener('change', function () { apply(select.value); });
+  apply(pickLang());
+})();
+</script>
+</body>
+</html>

@@ -124,6 +124,20 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   /* 跨平台参考价在窄屏会挤成竖排，各平台列的胶囊已经表达了同样信息 */
   #rows td.num .small{display:none}
 }
+/* 站点公告：后台写的临时通知，前台顶部横幅 */
+.notice{margin:14px 0 6px;border:1px solid var(--border);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);overflow:hidden}
+.notice[data-level="warning"]{border-color:#f59e0b66}
+.notice[data-level="critical"]{border-color:#dc262655}
+.noticeHead{display:flex;align-items:center;gap:8px;padding:10px 14px 0;font-weight:600;font-size:14px}
+.noticeHead .tag{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.notice[data-level="warning"] .tag{color:#b45309;border-color:#f59e0b66;background:#fffbeb}
+.notice[data-level="critical"] .tag{color:#b91c1c;border-color:#dc262655;background:#fef2f2}
+.noticeBody{padding:6px 14px 12px;color:var(--muted);font-size:13px;white-space:pre-wrap;word-break:break-word}
+.noticeClose{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
+@media (prefers-color-scheme:dark){
+  .notice[data-level="warning"] .tag{background:#2b2109}
+  .notice[data-level="critical"] .tag{background:#2b0d0d}
+}
 </style>
 </head>
 <body>
@@ -137,6 +151,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 </div></header>
 
 <main class="wrap">
+  <div id="siteNotices"></div>
   <h1>游戏价格</h1>
   <p class="muted small" id="meta">加载中…</p>
 
@@ -897,6 +912,131 @@ me().then(load);
       toast('已刷新');
     });
   };
+})();
+</script>
+<script>
+// ---- 站点公告：后台写的通知，前台顶部横幅；关闭后本机不再显示（按 id 记 localStorage）----
+(function siteNotices() {
+  var box = document.getElementById('siteNotices');
+  if (!box) return;
+  var seen = [];
+  try { seen = JSON.parse(localStorage.getItem('gp_notice_seen') || '[]'); } catch (e) { seen = []; }
+  fetch('/api/announcements')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      var list = (data && data.announcements) || [];
+      list.forEach(function (a) {
+        if (!a || seen.indexOf(a.id) >= 0) return;
+        var el = document.createElement('div');
+        el.className = 'notice';
+        el.dataset.level = a.level || 'info';
+        var head = document.createElement('div');
+        head.className = 'noticeHead';
+        var tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = a.level === 'critical' ? '重要' : a.level === 'warning' ? '提醒' : '通知';
+        var title = document.createElement('span');
+        title.textContent = a.title || '';
+        var close = document.createElement('button');
+        close.className = 'noticeClose';
+        close.type = 'button';
+        close.title = '不再显示';
+        close.textContent = '×';
+        close.onclick = function () {
+          el.remove();
+          try {
+            var s = JSON.parse(localStorage.getItem('gp_notice_seen') || '[]');
+            if (s.indexOf(a.id) < 0) s.push(a.id);
+            localStorage.setItem('gp_notice_seen', JSON.stringify(s.slice(-50)));
+          } catch (e) {}
+        };
+        head.appendChild(tag);
+        head.appendChild(title);
+        head.appendChild(close);
+        var body = document.createElement('div');
+        body.className = 'noticeBody';
+        body.textContent = a.body || '';
+        el.appendChild(head);
+        el.appendChild(body);
+        box.appendChild(el);
+      });
+    })
+    .catch(function () {});
+})();
+
+// ---- 设备指纹上报：设备被管理员封禁时跳转提示页（含申诉入口）----
+(function deviceBeacon() {
+  var did = '';
+  try { did = localStorage.getItem('gp_did') || ''; } catch (e) {}
+  if (!did) {
+    try {
+      did = window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('gp_did', did);
+    } catch (e) { did = ''; }
+  }
+  function hash(input) {
+    var h = 2166136261;
+    for (var i = 0; i < input.length; i += 1) {
+      h ^= input.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }
+  function collect() {
+    var d = {
+      platform: navigator.platform || '',
+      vendor: navigator.vendor || '',
+      language: navigator.language || '',
+      languages: (navigator.languages || []).slice(0, 6),
+      timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '',
+      screen: { w: screen.width, h: screen.height, aw: screen.availWidth, ah: screen.availHeight, cd: screen.colorDepth },
+      viewport: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
+      hardwareConcurrency: navigator.hardwareConcurrency || 0,
+      deviceMemory: navigator.deviceMemory || 0,
+      touchPoints: navigator.maxTouchPoints || 0,
+    };
+    try {
+      var c = document.createElement('canvas');
+      c.width = 220;
+      c.height = 60;
+      var ctx = c.getContext('2d');
+      if (ctx) {
+        ctx.textBaseline = 'top';
+        ctx.font = '14px "Arial"';
+        ctx.fillStyle = '#4f46e5';
+        ctx.fillRect(0, 0, 220, 60);
+        ctx.fillStyle = '#fff';
+        ctx.fillText('SteamDeals ' + navigator.language, 4, 8);
+        ctx.fillStyle = 'rgba(255,255,255,.55)';
+        ctx.fillText('AaBbCc 123', 4, 32);
+        d.canvasHash = hash(c.toDataURL());
+      }
+    } catch (e) {}
+    try {
+      var gl = document.createElement('canvas').getContext('webgl');
+      if (gl) {
+        var ext = gl.getExtension('WEBGL_debug_renderer_info');
+        d.webglVendor = ext ? String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || '') : '';
+        d.webglRenderer = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '') : '';
+      }
+    } catch (e) {}
+    return d;
+  }
+  try {
+    fetch('/api/device', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: did, details: collect() }),
+      keepalive: true,
+    })
+      .then(function (res) {
+        if (res.status !== 403) return null;
+        return res.json().catch(function () { return null; }).then(function (j) {
+          if (j && j.banned) location.href = '/banned?until=' + encodeURIComponent(j.until || '');
+        });
+      })
+      .catch(function () {});
+  } catch (e) {}
 })();
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>

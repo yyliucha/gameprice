@@ -3,21 +3,20 @@
 // 规则（可配置）：
 //   页面/API：60 秒内同一 IP 超过 60 次 → 判定异常
 //   静态/图片：单独一个桶（默认 300 次/60 秒），避免正常翻页的封面图把用户顶到限流
-//   第 1 次：封 10 分钟；第 2 次：封 30 分钟；第 3 次：写进永久黑名单（命中即 403）
+//   第 1 次：临时封 10 分钟；第 2 次：30 分钟；再往上只续 30 分钟
+//   **不再自动写永久黑名单**：连续超频只记录一条「异常请求审核」，由管理员决定要不要永久封。
 //   白名单 IP 不计数、不受黑名单限制（管理员自己的出口 IP 放这里）
 //
-// 「非法路径」封禁由 guard.js 触发，走 applyExternalBan()：
-//   · 只封 1h/24h，单独记 path_strikes，**永不自动写永久黑名单**
-//   · 封禁期内继续请求不再累计三振（否则扫一会儿就被升级成永久，误伤共享出口）
+// 「非法路径」只由 guard.js 记录待审核，不在这里封。
 //
-// 为了不拖慢每个请求：窗口计数全在内存里；只有"判定超限"时才写库（三振计数/封禁到期/永久拉黑）。
+// 为了不拖慢每个请求：窗口计数全在内存里；只有"判定超限"时才写库。
 export const DEFAULTS = {
   enabled: true,
   max: 60, // 页面/API 窗口内允许的请求数
   assetMax: 300, // 静态资源/图片窗口内允许的请求数
   windowSec: 60, // 窗口长度（秒）
-  banMinutes: [10, 30], // 第 1、2 次封禁时长；第 3 次永久
-  blockedEscalate: 100, // 封禁期内继续请求多少次 → 升级一档封禁
+  banMinutes: [10, 30], // 第 1、2 次临时封禁时长；之后固定最后一档
+  blockedEscalate: 100, // 封禁期内继续请求多少次 → 记一条待审核
 };
 
 const windowHits = new Map(); // ip -> number[]（页面/API）
@@ -113,20 +112,7 @@ async function addStrike(q, key) {
 
 async function applyBan(q, key, strikes, { max, windowSec, bucket }) {
   const kind = bucket === 'asset' ? '静态资源' : '页面/API';
-  if (strikes >= 3) {
-    try {
-      await q(
-        `insert into ip_blacklist (ip, note, created_at) values ($1, $2, now())
-         on conflict (ip) do nothing`,
-        [key, `自动拉黑：${strikes} 次超频（${max} 次/${windowSec} 秒，${kind}）`],
-      );
-    } catch {
-      /* 忽略 */
-    }
-    banUntil.set(key, Number.MAX_SAFE_INTEGER);
-    pathBanned.delete(key);
-    return { permanent: true, until: null, reason: '永久拉黑（多次超频）' };
-  }
+  // 不再自动写永久黑名单：连续超频只续临时封禁，并标记 needsReview 交管理员审批。
   const minutes = config.banMinutes[Math.min(strikes - 1, config.banMinutes.length - 1)];
   const until = Date.now() + minutes * 60_000;
   banUntil.set(key, until);
@@ -140,7 +126,14 @@ async function applyBan(q, key, strikes, { max, windowSec, bucket }) {
   } catch {
     /* 忽略 */
   }
-  return { permanent: false, until, reason: `请求过于频繁（${kind}），临时封禁 ${minutes} 分钟` };
+  const repeated = strikes > config.banMinutes.length;
+  return {
+    permanent: false,
+    until,
+    reason: repeated ? `请求过于频繁（${kind}，已多次触发，等待管理员审核）` : `请求过于频繁（${kind}），临时封禁 ${minutes} 分钟`,
+    needsReview: true,
+    strikes,
+  };
 }
 
 /**
@@ -195,7 +188,7 @@ export async function hit(q, ip, { bucket = 'page' } = {}) {
       blockedHits.set(key, 0);
       const strikes = await addStrike(q, key);
       const ban = await applyBan(q, key, strikes, { max, windowSec: config.windowSec, bucket });
-      return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: ban.permanent, escalated: true };
+      return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: false, escalated: true, needsReview: Boolean(ban.needsReview) };
     }
     return { limited: true, until: activeBan, reason: '请求过于频繁（封禁中）', banned: true };
   }
@@ -210,7 +203,7 @@ export async function hit(q, ip, { bucket = 'page' } = {}) {
   map.delete(key);
   const strikes = await addStrike(q, key);
   const ban = await applyBan(q, key, strikes, { max, windowSec: config.windowSec, bucket });
-  return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: ban.permanent };
+  return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: false, needsReview: Boolean(ban.needsReview) };
 }
 
 /** 管理员手动解封。返回是否清掉了记录。 */

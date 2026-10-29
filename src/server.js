@@ -16,6 +16,7 @@ import * as visitors from './visitors.js';
 import * as images from './images.js';
 import * as ratelimit from './ratelimit.js';
 import * as guard from './guard.js';
+import * as devices from './devices.js';
 import * as captcha from './captcha.js';
 import { createBackup, listBackups } from './backup.js';
 import { versionInfo } from './version.js';
@@ -35,6 +36,56 @@ const TYPES = {
 };
 
 const COOKIE = 'gp_session';
+const DEVICE_COOKIE = 'gp_device';
+
+const escapeHtml = (value) =>
+  String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/** 是不是浏览器在请求页面（用于决定返回 JSON 还是封禁提示页）。 */
+const wantsHtml = (req) =>
+  /text\/html/i.test(String(req.headers.accept ?? '')) && !String(req.url ?? '').startsWith('/api/');
+
+const bannedTplCache = new Map();
+function bannedTemplate(outDir) {
+  const file = resolve(outDir ?? 'web', 'banned.html');
+  if (bannedTplCache.has(file)) return bannedTplCache.get(file);
+  let html;
+  try {
+    html = readFileSync(file, 'utf8');
+  } catch {
+    html = '<!doctype html><meta charset="utf-8"><title>Access denied</title><h1>Access denied</h1>';
+  }
+  bannedTplCache.set(file, html);
+  return html;
+}
+
+/** 封禁提示页：多语言在前端按 navigator.language 选，这里只注入站点名/申诉邮箱/到期时间/申诉编号。 */
+function serveBanPage(res, outDir, { status = 403, until = null, reason = '', siteName = 'SteamDeals', appealEmail = '' } = {}) {
+  const code = 'AP-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  const html = bannedTemplate(outDir)
+    .replaceAll('__SITE_NAME__', escapeHtml(siteName))
+    .replaceAll('__APPEAL_EMAIL__', escapeHtml(appealEmail))
+    .replaceAll('__UNTIL__', until ? new Date(until).toISOString() : '')
+    .replaceAll('__REASON__', escapeHtml(reason))
+    .replaceAll('__CODE__', code);
+  const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
+  if (until) headers['retry-after'] = String(Math.max(1, Math.ceil((Number(until) - Date.now()) / 1000)));
+  res.writeHead(status, headers);
+  res.end(html);
+  return code;
+}
+
+function deviceCookie(req, value, maxAgeSec) {
+  const proto = String(req.headers['x-forwarded-proto'] ?? '').toLowerCase();
+  const https = proto === 'https' || Boolean(req.socket?.encrypted);
+  return `${DEVICE_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${https ? '; Secure' : ''}`;
+}
+
+const toIso = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
 
 // 封面图内存热缓存：数据库是持久层，这里只放最近访问的少量图片（LRU，约 300 张）
 const imgMemCache = new Map(); // appid/size -> { contentType, body }
@@ -214,6 +265,44 @@ export function createApiServer({
     }).catch(() => {});
   };
 
+  const siteName = () => String(process.env.SITE_NAME ?? 'SteamDeals').trim() || 'SteamDeals';
+  const appealEmail = () =>
+    String(process.env.APPEAL_EMAIL ?? process.env.ALERT_EMAIL_TO ?? process.env.SMTP_FROM ?? '').trim();
+
+  /** 统一的封禁响应：浏览器给提示页，API/脚本给纯文本。 */
+  const denyBanned = (req, res, { status = 403, until = null, reason = '访问被拒绝', ip = null } = {}) => {
+    if (wantsHtml(req)) {
+      const code = serveBanPage(res, outDir, { status, until, reason, siteName: siteName(), appealEmail: appealEmail() });
+      // 记录申诉编号，管理员收到申诉邮件后能按编号在日志里定位这次封禁
+      logger?.warn('ban.page', { ip, code, status, until, reason });
+      return code;
+    }
+    const headers = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' };
+    if (until) headers['retry-after'] = String(Math.max(1, Math.ceil((Number(until) - Date.now()) / 1000)));
+    res.writeHead(status, headers);
+    res.end(reason);
+    return null;
+  };
+
+  /**
+   * 异常请求审核：**只记录、不封禁**。
+   * 同一 IP+规则由 guard 内部节流（默认 60s），数据库里 pending 记录再合并计数。
+   */
+  const recordReview = async ({ ip, deviceId, fingerprint, rule, detail, path }) => {
+    try {
+      const row = await db.recordAbuseReview(q, { ip, deviceId, fingerprint, rule, detail, path });
+      logger?.warn('abuse.review', {
+        ip,
+        rule,
+        path: String(path ?? '').slice(0, 120),
+        hits: row?.hits ?? 1,
+        deviceId: deviceId || null,
+      });
+    } catch (err) {
+      logger?.warn('abuse.review_failed', { ip, rule, message: String(err.message).slice(0, 120) });
+    }
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
@@ -241,61 +330,71 @@ export function createApiServer({
         }
       }
 
+      // ---- 设备封禁（管理员在控制台审批后才会存在）----
+      const deviceId = devices.normalizeDeviceId(cookies[DEVICE_COOKIE]);
+      const deviceBan = deviceId && !adminBypass && !whitelisted ? devices.isBanned({ deviceId }) : null;
+      if (deviceBan) {
+        logger?.warn('device.denied', { ip, deviceId, until: deviceBan.until });
+        logBlocked({ ip, req, path, status: 403, reason: '设备已被封禁' });
+        return denyBanned(req, res, { status: 403, until: deviceBan.until, reason: '设备已被封禁', ip });
+      }
+
       // 频率限制：白名单/管理员不参与三振；内网/本机（反代、健康检查）不计数
       // 分桶：页面/API 与静态资源/图片分开计数——一个列表页几十张封面不该顶到页面阈值
       if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip)) {
-        // 统一走 hit：封禁期内的请求也会被计数，够数就升级封禁（不能直接丢弃计数）
+        // 统一走 hit：封禁期内的请求也会被计数，够数就记一条待审核（**不再自动永久封**）
         const verdict = await ratelimit.hit(q, ip, { bucket: guard.isAssetPath(path) ? 'asset' : 'page' });
         if (verdict.limited) {
           const until = Number(verdict.until) || 0;
-          const retrySec = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 600;
-          logger?.warn('rate.banned', {
+          logger?.warn('rate.limited', {
             ip,
             path,
             strikes: verdict.strikes ?? null,
             reason: verdict.reason,
-            permanent: Boolean(verdict.permanent),
             escalated: Boolean(verdict.escalated),
+            needsReview: Boolean(verdict.needsReview),
           });
-          if (verdict.permanent) visitors.refreshBlocklist(q).catch(() => {});
-          res.writeHead(429, {
-            'content-type': 'text/plain; charset=utf-8',
-            'cache-control': 'no-store',
-            'retry-after': String(retrySec),
-          });
-          res.end(verdict.reason);
+          // 只有"新一次超限"才记审核；封禁期内的重复请求不重复记
+          if (!verdict.banned && verdict.needsReview) {
+            await recordReview({
+              ip,
+              deviceId,
+              fingerprint: devices.fingerprintFor(deviceId),
+              rule: 'rate-limit',
+              detail: `超频 ${verdict.strikes || 1} 次：${verdict.reason}`,
+              path,
+            });
+          }
           logBlocked({ ip, req, path, status: 429, reason: verdict.reason });
-          return;
+          return denyBanned(req, res, { status: 429, until, reason: verdict.reason, ip });
         }
       }
 
       const hit = ip && !adminBypass && !whitelisted ? visitors.blockedBy(ip) : null;
       if (hit) {
         logger?.warn('block.ip_denied', { ip, path, rule: hit });
-        res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-        res.end('访问被拒绝');
         logBlocked({ ip, req, path, status: 403, reason: `IP 黑名单（${hit}）` });
-        return;
+        return denyBanned(req, res, { status: 403, reason: '访问被拒绝', ip });
       }
 
       // ---- 路径守卫：白名单 / 扫描器签名 / 未知路径计数 ----
-      // 正常用户一定会请求资源文件（封面、favicon、JS），这些是白名单，绝不能当异常封。
+      // 只记录待审核，**绝不自动封禁**；管理员在控制台审批后才封 IP/设备。
       if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip) && visitors.isIpLike(ip)) {
         try {
-          const g = await guard.inspect({ q, ip, path, method: req.method ?? 'GET', outDir, logger });
-          if (g.action === 'ban') {
-            const until = Number(g.until) || 0;
-            const retrySec = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 600;
-            logger?.warn('guard.banned', { ip, path, rule: g.verdict.rule, minutes: g.minutes, strikes: g.strikes });
-            res.writeHead(403, {
-              'content-type': 'text/plain; charset=utf-8',
-              'cache-control': 'no-store',
-              'retry-after': String(retrySec),
-            });
-            res.end('访问被拒绝');
-            logBlocked({ ip, req, path, status: 403, reason: g.reason });
-            return;
-          }
+          await guard.inspect({
+            ip,
+            path,
+            method: req.method ?? 'GET',
+            outDir,
+            logger,
+            onReview: (payload) =>
+              recordReview({
+                ip,
+                deviceId,
+                fingerprint: devices.fingerprintFor(deviceId),
+                ...payload,
+              }),
+          });
         } catch (err) {
           // 守卫自己出错只记日志，绝不影响正常请求（fail-open）
           logger?.warn('guard.failed', { ip, path, message: String(err.message).slice(0, 160) });
@@ -384,11 +483,64 @@ export function createApiServer({
         if (handled) return;
       }
 
+      // ---- 封禁提示页（直接打开也返回同样的页面）----
+      if (path === '/banned' || path === '/banned/') {
+        const code = serveBanPage(res, outDir, { status: 403, siteName: siteName(), appealEmail: appealEmail(), reason: '访问受限' });
+        logger?.info('ban.page_direct', { ip, code });
+        return;
+      }
+
       // 静态资源（页面本身仍由 chart 生成，这里只发文件）
       // 注意：/img/ 是服务端图片代理路由（本地缓存 → CDN 兜底），不能当静态文件处理，
       // 否则会直接 404——这正是之前"前台只有名字没有图"的真正原因。
       if (!path.startsWith('/api/') && !path.startsWith('/img/')) {
         return serveStatic(res, outDir, path);
+      }
+
+      // ---- 公开接口：站点信息 / 公告 / 设备指纹上报 ----
+      if (path === '/api/site' && req.method === 'GET') {
+        return json(res, 200, { name: siteName(), version: VERSION, appealEmail: appealEmail() });
+      }
+      if (path === '/api/announcements' && req.method === 'GET') {
+        const rows = await db.listAnnouncements(q, { activeOnly: true, limit: 10 });
+        return json(
+          res,
+          200,
+          {
+            announcements: rows.map((r) => ({
+              id: Number(r.id),
+              title: r.title,
+              body: r.body,
+              level: r.level,
+              startsAt: r.starts_at,
+              endsAt: r.ends_at,
+            })),
+          },
+          { 'cache-control': 'no-store' },
+        );
+      }
+      if (path === '/api/device' && req.method === 'POST') {
+        let body;
+        try {
+          body = await readBody(req, 16 * 1024);
+        } catch {
+          return json(res, 400, { error: '请求格式错误' });
+        }
+        if (!body || typeof body !== 'object') return json(res, 400, { error: '请求格式错误' });
+        const deviceId = devices.normalizeDeviceId(body?.deviceId);
+        const details = devices.sanitizeDetails(body?.details);
+        const fingerprint = devices.fingerprintOf(details);
+        const cookie = deviceCookie(req, deviceId, deviceId ? 31536000 : 0);
+        const ban = devices.isBanned({ deviceId, fingerprint });
+        if (ban) {
+          logger?.warn('device.banned', { ip, deviceId: deviceId || null, fingerprint: fingerprint.slice(0, 16), until: ban.until });
+          return json(res, 403, { banned: true, until: ban.until, reason: ban.note || '设备已被封禁' }, { 'set-cookie': cookie });
+        }
+        if (deviceId) devices.rememberDevice(deviceId, fingerprint, details);
+        if (devices.shouldLog(deviceId || fingerprint)) {
+          db.insertDeviceLog(q, { ip, deviceId, fingerprint, userAgent: req.headers['user-agent'], details }).catch(() => {});
+        }
+        return json(res, 200, { ok: true, fingerprint: fingerprint.slice(0, 16) }, { 'set-cookie': cookie });
       }
 
       const user = token ? await db.userBySession(q, token) : null;
@@ -1607,6 +1759,138 @@ export function createApiServer({
         return json(res, 200, { removed });
       }
 
+      // ---- 管理员：站点公告 ----
+      if (path === '/api/admin/announcements' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { announcements: await db.listAnnouncements(q, { limit: 100 }) });
+      }
+      if (path === '/api/admin/announcements' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const title = String(body.title ?? '').trim().slice(0, 120);
+        const text = String(body.body ?? '').trim().slice(0, 4000);
+        if (!title || !text) return json(res, 400, { error: '标题和内容不能为空' });
+        const row = await db.createAnnouncement(q, {
+          title,
+          body: text,
+          level: ['info', 'warning', 'critical'].includes(body.level) ? body.level : 'info',
+          active: body.active !== false,
+          startsAt: toIso(body.startsAt),
+          endsAt: toIso(body.endsAt),
+          createdBy: user.id,
+        });
+        logger?.info('announcement.created', { id: row.id, by: user.username });
+        return json(res, 200, { announcement: row });
+      }
+      const annMatch = path.match(/^\/api\/admin\/announcements\/(\d+)$/);
+      if (annMatch && (req.method === 'PATCH' || req.method === 'PUT')) {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const title = String(body.title ?? '').trim().slice(0, 120);
+        const text = String(body.body ?? '').trim().slice(0, 4000);
+        if (!title || !text) return json(res, 400, { error: '标题和内容不能为空' });
+        const row = await db.updateAnnouncement(q, Number(annMatch[1]), {
+          title,
+          body: text,
+          level: ['info', 'warning', 'critical'].includes(body.level) ? body.level : 'info',
+          active: body.active !== false,
+          startsAt: toIso(body.startsAt),
+          endsAt: toIso(body.endsAt),
+        });
+        if (!row) return json(res, 404, { error: '公告不存在' });
+        logger?.info('announcement.updated', { id: row.id, by: user.username });
+        return json(res, 200, { announcement: row });
+      }
+      if (annMatch && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const removed = await db.deleteAnnouncement(q, Number(annMatch[1]));
+        logger?.info('announcement.deleted', { id: Number(annMatch[1]), removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
+      // ---- 管理员：设备指纹与设备封禁 ----
+      if (path === '/api/admin/devices' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { devices: await db.listDevices(q, { limit: Number(url.searchParams.get('limit') ?? 100) }) });
+      }
+      if (path === '/api/admin/device-bans' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        return json(res, 200, { bans: await db.listDeviceBans(q, { limit: 200 }) });
+      }
+      if (path === '/api/admin/devices/ban' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const fingerprint = String(body.fingerprint ?? '').trim().toLowerCase();
+        if (!/^[a-f0-9]{32,64}$/.test(fingerprint)) return json(res, 400, { error: 'fingerprint 不合法' });
+        const minutes = Number(body.minutes);
+        const permanent = body.permanent === true || !Number.isFinite(minutes) || minutes <= 0;
+        const until = permanent ? null : new Date(Date.now() + minutes * 60_000).toISOString();
+        const row = await db.upsertDeviceBan(q, {
+          fingerprint,
+          deviceId: devices.normalizeDeviceId(body.deviceId),
+          note: body.note,
+          until,
+        });
+        await devices.loadBans(q).catch(() => {});
+        logger?.info('device.banned', { fingerprint: fingerprint.slice(0, 16), by: user.username, until });
+        return json(res, 200, { ban: row });
+      }
+      const devBanMatch = path.match(/^\/api\/admin\/device-bans\/([a-f0-9]{16,64})$/);
+      if (devBanMatch && req.method === 'DELETE') {
+        if (!requireAdmin()) return;
+        const removed = await db.removeDeviceBan(q, devBanMatch[1]);
+        await devices.loadBans(q).catch(() => {});
+        logger?.info('device.unbanned', { fingerprint: devBanMatch[1].slice(0, 16), removed, by: user.username });
+        return json(res, 200, { removed });
+      }
+
+      // ---- 管理员：异常请求审核（不自动封，审批后才封 IP / 设备）----
+      if (path === '/api/admin/reviews' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const status = String(url.searchParams.get('status') ?? 'pending');
+        const reviews = await db.listAbuseReviews(q, { status, limit: Number(url.searchParams.get('limit') ?? 100) });
+        return json(res, 200, { reviews, pending: await db.countPendingReviews(q) });
+      }
+      if (path === '/api/admin/reviews/approve' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const review = await db.getAbuseReview(q, Number(body.id));
+        if (!review || review.status !== 'pending') return json(res, 404, { error: '审核记录不存在或已处理' });
+        const mode = ['ip', 'device', 'both'].includes(body.mode) ? body.mode : 'ip';
+        let bannedIp = false;
+        let bannedDevice = false;
+        if ((mode === 'ip' || mode === 'both') && review.ip) {
+          await db.addBlockedIp(q, { ip: review.ip, note: `审核通过（${review.rule}）by ${user.username}` });
+          await visitors.refreshBlocklist(q).catch(() => {});
+          bannedIp = true;
+        }
+        if ((mode === 'device' || mode === 'both') && review.fingerprint) {
+          await db.upsertDeviceBan(q, {
+            fingerprint: review.fingerprint,
+            deviceId: review.device_id,
+            note: `审核通过（${review.rule}）by ${user.username}`,
+          });
+          await devices.loadBans(q).catch(() => {});
+          bannedDevice = true;
+        }
+        await db.finishAbuseReview(q, Number(body.id), { status: 'approved', reviewedBy: user.id, note: body.note });
+        logger?.info('abuse.review_approved', {
+          id: Number(body.id),
+          mode,
+          ip: review.ip,
+          fingerprint: (review.fingerprint || '').slice(0, 16),
+          by: user.username,
+        });
+        return json(res, 200, { ok: true, bannedIp, bannedDevice });
+      }
+      if (path === '/api/admin/reviews/reject' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const row = await db.finishAbuseReview(q, Number(body.id), { status: 'rejected', reviewedBy: user.id, note: body.note });
+        if (!row) return json(res, 404, { error: '审核记录不存在' });
+        return json(res, 200, { ok: true });
+      }
+
       return json(res, 404, { error: 'not found' });
     } catch (err) {
       logger?.error('api.error', { path, message: String(err.message).slice(0, 200) });
@@ -1700,6 +1984,7 @@ export function startApiServer({
   // 黑名单定时刷新（管理端增删后也会即时刷新；unref 不阻止进程退出）
   const blockTimer = setInterval(() => {
     visitors.refreshBlocklist(query).catch(() => {});
+    devices.loadBans(query).catch(() => {});
   }, 60_000);
   blockTimer.unref?.();
   return new Promise((done, fail) => {
@@ -1725,19 +2010,22 @@ export function startApiServer({
         logger?.warn('rate.init_failed', { message: String(err.message).slice(0, 120) });
       }
       try {
-        // 路径守卫：合法页面/静态资源白名单；扫描器签名立即封；未知路径默认只记录
+        // 路径守卫：只记录待审核，不自动封禁
         guard.configure({
-          enabled: process.env.PATH_BAN_ENABLED !== '0',
-          signatureMode: process.env.PATH_BAN_SIGNATURE_MODE === 'log' ? 'log' : 'block',
-          unknownMode: process.env.PATH_BAN_UNKNOWN_MODE === 'block' ? 'block' : 'log',
-          unknownMax: Number(process.env.PATH_BAN_UNKNOWN_MAX ?? 30),
-          unknownWindowSec: Number(process.env.PATH_BAN_UNKNOWN_WINDOW_SEC ?? 600),
-          banMinutes: Number(process.env.PATH_BAN_MINUTES ?? 60),
-          repeatBanMinutes: Number(process.env.PATH_BAN_REPEAT_MINUTES ?? 1440),
+          enabled: process.env.PATH_REVIEW_ENABLED !== '0',
+          unknownMax: Number(process.env.PATH_REVIEW_UNKNOWN_MAX ?? 30),
+          unknownWindowSec: Number(process.env.PATH_REVIEW_UNKNOWN_WINDOW_SEC ?? 600),
         });
         logger?.info('guard.init', { ...guard.currentConfig(), outDir: outDir ? resolve(outDir) : null });
       } catch (err) {
         logger?.warn('guard.init_failed', { message: String(err.message).slice(0, 120) });
+      }
+      try {
+        // 设备封禁缓存：只有管理员审批后才会存在；启动回填 + 60s 刷新
+        const loaded = await devices.loadBans(query);
+        logger?.info('device.init', loaded);
+      } catch (err) {
+        logger?.warn('device.init_failed', { message: String(err.message).slice(0, 120) });
       }
       try {
         // 服务重启后残留的 running 记录标失败，避免同步按钮永远禁用

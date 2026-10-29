@@ -88,3 +88,37 @@ test('资源文件判定：只用于限流分桶，永远不算异常', () => {
     assert.equal(guard.isAssetPath(path), false, path);
   }
 });
+
+test('inspect：扫描器路径只上报，不封禁（同一 IP+规则 60s 内只报一次）', async () => {
+  guard.resetState();
+  guard.configure({ enabled: true });
+  const reviews = [];
+  const onReview = (payload) => reviews.push(payload);
+  const first = await guard.inspect({ ip: '203.0.113.9', path: '/.env', outDir: WEB, onReview });
+  assert.equal(first.action, 'review');
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].rule, 'secret-file');
+  // 节流：同一 IP + 同一规则一分钟内不重复写审核
+  await guard.inspect({ ip: '203.0.113.9', path: '/.env.production', outDir: WEB, onReview });
+  assert.equal(reviews.length, 1);
+  guard.resetState();
+});
+
+test('inspect：正常页面/资源不上报；未知路径达到阈值才上报', async () => {
+  guard.resetState();
+  guard.configure({ enabled: true, unknownMax: 2, unknownWindowSec: 60 });
+  const reviews = [];
+  const onReview = (payload) => reviews.push(payload);
+  for (const path of ['/', '/img/steam/1/x', '/favicon.ico', '/api/games', '/.well-known/x']) {
+    await guard.inspect({ ip: '198.51.100.7', path, outDir: WEB, onReview });
+  }
+  assert.equal(reviews.length, 0, '正常路径不能产生审核');
+  const one = await guard.inspect({ ip: '198.51.100.7', path: '/x1', outDir: WEB, onReview });
+  assert.equal(one.action, 'log');
+  assert.equal(reviews.length, 0);
+  const two = await guard.inspect({ ip: '198.51.100.7', path: '/x2', outDir: WEB, onReview });
+  assert.equal(two.action, 'review');
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].rule, 'unknown-paths');
+  guard.resetState();
+});

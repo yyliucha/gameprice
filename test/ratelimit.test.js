@@ -28,7 +28,7 @@ function fakeQ() {
   return { q, abuse, blacklist, whitelist };
 }
 
-test('未超限放行；超限第一次封 10 分钟；封禁期内继续轰炸会升级到 30 分钟、永久', async () => {
+test('未超限放行；超限第一次封 10 分钟、第二次 30 分钟；此后只续临时封禁并标记待审核，不自动永久', async () => {
   ratelimit.resetState();
   ratelimit.configure({ enabled: true, max: 5, windowSec: 60, blockedEscalate: 5 });
   const { q, blacklist } = fakeQ();
@@ -42,6 +42,7 @@ test('未超限放行；超限第一次封 10 分钟；封禁期内继续轰炸�
   assert.equal(first.limited, true);
   assert.equal(first.strikes, 1);
   assert.equal(first.permanent, false);
+  assert.equal(first.needsReview, true, '第一次超限就要交管理员审核');
   const mins1 = Math.round((first.until - Date.now()) / 60000);
   assert.ok(mins1 >= 9 && mins1 <= 10, '第一次应封约 10 分钟，实际 ' + mins1);
 
@@ -52,12 +53,13 @@ test('未超限放行；超限第一次封 10 分钟；封禁期内继续轰炸�
   const mins2 = Math.round((second.until - Date.now()) / 60000);
   assert.ok(mins2 >= 29 && mins2 <= 30, '第二次应封约 30 分钟，实际 ' + mins2);
 
-  // 再继续 5 次 → 第 3 档永久拉黑
+  // 再继续 5 次 → 只续 30 分钟，绝不写永久黑名单
   let third = null;
   for (let i = 0; i < 5; i += 1) third = await ratelimit.hit(q, ip);
   assert.equal(third.strikes, 3);
-  assert.equal(third.permanent, true);
-  assert.ok(blacklist.has(ip), '第三次应写进永久黑名单');
+  assert.equal(third.permanent, false, '不再自动永久');
+  assert.equal(third.needsReview, true);
+  assert.equal(blacklist.has(ip), false, '自动流程不能写永久黑名单');
 });
 
 test('白名单不计数、不限流', async () => {
@@ -74,7 +76,7 @@ test('白名单不计数、不限流', async () => {
   assert.equal(ratelimit.isWhitelisted('198.51.100.7'), false);
 });
 
-test('手动解封清掉临时封禁与永久黑名单', async () => {
+test('手动解封清掉临时封禁（不再产生永久黑名单）', async () => {
   ratelimit.resetState();
   ratelimit.configure({ enabled: true, max: 1, windowSec: 60, blockedEscalate: 2 });
   const { q, blacklist } = fakeQ();
@@ -83,9 +85,9 @@ test('手动解封清掉临时封禁与永久黑名单', async () => {
     await ratelimit.hit(q, ip);
     await ratelimit.hit(q, ip); // 第 2 次即超限
   }
-  assert.ok(blacklist.has(ip));
+  assert.equal(blacklist.has(ip), false, '自动流程不写永久黑名单');
+  assert.ok(ratelimit.bannedUntil(ip), '应处于临时封禁中');
   await ratelimit.unban(q, ip);
-  assert.equal(blacklist.has(ip), false);
   assert.equal(ratelimit.bannedUntil(ip), null);
 });
 

@@ -87,6 +87,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       <button data-page="games">游戏管理</button>
       <button data-page="recycle">回收站</button>
       <button data-page="visitors">访问记录</button>
+      <button data-page="announcements">站点通知</button>
       <button data-page="steam">Steam 账号</button>
       <button data-page="sync">日志</button>
       <button data-page="mail">邮件测试</button>
@@ -276,6 +277,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
         <div class="bar" id="visTabs">
           <button class="chip on" data-vtab="logs">访问记录</button>
           <button class="chip" data-vtab="manage">统计 / 黑名单 / 白名单</button>
+          <button class="chip" data-vtab="reviews">待审核 <span id="reviewBadge"></span></button>
+          <button class="chip" data-vtab="devices">设备</button>
         </div>
         <div id="visManage" class="hide">
         <h2>访问统计</h2>
@@ -316,7 +319,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <button class="btn" id="abuseRefresh">刷新</button>
           </div>
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频</th><th class="num">路径封禁</th><th>来源</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
-          <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限第 1 次封 10 分钟、第 2 次 30 分钟、第 3 次永久，封禁期内继续请求每累计 100 次升级一档。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）直接封 1 小时，24 小时内重犯封 24 小时，<strong>不会自动永久</strong>。白名单 IP 不计数。</p>
+          <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限先临时限流 10/30 分钟，并记入「待审核」，<strong>不再自动永久封禁</strong>。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）只记录，由管理员在「待审核」里决定封 IP / 封设备 / 忽略。白名单 IP 不计数。</p>
         </div>
 
         </div>
@@ -351,6 +354,61 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             </select>
           </span>
         </div>
+        </div>
+
+        <div id="visReviews" class="hide">
+          <h2>异常请求审核（只记录，不自动封）</h2>
+          <div class="card pad">
+            <div class="row" style="justify-content:space-between">
+              <span class="small muted" id="reviewMeta">加载中…</span>
+              <button class="btn" id="reviewRefresh">刷新</button>
+            </div>
+            <p class="muted small" style="margin:6px 0 0">扫描器路径（<code>.env</code>/<code>*.php</code>/<code>..</code>）和超频请求只会记录在这里；点「封 IP」「封设备」或「忽略」才会产生后果。</p>
+          </div>
+          <div class="card" style="margin-top:10px;max-height:56vh;overflow:auto">
+            <table><thead><tr><th>最近</th><th>IP</th><th>设备指纹</th><th>规则</th><th class="num">次数</th><th>路径 / 说明</th><th style="width:250px">操作</th></tr></thead><tbody id="reviewRows"></tbody></table>
+          </div>
+        </div>
+
+        <div id="visDevices" class="hide">
+          <h2>设备指纹</h2>
+          <div class="card pad">
+            <p class="muted small" style="margin:0">前台页面加载时上报：平台、语言、时区、屏幕、CPU/内存、WebGL、Canvas 等，服务端只算指纹哈希。封禁按指纹生效，同一设备换 IP 也会命中。</p>
+          </div>
+          <div class="card" style="margin-top:10px;max-height:46vh;overflow:auto">
+            <table><thead><tr><th>最近</th><th>设备 ID</th><th>指纹</th><th>IP</th><th>平台 / 语言</th><th>屏幕</th><th style="width:110px">操作</th></tr></thead><tbody id="deviceRows"></tbody></table>
+          </div>
+          <h2 style="margin-top:16px">设备封禁</h2>
+          <div class="card" style="margin-top:6px">
+            <table><thead><tr><th>指纹</th><th>设备 ID</th><th>备注</th><th>到期</th><th style="width:90px">操作</th></tr></thead><tbody id="deviceBanRows"></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <section data-section="announcements" class="hide">
+        <h2>站点通知</h2>
+        <div class="card pad">
+          <p class="muted small" style="margin:0 0 8px">前台顶部横幅展示；用户点 × 关闭后本机不再显示（按公告 id 记 localStorage）。留空时间窗口表示立即生效 / 永不过期。</p>
+          <div class="row">
+            <input id="annTitle" placeholder="标题（必填）" style="width:280px">
+            <select id="annLevel">
+              <option value="info">通知</option>
+              <option value="warning">提醒</option>
+              <option value="critical">重要</option>
+            </select>
+            <label class="small muted"><input type="checkbox" id="annActive" checked> 启用</label>
+          </div>
+          <textarea id="annBody" rows="4" placeholder="正文（必填，支持换行）" style="margin-top:8px"></textarea>
+          <div class="row" style="margin-top:8px">
+            <label class="small muted">开始 <input type="datetime-local" id="annStart"></label>
+            <label class="small muted">结束 <input type="datetime-local" id="annEnd"></label>
+            <button class="btn primary" id="annSave">保存</button>
+            <button class="btn" id="annReset" hidden>取消编辑</button>
+            <span class="small muted" id="annMsg"></span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <table><thead><tr><th>标题</th><th>级别</th><th>状态</th><th>时间窗口</th><th>更新时间</th><th style="width:160px">操作</th></tr></thead><tbody id="annRows"></tbody></table>
         </div>
       </section>
 
@@ -549,7 +607,8 @@ function showPage(page) {
   if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); if (bfPollTimer) { clearTimeout(bfPollTimer); bfPollTimer = null; } pollBackfill(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
-  if (page === 'visitors') { setVisTab(visTab); loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); }
+  if (page === 'visitors') { setVisTab(visTab); loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); loadReviews(); }
+  if (page === 'announcements') loadAnnouncements();
   if (page === 'mail') { loadSmtp(); loadMail(); }
   if (page === 'settings') loadSettings();
 }
@@ -1043,16 +1102,228 @@ document.addEventListener('click', async function (e) {
 // ---- 访问记录页子视图：明细 / 统计与名单 ----
 let visTab = 'logs';
 function setVisTab(tab) {
-  visTab = tab === 'manage' ? 'manage' : 'logs';
+  const allowed = ['logs', 'manage', 'reviews', 'devices'];
+  visTab = allowed.includes(tab) ? tab : 'logs';
   if ($('visManage')) $('visManage').classList.toggle('hide', visTab !== 'manage');
   if ($('visLogs')) $('visLogs').classList.toggle('hide', visTab !== 'logs');
+  if ($('visReviews')) $('visReviews').classList.toggle('hide', visTab !== 'reviews');
+  if ($('visDevices')) $('visDevices').classList.toggle('hide', visTab !== 'devices');
   document.querySelectorAll('#visTabs [data-vtab]').forEach(function (b) {
     b.classList.toggle('on', b.dataset.vtab === visTab);
   });
+  if (visTab === 'reviews') loadReviews();
+  if (visTab === 'devices') loadDevices();
 }
 document.querySelectorAll('#visTabs [data-vtab]').forEach(function (b) {
   b.onclick = function () { setVisTab(b.dataset.vtab); };
 });
+
+// ---- 站点公告 ----
+let annEditId = null;
+let annCache = [];
+function annToLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function annResetForm() {
+  annEditId = null;
+  if (!$('annTitle')) return;
+  $('annTitle').value = '';
+  $('annBody').value = '';
+  $('annLevel').value = 'info';
+  $('annActive').checked = true;
+  $('annStart').value = '';
+  $('annEnd').value = '';
+  $('annMsg').textContent = '';
+  $('annSave').textContent = '保存';
+  $('annReset').hidden = true;
+}
+async function loadAnnouncements() {
+  if (!$('annRows')) return;
+  try {
+    const d = await api('/api/admin/announcements');
+    annCache = d.announcements || [];
+    $('annRows').innerHTML = annCache.map(function (a) {
+      const level = a.level === 'critical' ? '重要' : a.level === 'warning' ? '提醒' : '通知';
+      const win = (a.starts_at ? when(a.starts_at) : '立即') + ' ~ ' + (a.ends_at ? when(a.ends_at) : '永久');
+      return '<tr><td class="small">' + esc(a.title) + '<div class="small muted">' + esc(String(a.body || '').slice(0, 60)) + '</div></td>' +
+        '<td>' + level + '</td><td>' + (a.active ? '<span class="pill ok">启用</span>' : '<span class="pill off">停用</span>') + '</td>' +
+        '<td class="small muted">' + win + '</td><td class="small muted">' + when(a.updated_at) + '</td>' +
+        '<td><button class="btn" data-ann-edit="' + a.id + '">编辑</button> <button class="btn danger" data-ann-del="' + a.id + '">删除</button></td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">还没有公告</td></tr>';
+    document.querySelectorAll('[data-ann-edit]').forEach(function (b) {
+      b.onclick = function () { editAnnouncement(Number(b.dataset.annEdit)); };
+    });
+    document.querySelectorAll('[data-ann-del]').forEach(function (b) {
+      b.onclick = function () { deleteAnnouncement(Number(b.dataset.annDel)); };
+    });
+  } catch (e) {
+    if ($('annMsg')) $('annMsg').textContent = '读取失败：' + e.message;
+  }
+}
+function editAnnouncement(id) {
+  const a = annCache.find(function (x) { return Number(x.id) === id; });
+  if (!a) return;
+  annEditId = id;
+  $('annTitle').value = a.title || '';
+  $('annBody').value = a.body || '';
+  $('annLevel').value = a.level || 'info';
+  $('annActive').checked = Boolean(a.active);
+  $('annStart').value = annToLocal(a.starts_at);
+  $('annEnd').value = annToLocal(a.ends_at);
+  $('annSave').textContent = '保存修改';
+  $('annReset').hidden = false;
+  $('annMsg').textContent = '正在编辑 #' + id;
+}
+async function deleteAnnouncement(id) {
+  if (!confirm('删除这条公告？')) return;
+  try {
+    await api('/api/admin/announcements/' + id, { method: 'DELETE' });
+    toast('已删除');
+    annResetForm();
+    await loadAnnouncements();
+  } catch (e) {
+    $('annMsg').textContent = '删除失败：' + e.message;
+  }
+}
+if ($('annSave')) $('annSave').onclick = async function () {
+  const title = $('annTitle').value.trim();
+  const body = $('annBody').value.trim();
+  if (!title || !body) { $('annMsg').textContent = '标题和正文都要填'; return; }
+  const payload = {
+    title,
+    body,
+    level: $('annLevel').value,
+    active: $('annActive').checked,
+    startsAt: $('annStart').value ? new Date($('annStart').value).toISOString() : null,
+    endsAt: $('annEnd').value ? new Date($('annEnd').value).toISOString() : null,
+  };
+  const editing = Boolean(annEditId);
+  try {
+    if (editing) await api('/api/admin/announcements/' + annEditId, { method: 'PATCH', body: JSON.stringify(payload) });
+    else await api('/api/admin/announcements', { method: 'POST', body: JSON.stringify(payload) });
+    toast(editing ? '已保存' : '已发布');
+    annResetForm();
+    await loadAnnouncements();
+  } catch (e) {
+    $('annMsg').textContent = '保存失败：' + e.message;
+  }
+};
+if ($('annReset')) $('annReset').onclick = annResetForm;
+
+// ---- 异常请求审核（只记录，管理员决定封不封）----
+async function loadReviews() {
+  if (!$('reviewRows')) return;
+  try {
+    const d = await api('/api/admin/reviews?status=pending');
+    const pending = Number(d.pending || 0);
+    if ($('reviewBadge')) $('reviewBadge').textContent = pending ? '(' + pending + ')' : '';
+    if ($('reviewMeta')) $('reviewMeta').textContent = pending ? '待审核 ' + pending + ' 条' : '没有待审核记录';
+    $('reviewRows').innerHTML = (d.reviews || []).map(function (r) {
+      const device = r.fingerprint
+        ? '<span class="mono small" title="' + esc(r.fingerprint) + '">' + esc(String(r.fingerprint).slice(0, 12)) + '…</span>' +
+          (r.device_id ? '<div class="small muted">' + esc(String(r.device_id).slice(0, 18)) + '…</div>' : '')
+        : '<span class="muted">—</span>';
+      const actions = '<button class="btn danger" data-rv-ip="' + r.id + '">封 IP</button>' +
+        (r.fingerprint ? ' <button class="btn danger" data-rv-dev="' + r.id + '">封设备</button>' : '') +
+        ' <button class="btn" data-rv-skip="' + r.id + '">忽略</button>';
+      return '<tr><td class="muted small">' + when(r.last_seen) + '</td>' +
+        '<td class="mono small">' + esc(r.ip || '—') + '</td>' +
+        '<td>' + device + '</td><td class="small">' + esc(r.rule) + '</td>' +
+        '<td class="num">' + (r.hits || 1) + '</td>' +
+        '<td class="small">' + esc(String(r.path || r.detail || '').slice(0, 80)) + '</td>' +
+        '<td>' + actions + '</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">没有待审核的异常请求</td></tr>';
+    document.querySelectorAll('[data-rv-ip]').forEach(function (b) {
+      b.onclick = function () { reviewAction(Number(b.dataset.rvIp), 'approve', 'ip'); };
+    });
+    document.querySelectorAll('[data-rv-dev]').forEach(function (b) {
+      b.onclick = function () { reviewAction(Number(b.dataset.rvDev), 'approve', 'device'); };
+    });
+    document.querySelectorAll('[data-rv-skip]').forEach(function (b) {
+      b.onclick = function () { reviewAction(Number(b.dataset.rvSkip), 'reject'); };
+    });
+  } catch (e) {
+    if ($('reviewMeta')) $('reviewMeta').textContent = '读取失败：' + e.message;
+  }
+}
+async function reviewAction(id, action, mode) {
+  try {
+    const payload = action === 'approve' ? { id, mode } : { id };
+    await api('/api/admin/reviews/' + action, { method: 'POST', body: JSON.stringify(payload) });
+    toast(action === 'approve' ? (mode === 'device' ? '已封禁设备' : '已封禁 IP') : '已忽略');
+    await loadReviews();
+    loadBlacklist();
+    loadAbuse();
+    loadDevices();
+  } catch (e) {
+    toast('操作失败：' + e.message);
+  }
+}
+if ($('reviewRefresh')) $('reviewRefresh').onclick = loadReviews;
+
+// ---- 设备指纹 / 设备封禁 ----
+async function loadDevices() {
+  if (!$('deviceRows')) return;
+  try {
+    const d = await api('/api/admin/devices?limit=100');
+    $('deviceRows').innerHTML = (d.devices || []).map(function (r) {
+      const det = r.details || {};
+      const scr = Array.isArray(det.screen) ? (det.screen[0] || 0) + '×' + (det.screen[1] || 0) : '';
+      const platform = [det.platform, det.language].filter(Boolean).join(' · ');
+      return '<tr><td class="muted small">' + when(r.created_at) + '</td>' +
+        '<td class="mono small">' + esc(String(r.device_id || '—').slice(0, 18)) + '</td>' +
+        '<td class="mono small" title="' + esc(r.fingerprint) + '">' + esc(String(r.fingerprint || '').slice(0, 12)) + '…</td>' +
+        '<td class="mono small">' + esc(r.ip || '—') + '</td>' +
+        '<td class="small">' + esc(platform || '—') + '</td><td class="small">' + esc(scr) + '</td>' +
+        '<td><button class="btn danger" data-dv-ban="' + esc(r.fingerprint) + '" data-dv-id="' + esc(r.device_id || '') + '">封设备</button></td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">还没有设备上报（前台页面加载后才会出现）</td></tr>';
+
+    const b = await api('/api/admin/device-bans');
+    $('deviceBanRows').innerHTML = (b.bans || []).map(function (r) {
+      return '<tr><td class="mono small" title="' + esc(r.fingerprint) + '">' + esc(String(r.fingerprint).slice(0, 16)) + '…</td>' +
+        '<td class="mono small">' + esc(String(r.device_id || '—').slice(0, 18)) + '</td>' +
+        '<td class="small">' + esc(r.note || '') + '</td>' +
+        '<td class="small">' + (r.until ? new Date(r.until).toLocaleString('zh-CN') : '永久') + '</td>' +
+        '<td><button class="btn" data-dv-unban="' + esc(r.fingerprint) + '">解封</button></td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">没有设备封禁</td></tr>';
+
+    document.querySelectorAll('[data-dv-ban]').forEach(function (el) {
+      el.onclick = function () { banDevice(el.dataset.dvBan, el.dataset.dvId); };
+    });
+    document.querySelectorAll('[data-dv-unban]').forEach(function (el) {
+      el.onclick = function () { unbanDevice(el.dataset.dvUnban); };
+    });
+  } catch (e) {
+    if ($('deviceRows')) $('deviceRows').innerHTML = '<tr><td colspan="7" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
+  }
+}
+async function banDevice(fingerprint, deviceId) {
+  const note = await askText({ title: '封禁设备', hint: '按指纹永久封禁；同一设备换 IP 也会被拦。', placeholder: '备注（可选）' });
+  if (note === null) return;
+  try {
+    await api('/api/admin/devices/ban', {
+      method: 'POST',
+      body: JSON.stringify({ fingerprint, deviceId: deviceId || null, note: note.trim(), permanent: true }),
+    });
+    toast('已封禁设备');
+    await loadDevices();
+  } catch (e) {
+    toast('封禁失败：' + e.message);
+  }
+}
+async function unbanDevice(fingerprint) {
+  try {
+    await api('/api/admin/device-bans/' + encodeURIComponent(fingerprint), { method: 'DELETE' });
+    toast('已解封设备');
+    await loadDevices();
+  } catch (e) {
+    toast('解封失败：' + e.message);
+  }
+}
 
 // ---- 白名单 / 自动封禁 ----
 async function loadWhitelist() {
