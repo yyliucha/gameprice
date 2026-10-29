@@ -78,6 +78,8 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
     <h2 data-i18n="appealTitle">如果你认为这是误判</h2>
     <p data-i18n="appealLead">请发送邮件申诉，附上申诉编号和大致时间，管理员会人工复核。</p>
     <a class="btn" id="appealBtn" href="#" data-i18n="appealButton">发送申诉邮件</a>
+    <button class="btn ghost" id="appealCopy" type="button" hidden>复制申诉内容</button>
+    <p class="tip" id="appealMsg" hidden></p>
     <p class="tip" id="noEmail" hidden data-i18n="noEmail">管理员还没有配置申诉邮箱，请联系站点管理员。</p>
     <p class="tip" data-i18n="appealTip">申诉时请说明你当时的操作（例如正在浏览列表 / 使用脚本 / 共享网络），复核会更快。</p>
   </div>
@@ -182,6 +184,22 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
   var code = body.dataset.code || '';
   var select = document.getElementById('lang');
 
+  // 申诉按钮的兜底文案：有些环境没装邮件客户端，mailto 点了不会有任何反应，必须给可见反馈
+  var EXTRA = {
+    'zh-CN': { copy: '复制申诉内容', copied: '申诉内容已复制，可直接粘贴到邮件里。', noClient: '如果邮件客户端没有打开，请手动发送到 {email}。', copyFail: '（复制失败，请手动记录申诉编号和邮箱）' },
+    'zh-TW': { copy: '複製申訴內容', copied: '申訴內容已複製，可直接貼到郵件裡。', noClient: '若郵件用戶端沒有開啟，請手動寄送到 {email}。', copyFail: '（複製失敗，請手動記下申訴編號與信箱）' },
+    en: { copy: 'Copy appeal text', copied: 'Appeal text copied — paste it into your email.', noClient: 'If your mail app did not open, send it manually to {email}.', copyFail: ' (copy failed — note the appeal code and email manually)' },
+    ja: { copy: '異議申立の内容をコピー', copied: '内容をコピーしました。メールに貼り付けてください。', noClient: 'メールアプリが開かない場合は {email} まで手動で送信してください。', copyFail: '（コピーに失敗しました。番号と宛先を控えてください）' },
+    ko: { copy: '이의신청 내용 복사', copied: '내용을 복사했습니다. 메일에 붙여넣으세요.', noClient: '메일 앱이 열리지 않으면 {email} 로 직접 보내주세요.', copyFail: ' (복사 실패 — 이의신청 번호와 주소를 직접 기록하세요)' },
+    ru: { copy: 'Скопировать текст апелляции', copied: 'Текст апелляции скопирован — вставьте его в письмо.', noClient: 'Если почтовая программа не открылась, отправьте вручную на {email}.', copyFail: ' (не удалось скопировать — запишите номер и адрес вручную)' },
+    es: { copy: 'Copiar texto de apelación', copied: 'Texto copiado; pégalo en tu correo.', noClient: 'Si tu cliente de correo no se abrió, envíalo manualmente a {email}.', copyFail: ' (no se pudo copiar; anota el código y el correo)' },
+    fr: { copy: 'Copier le texte du recours', copied: 'Texte copié — collez-le dans votre e-mail.', noClient: 'Si votre client mail ne s’est pas ouvert, envoyez-le manuellement à {email}.', copyFail: ' (copie impossible — notez le code et l’adresse)' },
+    de: { copy: 'Einspruchstext kopieren', copied: 'Text kopiert – füge ihn in deine E-Mail ein.', noClient: 'Wenn sich dein Mailprogramm nicht geöffnet hat, sende ihn manuell an {email}.', copyFail: ' (Kopieren fehlgeschlagen – Code und Adresse notieren)' },
+  };
+  var appealText = '';
+  var appealAddr = '';
+  function extra(lang) { return EXTRA[lang] || EXTRA.en; }
+
   function pickLang() {
     var saved = '';
     try { saved = localStorage.getItem('gp_ban_lang') || ''; } catch (e) {}
@@ -226,17 +244,73 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
 
     var btn = document.getElementById('appealBtn');
     var noEmail = document.getElementById('noEmail');
+    var copyBtn = document.getElementById('appealCopy');
+    var msg = document.getElementById('appealMsg');
+    if (msg) { msg.hidden = true; msg.textContent = ''; }
     var addr = String(email || '').replace(/[^A-Za-z0-9._%+@-]/g, '');
+    appealText = '';
+    appealAddr = addr;
     if (addr) {
       var subject = '[' + site + '] ' + t.subject + ' ' + code;
       var mail = t.body + code + '\n' + t.bodyTime + (untilIso ? untilIso : '—') + '\n' + t.bodyReason + (reason || '—') + '\n\n' + t.bodyAsk;
+      appealText = mail;
       btn.href = 'mailto:' + addr + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mail);
       btn.hidden = false;
       noEmail.hidden = true;
+      if (copyBtn) { copyBtn.hidden = false; copyBtn.textContent = extra(lang).copy; }
     } else {
       btn.hidden = true;
       noEmail.hidden = false;
+      if (copyBtn) copyBtn.hidden = true;
     }
+  }
+
+  function appMsg(text) {
+    var m = document.getElementById('appealMsg');
+    if (!m) return;
+    m.textContent = text;
+    m.hidden = false;
+  }
+  function copyText(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) return true;
+    } catch (e) { /* 继续尝试 Clipboard API */ }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+        return true;
+      }
+    } catch (e) { /* 最后按复制失败处理 */ }
+    return false;
+  }
+  function appealPayload() {
+    return [appealText, appealAddr ? 'Email: ' + appealAddr : ''].filter(Boolean).join('\n');
+  }
+  // mailto 在没装邮件客户端的环境里点了完全没反应：点击时顺手复制申诉内容并给出可见提示
+  var appealBtnEl = document.getElementById('appealBtn');
+  if (appealBtnEl) {
+    appealBtnEl.addEventListener('click', function () {
+      var ok = copyText(appealPayload());
+      var x = extra(select.value);
+      appMsg((x.noClient || '').replace('{email}', appealAddr) + (ok ? '' : (x.copyFail || '')));
+    });
+  }
+  var appealCopyEl = document.getElementById('appealCopy');
+  if (appealCopyEl) {
+    appealCopyEl.addEventListener('click', function () {
+      var ok = copyText(appealPayload());
+      var x = extra(select.value);
+      appMsg(ok ? x.copied : (x.copyFail || ''));
+    });
   }
 
   select.addEventListener('change', function () { apply(select.value); });

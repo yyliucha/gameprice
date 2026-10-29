@@ -181,6 +181,9 @@ test('管理员审批：封 IP 后整站 403，浏览器拿到多语言提示页
     assert.match(html, /SteamDeals-Test/);
     assert.match(html, /appeal@example\.com/);
     assert.doesNotMatch(html, /__SITE_NAME__|__APPEAL_EMAIL__/, '占位符必须被替换');
+    // 没有邮件客户端时 mailto 点了不会有任何反应，页面必须提供「复制申诉内容」和可见提示
+    assert.match(html, /id="appealCopy"/, '申诉要有复制兜底按钮');
+    assert.match(html, /id="appealMsg"/, '申诉要有可见反馈区域');
   } finally {
     await close();
   }
