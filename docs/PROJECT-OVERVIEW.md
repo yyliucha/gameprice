@@ -69,6 +69,8 @@ Node.js 服务 src/server.js
 
 ## 功能与代码落点
 
+尚未实现、但已经留痕的议题见 [ROADMAP.md](ROADMAP.md)（例如 Steam 锁国区与 18+ 内容的地区化展示）。
+
 | 能力 | 主要文件 | 当前状态/边界 |
 |---|---|---|
 | Steam 国区价格 | `src/adapters/steam.js` | 已实现；运行需要 Steam 站点可达，国内通常需出口代理 |
