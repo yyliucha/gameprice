@@ -1612,6 +1612,7 @@ async function cmdBackfill() {
   const startedMs = Date.now();
   let done = 0;
   let stored = 0;
+  let priced = 0;
   let fallback = 0;
   let failed = 0;
   let batches = 0;
@@ -1681,6 +1682,10 @@ async function cmdBackfill() {
     }
     failed += Math.max(0, missed.length - fallbackMax);
 
+    // 本批拿到价格的条数：批量接口不返回 best_purchase_option 时这里会是 0
+    const batchPriced = items.filter((i) => i.priceOverview).length;
+    priced += batchPriced;
+
     // 写库：每批只开 1 个连接（之前是每款一个，100 连接/批，日志会被 db.connect 刷屏）
     if (items.length) {
       await withStore(async (store) => {
@@ -1716,11 +1721,22 @@ async function cmdBackfill() {
     done += appids.length;
     const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);
     console.log(`  批次 ${batches}：本批 ${appids.length} 款，写入 ${items.length}，回退 ${fallback}，失败 ${failed}；累计 ${done}/${limit}（${rate} 款/分钟）`);
+    if (key && items.length && batchPriced === 0) {
+      logger.warn('backfill.batch_no_price', {
+        batch: batches,
+        items: items.length,
+        hint: 'GetItems 没返回 best_purchase_option：检查请求体 include_best_purchase_option',
+      });
+    }
     if (sleepMs) await sleep(sleepMs);
   }
 
-  logger.info('backfill.done', { done, stored, fallback, failed, batches, elapsedMs: Date.now() - startedMs });
-  console.log(`完成：处理 ${done} 款，写入 ${stored} 条元数据，单条回退 ${fallback}，失败 ${failed}`);
+  logger.info('backfill.done', { done, stored, priced, fallback, failed, batches, elapsedMs: Date.now() - startedMs });
+  console.log(`完成：处理 ${done} 款，元数据 ${stored} 条，价格 ${priced} 条，单条回退 ${fallback}，失败 ${failed}`);
+  if (stored > 0 && priced === 0) {
+    console.warn('⚠️ 一条价格都没拿到：GetItems 没有返回 best_purchase_option。检查请求体是否带 include_best_purchase_option（0.29.1+ 默认带上）。');
+    logger.warn('backfill.no_prices', { stored, hint: 'include_best_purchase_option' });
+  }
 }
 
 async function cmdReport() {

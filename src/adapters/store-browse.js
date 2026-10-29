@@ -17,6 +17,9 @@ export function buildBody(appids, { country = 'CN', language = 'schinese' } = {}
       include_basic_info: true,
       include_assets: true,
       include_release: true,
+      // 价格必须显式要：不加这一项 GetItems 不返回 best_purchase_option，
+      // 结果就是"元数据写进去了、价格一条没有"，前端列表自然看不到新游戏。
+      include_best_purchase_option: true,
       include_platforms: false,
       include_tag_count: 0,
       include_reviews: false,
@@ -41,17 +44,26 @@ const stripHtml = (raw) =>
 export function mapStoreItem(item) {
   if (!item || !item.appid) return null;
   const basic = item.basic_info ?? {};
-  const price = item.best_purchase_option ?? null;
+  // 新接口用 best_purchase_option；个别版本/参数下会放在 purchase_options 数组里
+  const price = item.best_purchase_option ?? (Array.isArray(item.purchase_options) ? item.purchase_options[0] : null) ?? null;
   const isDlc = String(item.type ?? '').toLowerCase() === 'dlc';
-  const cents = (v) => (v && v.amount != null ? Math.round(Number(v.amount)) : null);
-  const final = price ? cents(price.final_price) : null;
-  const initial = price ? cents(price.original_price) : null;
+  // final_price 有两种返回形态：{ amount, currency } 或直接整数（分）
+  const amountOf = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return Math.round(v);
+    if (typeof v === 'object' && v.amount != null) return Math.round(Number(v.amount));
+    return null;
+  };
+  const currencyOf = (v, fallback) =>
+    v && typeof v === 'object' && v.currency ? String(v.currency) : fallback ? String(fallback) : 'CNY';
+  const final = price ? amountOf(price.final_price) : null;
+  const initial = price ? amountOf(price.original_price) : null;
   return {
     steamAppid: Number(item.appid),
     nameEn: null,
     nameZh: item.name ?? null,
     appType: isDlc ? 'dlc' : item.type ? 'game' : null,
-    isFree: price ? Number(price.final_price?.amount ?? -1) === 0 : null,
+    isFree: final == null ? null : final === 0,
     headerImage: null,
     releaseDate: null,
     developers: Array.isArray(basic.developers) ? basic.developers : null,
@@ -66,7 +78,7 @@ export function mapStoreItem(item) {
             final,
             initial: initial ?? final,
             discountPercent: Number(price?.discount_percent ?? 0),
-            currency: price?.final_price?.currency ? String(price.final_price.currency) : 'CNY',
+            currency: currencyOf(price?.final_price, price?.currency_code),
           }
         : null,
   };

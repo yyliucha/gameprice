@@ -19,6 +19,7 @@ test('请求体：最多 100 个 id，带国区/语言上下文', () => {
   assert.equal(body.context.country_code, 'CN');
   assert.equal(body.context.language, 'schinese');
   assert.equal(body.data_request.include_basic_info, true);
+  assert.equal(body.data_request.include_best_purchase_option, true, '不带这个字段 GetItems 不返回价格');
   assert.equal(CHUNK, 100);
 });
 
@@ -54,6 +55,33 @@ test('字段映射：DLC 与无价格', () => {
   assert.equal(item.appType, 'dlc');
   assert.equal(item.priceOverview, null);
   assert.equal(mapStoreItem(null), null);
+});
+
+test('字段映射：final_price 是整数时也能解出价格（新接口两种形态）', () => {
+  const item = mapStoreItem({
+    appid: 570,
+    name: 'Dota 2',
+    type: 'app',
+    basic_info: {},
+    best_purchase_option: { final_price: 19800, original_price: 29800, discount_percent: 33, currency_code: 'CNY' },
+  });
+  assert.equal(item.priceOverview.final, 19800);
+  assert.equal(item.priceOverview.initial, 29800);
+  assert.equal(item.priceOverview.discountPercent, 33);
+  assert.equal(item.priceOverview.currency, 'CNY');
+  assert.equal(item.isFree, false);
+});
+
+test('字段映射：价格放在 purchase_options 数组里也能取', () => {
+  const item = mapStoreItem({
+    appid: 440,
+    name: 'TF2',
+    type: 'app',
+    basic_info: {},
+    purchase_options: [{ final_price: { amount: 0, currency: 'CNY' }, original_price: { amount: 0, currency: 'CNY' } }],
+  });
+  assert.equal(item.priceOverview.final, 0);
+  assert.equal(item.isFree, true);
 });
 
 test('分批请求：150 个 id 分两批，缺失的 appid 进 failed', async () => {

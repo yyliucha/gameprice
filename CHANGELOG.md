@@ -2,6 +2,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.30.1] - 2026-10-29
+
+修复数据回填只写元数据、不写价格：GetItems 必须显式要价格字段。
+
+### 修复
+
+- **GetItems 请求补 `include_best_purchase_option: true`**：不加这一项 Steam 不返回
+  `best_purchase_option`，回填日志里的「写入 10000」只是元数据，价格一条没写，
+  前端「有价格」一直停在原来的约 1000 款（列表只显示有价格的游戏）
+- `mapStoreItem` 兼容 `final_price` 的两种形态（`{amount,currency}` 与整数 + `currency_code`），
+  以及价格放在 `purchase_options` 数组里的情况
+- 回填日志新增「价格 N 条」；一批里一条价格都没拿到时写 `backfill.batch_no_price` 警告，
+  结束时价格 0 条给出明确提示（批次进度行格式保持不变，控制台进度解析不受影响）
+
+### 测试
+
+- `store-browse.test.js` 补 3 项：请求体必须带 `include_best_purchase_option`、
+  整数价格形态、`purchase_options` 形态
+
 ## [0.30.0] - 2026-10-29
 
 自动封禁恢复，改为**按天三振**：10 分钟 → 30 分钟 → 封到当天结束。
