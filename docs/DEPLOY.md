@@ -36,7 +36,7 @@ docker compose -f compose.cn.external-db.yaml up -d
 
 初始化完成前，所有页面 302 到 `/setup`，业务 API 返回 `428`；健康检查只验证数据库，容器不会因未初始化而重启。业务设置写入 PostgreSQL 的 `app_settings` / `smtp_settings`，之后在「控制台 → 系统设置」修改，调度器约 15 秒内热加载。
 
-> 数据库连接串必须在应用启动前存在，不能搬进数据库；但它可以直接写在 `compose.hub.external-db.yaml` 的 `environment.DATABASE_URL` 里（和 `volumes` 一样是 compose 文件内容），不需要 `.env`。可选 `SETUP_TOKEN` 用来防止公网被抢先初始化。
+> 数据库连接串必须在应用启动前存在，不能搬进数据库；但它可以直接写在 `compose.hub.external-db.yaml` 的 `environment.DATABASE_URL` 里（和 `volumes` 一样是 compose 文件内容），不需要 `.env`。首次初始化始终需要口令：建议设置 `SETUP_TOKEN`；未设置时服务会生成一次性口令并显示在启动输出中。
 
 ---
 
@@ -291,7 +291,7 @@ docker compose run --rm app diagnose
 | `POSTGRES_PASSWORD` / `POSTGRES_HOST_AUTH_METHOD` | 空 / `trust` | 仅自带 db 的可选加固 |
 | `WEB_PORT` | `8090` | 宿主机端口（容器内固定 8080） |
 | `TZ` | Asia/Shanghai | 影响日志与 `current_date` |
-| `SETUP_TOKEN` | 空 | 设置后 `/setup` 要求口令 |
+| `SETUP_TOKEN` | 自动生成 | 初始化口令；未设置时每次未完成初始化的启动都会生成新口令 |
 | `SECRET_KEY` | 自动生成 | 不设则用 `data/secret.key` |
 | `DB_WAIT_SEC` | 60 | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | 1 | 首次启动是否导入 `data/games.json` |

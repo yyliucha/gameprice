@@ -383,7 +383,7 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `POSTGRES_PASSWORD` / `POSTGRES_HOST_AUTH_METHOD` | 空 / `trust` | 仅自带 db 的可选加固 |
 | `WEB_PORT` | `8090` | 宿主机端口（容器内固定 8080） |
 | `TZ` | `Asia/Shanghai` | 影响日志时间与 `current_date` |
-| `SETUP_TOKEN` | 空 | 设置后 `/setup` 要求口令；公网部署建议设置 |
+| `SETUP_TOKEN` | 自动生成 | 首次初始化必须有口令；可自行设置，未设置时启动输出会显示一次性口令 |
 | `SECRET_KEY` | 自动生成 | 不设则用 `data/secret.key`；务必持久化 data 卷 |
 | `DB_WAIT_SEC` | `0`（容器内 60） | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | `1` | 首次启动是否自动导入游戏 |
@@ -487,7 +487,8 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
   控制台可切换「正常访问 / 被拦截 / 全部」。
 - 封禁名单：`ip_blacklist`（IP，永久，只由管理员或审批写入）、`device_bans`（设备指纹，可设到期）；
   控制台「统计 / 黑名单 / 白名单」与「设备」页可一键解封。
-- **反代部署**才需要 `TRUST_PROXY=1`；生效 IP 取 `X-Real-IP` 或 `X-Forwarded-For` 最后一跳并校验格式，防止伪造 XFF。
+- **反代部署**才需要 `TRUST_PROXY=1`；内网代理会自动识别，公网代理还需通过 `TRUSTED_PROXY_IPS` 配置代理 IP/CIDR。只有来自可信代理的 `X-Real-IP` / `X-Forwarded-For` 才会用于客户端 IP 判断。
+- 限流阈值可在 Compose 环境变量中用 `RATE_LIMIT_MAX`、`RATE_LIMIT_ASSET_MAX` 与 `RATE_LIMIT_WINDOW_SEC` 调整；默认值适合单实例，多个实例的请求计数仍各自独立。
 
 ## 测试
 

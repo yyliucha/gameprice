@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { createLogger, serializeError, readLogs } from './log.js';
+import { randomBytes } from 'node:crypto';
 import { openStore, ping } from './store/index.js';
 import { startApiServer } from './server.js';
 import * as db from './store/pg.js';
@@ -54,6 +55,21 @@ const logger = createLogger({
   dir: String(flag('log-dir', process.env.LOG_DIR ?? 'logs')),
   bindings: { runId },
 });
+
+function setupAccessForRun(initialized) {
+  if (initialized.completed) return { token: process.env.SETUP_TOKEN ?? '', generated: false };
+  const configured = String(process.env.SETUP_TOKEN ?? '').trim();
+  return configured
+    ? { token: configured, generated: false }
+    : { token: randomBytes(24).toString('base64url'), generated: true };
+}
+
+function printSetupToken(access) {
+  if (access.generated) {
+    console.log(`首次初始化口令（仅本次启动有效）：${access.token}`);
+    console.log('请在 /setup 页面输入此口令；重启后未完成初始化则会生成新口令。');
+  }
+}
 
 const explicitTarget = String(flag('db', process.env.DATABASE_URL ?? ''));
 // 开箱即用：什么都没配就落到本地嵌入式 PG（数据在 data/pgdata 下），
@@ -1087,6 +1103,7 @@ async function cmdUser() {
     const password =
       pwIdx > -1 ? String(args[pwIdx + 1]) : Buffer.from(crypto.getRandomValues(new Uint8Array(9))).toString('base64url');
     if (!username) throw new Error('用法: node src/cli.js user add <用户名> [--admin] [--password xxx]');
+    if (password.length < 8 || password.length > 200) throw new Error('密码需要 8-200 位');
     const created = await withStore((store) =>
       db.createUser((sql, p) => store.query(sql, p), { username, password, role }),
     );
@@ -1157,6 +1174,7 @@ async function cmdAll() {
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
   await (await import('./steam-login.js')).ensureSteamSchema(store); // Steam 登录与游戏库
   const initialized = await settings.initializeSettings({ store, logger });
+  const setupAccess = setupAccessForRun(initialized);
   const levelFlag = flag('level', null);
   if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);
   const q = (sql, p) => store.query(sql, p);
@@ -1167,7 +1185,7 @@ async function cmdAll() {
     port,
     host,
     store,
-    setupToken: process.env.SETUP_TOKEN ?? '',
+    setupToken: setupAccess.token,
     getSetupState: async () => ({ completed: await settings.isSetupComplete(q) }),
   });
   logger.info('app.all_mode', { port: srv.port, staticDir: dir, setupCompleted: initialized.completed });
@@ -1178,7 +1196,8 @@ async function cmdAll() {
   console.log(`服务已启动：http://<服务器IP>:${srv.port}/`);
   if (!initialized.completed) {
     console.log(`首次初始化：http://<服务器IP>:${srv.port}/setup`);
-    logger.info('app.setup_required', { url: '/setup', setupToken: Boolean(process.env.SETUP_TOKEN) });
+    logger.info('app.setup_required', { url: '/setup', setupToken: true, generated: setupAccess.generated });
+    printSetupToken(setupAccess);
   }
   console.log(`管理控制台：http://<服务器IP>:${srv.port}/console（需管理员登录）`);
   console.log('采集调度器已在同一容器内启动；Ctrl+C 停止');
@@ -1211,6 +1230,7 @@ async function cmdServe() {
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
   const initialized = await settings.initializeSettings({ store, logger });
+  const setupAccess = setupAccessForRun(initialized);
   const levelFlag = flag('level', null);
   if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);
   const q = (sql, p) => store.query(sql, p);
@@ -1221,12 +1241,15 @@ async function cmdServe() {
     port,
     host,
     store,
-    setupToken: process.env.SETUP_TOKEN ?? '',
+    setupToken: setupAccess.token,
     getSetupState: async () => ({ completed: await settings.isSetupComplete(q) }),
   });
 
   console.log(`Web 服务已启动：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/`);
-  if (!initialized.completed) console.log(`首次初始化：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/setup`);
+  if (!initialized.completed) {
+    console.log(`首次初始化：http://${host === '0.0.0.0' ? '<服务器IP>' : host}:${srv.port}/setup`);
+    printSetupToken(setupAccess);
+  }
   console.log(`静态目录：${dir} · 接口：/api/*（前台免登录可读，写操作需管理员）`);
   console.log('Ctrl+C 停止');
 

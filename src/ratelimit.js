@@ -11,6 +11,11 @@
 // 「非法路径」只由 guard.js 记录待审核，不在这里封。
 //
 // 为了不拖慢每个请求：窗口计数全在内存里；只有"判定超限"时才写库。
+import { matchesIpEntry } from './visitors.js';
+
+const MAX_TRACKED_IPS = 20_000;
+const MAX_TRACKED_HITS_PER_BUCKET = 1_000_000;
+
 export const DEFAULTS = {
   enabled: true,
   max: 60, // 页面/API 窗口内允许的请求数
@@ -23,6 +28,7 @@ export const DEFAULTS = {
 
 const windowHits = new Map(); // ip -> number[]（页面/API）
 const assetHits = new Map(); // ip -> number[]（静态/图片）
+const trackedHitCounts = new Map([[windowHits, 0], [assetHits, 0]]);
 const blockedHits = new Map(); // ip -> 封禁期内被拒的请求数（用于升级封禁）
 const banUntil = new Map(); // ip -> 毫秒时间戳
 const pathBanned = new Set(); // 因「非法路径」被封的 IP：不参与三振升级
@@ -32,25 +38,58 @@ const whitelist = new Set();
 let config = { ...DEFAULTS };
 
 export function configure(next = {}) {
-  const max = Number(next.max);
-  const assetMax = Number(next.assetMax);
-  const windowSec = Number(next.windowSec);
-  const escalate = Number(next.blockedEscalate);
-  const dayStrikes = Number(next.dayBanStrikes);
+  const boundedInt = (value, fallback, min, ceiling) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= min ? Math.min(Math.floor(n), ceiling) : fallback;
+  };
   config = {
     enabled: next.enabled === undefined ? config.enabled : Boolean(next.enabled),
-    max: Number.isFinite(max) && max > 0 ? max : config.max,
-    assetMax: Number.isFinite(assetMax) && assetMax > 0 ? assetMax : config.assetMax,
-    windowSec: Number.isFinite(windowSec) && windowSec > 0 ? windowSec : config.windowSec,
-    banMinutes: Array.isArray(next.banMinutes) && next.banMinutes.length >= 2 ? next.banMinutes : config.banMinutes,
-    dayBanStrikes: Number.isFinite(dayStrikes) && dayStrikes >= 1 ? dayStrikes : config.dayBanStrikes,
-    blockedEscalate: Number.isFinite(escalate) && escalate > 0 ? escalate : config.blockedEscalate,
+    max: boundedInt(next.max, config.max, 1, 10_000),
+    assetMax: boundedInt(next.assetMax, config.assetMax, 1, 50_000),
+    windowSec: boundedInt(next.windowSec, config.windowSec, 1, 3600),
+    banMinutes: Array.isArray(next.banMinutes) && next.banMinutes.length >= 2
+      ? next.banMinutes.slice(0, 10).map((value) => boundedInt(value, 10, 1, 1440))
+      : config.banMinutes,
+    dayBanStrikes: boundedInt(next.dayBanStrikes, config.dayBanStrikes, 1, 100),
+    blockedEscalate: boundedInt(next.blockedEscalate, config.blockedEscalate, 1, 100_000),
   };
   return { ...config };
 }
 
 export function currentConfig() {
   return { ...config };
+}
+
+function setBounded(map, key, value) {
+  map.delete(key);
+  if (map.size >= MAX_TRACKED_IPS) map.delete(map.keys().next().value);
+  map.set(key, value);
+}
+
+function addBounded(set, key) {
+  if (set.has(key)) return;
+  if (set.size >= MAX_TRACKED_IPS) set.delete(set.values().next().value);
+  set.add(key);
+}
+
+function deleteWindowEntry(map, key) {
+  const previous = map.get(key);
+  if (previous) trackedHitCounts.set(map, Math.max(0, trackedHitCounts.get(map) - previous.length));
+  map.delete(key);
+}
+
+function setWindowEntry(map, key, value) {
+  const previous = map.get(key);
+  let count = trackedHitCounts.get(map) - (previous?.length ?? 0);
+  if (previous) map.delete(key);
+  while (map.size >= MAX_TRACKED_IPS || count + value.length > MAX_TRACKED_HITS_PER_BUCKET) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey === undefined) break;
+    count -= map.get(oldestKey).length;
+    map.delete(oldestKey);
+  }
+  map.set(key, value);
+  trackedHitCounts.set(map, count + value.length);
 }
 
 /** 本地时区「今天结束」的时间戳（次日 00:00）。 */
@@ -69,7 +108,10 @@ export async function loadState(q) {
     /* 表未建时忽略 */
   }
   try {
-    const b = await q('select ip, banned_until, ban_source from ip_abuse where banned_until is not null and banned_until > now()');
+    const b = await q(
+      'select ip, banned_until, ban_source from ip_abuse where banned_until is not null and banned_until > now() order by banned_until desc limit $1',
+      [MAX_TRACKED_IPS],
+    );
     banUntil.clear();
     pathBanned.clear();
     dayBanned.clear();
@@ -85,7 +127,10 @@ export async function loadState(q) {
 }
 
 export function isWhitelisted(ip) {
-  return Boolean(ip) && whitelist.has(String(ip));
+  if (!ip) return false;
+  const value = String(ip);
+  for (const entry of whitelist) if (matchesIpEntry(value, entry)) return true;
+  return false;
 }
 
 export function addWhitelist(ip) {
@@ -139,7 +184,7 @@ async function applyBan(q, key, strikes, { bucket }) {
   if (isDayBan) {
     // 第 3 次：封到当天结束，次日 0 点自动恢复（不写永久黑名单）
     until = nextMidnight();
-    dayBanned.add(key);
+    addBounded(dayBanned, key);
     reason = `请求过于频繁（${kind}，第 ${strikes} 次），已封禁到今天结束，明天 0 点自动恢复`;
   } else {
     const minutes = config.banMinutes[Math.min(strikes - 1, config.banMinutes.length - 1)];
@@ -147,9 +192,9 @@ async function applyBan(q, key, strikes, { bucket }) {
     dayBanned.delete(key);
     reason = `请求过于频繁（${kind}），临时封禁 ${minutes} 分钟（第 ${strikes} 次）`;
   }
-  banUntil.set(key, until);
+  setBounded(banUntil, key, until);
   pathBanned.delete(key);
-  blockedHits.set(key, 0);
+  setBounded(blockedHits, key, 0);
   try {
     await q(
       `update ip_abuse set banned_until = $2::timestamptz, ban_source = $3, updated_at = now() where ip = $1`,
@@ -167,9 +212,9 @@ async function applyBan(q, key, strikes, { bucket }) {
  */
 export function applyExternalBan(ip, until, { source = 'path' } = {}) {
   const key = String(ip);
-  banUntil.set(key, Number(until));
-  blockedHits.set(key, 0);
-  if (source === 'path') pathBanned.add(key);
+  setBounded(banUntil, key, Number(until));
+  setBounded(blockedHits, key, 0);
+  if (source === 'path') addBounded(pathBanned, key);
   else pathBanned.delete(key);
 }
 
@@ -187,35 +232,21 @@ export async function hit(q, ip, { bucket = 'page' } = {}) {
   if (isWhitelisted(ip)) return { limited: false };
 
   const now = Date.now();
-  const span = config.windowSec * 1000;
   const key = String(ip);
-  const isAsset = bucket === 'asset';
-  const map = isAsset ? assetHits : windowHits;
-  const max = isAsset ? config.assetMax : config.max;
 
-  const list = (map.get(key) ?? []).filter((t) => now - t < span);
-  list.push(now);
-  map.set(key, list);
-
-  // 窗口清理：避免 Map 无限增长（超过 1 万个 IP 时清掉空窗口）
-  if (map.size > 10000) {
-    for (const [k, v] of map) if (!v.length || now - v[v.length - 1] > span) map.delete(k);
-  }
-
-  // 封禁中：累计违禁请求，够数就升级（非法路径封禁除外）
+  // 封禁期内只记录有界升级计数，避免高频请求继续累积时间戳数组。
   const activeBan = banUntil.get(key);
   if (activeBan && now < activeBan) {
     if (pathBanned.has(key)) {
       return { limited: true, until: activeBan, reason: '访问了禁止的路径（封禁中）', banned: true };
     }
-    // 已经吃到「当天封禁」：当天封顶 3 次，不再升级、不再写新的待审核记录
     if (dayBanned.has(key)) {
       return { limited: true, until: activeBan, reason: '请求过于频繁（今天已被封禁），明天 0 点自动恢复', banned: true, dayBanned: true };
     }
     const blocked = (blockedHits.get(key) ?? 0) + 1;
-    blockedHits.set(key, blocked);
+    setBounded(blockedHits, key, blocked);
     if (blocked >= config.blockedEscalate) {
-      blockedHits.set(key, 0);
+      setBounded(blockedHits, key, 0);
       const strikes = await addStrike(q, key);
       const ban = await applyBan(q, key, strikes, { bucket });
       return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: false, escalated: true, needsReview: Boolean(ban.needsReview) };
@@ -223,15 +254,27 @@ export async function hit(q, ip, { bucket = 'page' } = {}) {
     return { limited: true, until: activeBan, reason: '请求过于频繁（封禁中）', banned: true };
   }
   if (activeBan) {
-    // 封禁已过期：清掉残留状态
     banUntil.delete(key);
     pathBanned.delete(key);
     dayBanned.delete(key);
+    blockedHits.delete(key);
   }
+
+  const span = config.windowSec * 1000;
+  const isAsset = bucket === 'asset';
+  const map = isAsset ? assetHits : windowHits;
+  const max = isAsset ? config.assetMax : config.max;
+
+  const list = (map.get(key) ?? []).filter((t) => now - t < span);
+  list.push(now);
+  // 只保留触发阈值所需的最近 max+1 个时间戳，并限制每个桶的总记录量。
+  if (list.length > max + 1) list.splice(0, list.length - max - 1);
+  setWindowEntry(map, key, list);
 
   if (list.length <= max) return { limited: false };
 
-  map.delete(key);
+  deleteWindowEntry(windowHits, key);
+  deleteWindowEntry(assetHits, key);
   const strikes = await addStrike(q, key);
   const ban = await applyBan(q, key, strikes, { bucket });
   return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: false, needsReview: Boolean(ban.needsReview) };
@@ -240,8 +283,8 @@ export async function hit(q, ip, { bucket = 'page' } = {}) {
 /** 管理员手动解封。返回是否清掉了记录。 */
 export async function unban(q, ip) {
   const key = String(ip);
-  windowHits.delete(key);
-  assetHits.delete(key);
+  deleteWindowEntry(windowHits, key);
+  deleteWindowEntry(assetHits, key);
   blockedHits.delete(key);
   banUntil.delete(key);
   pathBanned.delete(key);
@@ -262,6 +305,8 @@ export async function unban(q, ip) {
 export function resetState() {
   windowHits.clear();
   assetHits.clear();
+  trackedHitCounts.set(windowHits, 0);
+  trackedHitCounts.set(assetHits, 0);
   blockedHits.clear();
   banUntil.clear();
   pathBanned.clear();

@@ -61,7 +61,7 @@ POST /api/setup/complete
 - `GET /api/setup/status` → `{ completed, hasAdmin, setupTokenRequired, version, database }`
 - `GET /api/setup/schema` → 字段定义 + 非密钥当前值（密钥只给 `hasValue`）
 - 完成后 setup 接口失效（`complete`/`schema` 409），`/setup` 302 到 `/`
-- 可选 `SETUP_TOKEN`：设置后 `POST /api/setup/complete` 必须带 `x-setup-token` 或 body `setupToken`
+- 初始化始终需要口令：配置 `SETUP_TOKEN` 时使用该值；未配置时，服务启动会生成一次性口令并显示在启动输出中。`POST /api/setup/complete` 必须带 `x-setup-token` 或 body `setupToken`
 
 老部署如果已经有管理员，启动时自动导入旧 `.env` 并标记完成，不会被拦。
 
@@ -84,7 +84,7 @@ POST /api/setup/complete
 | `GET /api/games/:appid` | ✅ | ✅ | ✅ |
 | `POST /api/login` / `POST /api/logout` | ✅ | ✅ | ✅ |
 | `GET /api/setup/status` / `GET /api/setup/schema` | ✅（仅未初始化时） | ✅ | ✅ |
-| `POST /api/setup/complete` | ✅（仅未初始化时；可要求 SETUP_TOKEN） | ✅ | ✅ |
+| `POST /api/setup/complete` | ✅（仅未初始化时；始终要求初始化口令） | ✅ | ✅ |
 | `GET/POST /api/admin/settings` | ❌ 401 | ❌ 403 | ✅ |
 | `POST /api/prefs` | ❌ 401 | ✅ | ✅ |
 | `POST /api/games/:appid/interest` | ❌ 401 | ❌ 403 | ✅ |

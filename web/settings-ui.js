@@ -28,7 +28,7 @@
 .stg-reveal:hover{background:var(--panel,#fff)}
 .stg-reveal.on{border-color:var(--accent,#0ea5e9);color:var(--accent,#0ea5e9)}
 .stg-empty{color:var(--muted,#64748b);font-size:13px;padding:8px 0}
-.stg-nav{position:sticky;top:0;z-index:6;display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:var(--bg,#f6f7f9);padding:8px 0 10px;margin-bottom:2px;border-bottom:1px solid var(--border,#e5e7eb)}
+.stg-nav{position:sticky;top:70px;z-index:6;display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:var(--bg,#f6f7f9);padding:8px 0 10px;margin-bottom:2px;border-bottom:1px solid var(--border,#e5e7eb)}
 .stg-navbtn{padding:5px 10px;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--panel,#fff);color:var(--fg,#0f172a);font-size:12px;cursor:pointer;font-family:inherit}
 .stg-navbtn:hover{border-color:var(--accent,#0ea5e9);color:var(--accent,#0ea5e9)}
 .stg-search{flex:1;min-width:160px;max-width:260px;padding:5px 9px;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--panel,#fff);color:var(--fg,#0f172a);font-size:12px;font-family:inherit}
@@ -192,8 +192,20 @@
     search.placeholder = '搜索设置项（如 代理 / 间隔 / SMTP）';
     search.addEventListener('input', () => {
       const q = search.value.trim().toLowerCase();
-      container.querySelectorAll('.stg-field').forEach((f) => {
-        f.classList.toggle('hide', Boolean(q) && !String(f.dataset.label || '').includes(q));
+      cards.forEach(({ card }) => {
+        const fields = [...card.querySelectorAll('.stg-field')];
+        let matches = 0;
+        fields.forEach((field) => {
+          const matched = !q || String(field.dataset.label || '').includes(q);
+          field.classList.toggle('hide', !matched);
+          if (matched) matches++;
+        });
+        card.classList.toggle('hide', Boolean(q) && matches === 0);
+        if (q && matches) {
+          card.classList.remove('stg-collapsed');
+          const label = card.querySelector('.stg-chev');
+          if (label) label.textContent = '收起';
+        }
       });
     });
     nav.appendChild(search);
@@ -205,7 +217,9 @@
       card.id = 'stg-card-' + group.id;
       const head = el('div', 'stg-head');
       head.appendChild(el('h2', 'stg-h2', group.title));
-      const chev = el('span', 'stg-chev', '收起');
+      const initiallyCollapsed = cards.length > 0;
+      if (initiallyCollapsed) card.classList.add('stg-collapsed');
+      const chev = el('span', 'stg-chev', initiallyCollapsed ? '展开' : '收起');
       head.appendChild(chev);
       head.addEventListener('click', () => {
         const collapsed = card.classList.toggle('stg-collapsed');

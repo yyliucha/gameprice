@@ -20,6 +20,12 @@ services:
       DATABASE_URL: "postgres://steamdeals:password@host:5432/steamdeals?sslmode=require"
       TZ: ${TZ:-Asia/Shanghai}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-1}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
+      RATE_LIMIT_ASSET_MAX: ${RATE_LIMIT_ASSET_MAX:-300}
+      RATE_LIMIT_WINDOW_SEC: ${RATE_LIMIT_WINDOW_SEC:-60}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

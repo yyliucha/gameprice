@@ -53,7 +53,7 @@ export async function createBackup(q, { dir = 'data/backup', keep = 7, viewDays 
     dump[table] = (await q(`select * from ${table}`)).rows;
   }
   const purgedViews = await db.purgeOldViews(q, { days: viewDays });
-  // 邮件正文含明文验证码，只保留 3 天。email_codes 由 ensureEmailSchema 建表，
+  // 邮件记录只保留 3 天。email_codes 由 ensureEmailSchema 建表，
   // 少数场景（测试/未初始化）可能不存在——清理失败不应让整个备份失败。
   let purgedCodes = 0;
   try {

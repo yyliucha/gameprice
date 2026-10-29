@@ -1,7 +1,7 @@
 // 邮箱验证码登录 / 找回密码的核心逻辑（纯函数 + 少量 SQL 封装）。
 //
 // 安全设计：
-//   · 验证码只存哈希（sha256(salt+code)），库泄露也拿不到验证码
+//   · 验证码只存哈希（sha256(salt+code)），邮件正文不落库
 //   · 5 分钟过期、一次性使用、最多试 5 次
 //   · 同邮箱 60 秒内只能发一次；每小时最多 5 次
 //   · SMTP 密码用 AES-256-GCM 加密存储，密钥来自 SECRET_KEY 环境变量
@@ -162,15 +162,18 @@ create table if not exists smtp_settings (
 
 export async function ensureEmailSchema(store) {
   await store.exec(EMAIL_SCHEMA);
-  // 老库补列：邮件内容（主题/正文）是后来加的，管理员要能直接看到验证码
+  // 老库补列；验证码邮件正文仅保留脱敏说明，防止明文验证码滞留在数据库。
   await store.exec('alter table email_codes add column if not exists subject text');
   await store.exec('alter table email_codes add column if not exists body text');
+  await store.exec(
+    "update email_codes set body = '验证码邮件正文未保存。' where purpose in ('login', 'reset', 'bind') and body is not null and body <> '验证码邮件正文未保存。'",
+  );
   await store.exec('alter table users add column if not exists email text');
   await store.exec('alter table users add column if not exists email_verified boolean not null default false');
   await store.exec('create unique index if not exists users_email_uniq on users (email) where email is not null');
 }
 
-/** 清理过期邮件记录（正文含明文验证码，定期清掉；默认保留 3 天）。 */
+/** 清理过期邮件记录；默认保留 3 天。 */
 export async function purgeOldCodes(q, { days = 3 } = {}) {
   const r = await q("delete from email_codes where created_at < now() - ($1 || ' days')::interval", [String(days)]);
   return r.rowCount ?? 0;

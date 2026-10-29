@@ -16,12 +16,17 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,B
 a{color:var(--brand);text-decoration:none}
 .layout{display:grid;grid-template-columns:210px 1fr;min-height:100vh}
 aside{background:var(--panel);border-right:1px solid var(--border);padding:16px 12px;position:sticky;top:0;height:100vh}
-.brand{font-weight:700;display:block;margin-bottom:16px;color:var(--fg)}
-nav button{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:9px;color:var(--muted);font-size:14px;font-family:inherit;cursor:pointer;margin-bottom:2px}
+.brand{font-weight:700;display:block;margin-bottom:18px;color:var(--fg)}
+nav{display:grid;gap:13px}
+.nav-group{display:grid;gap:3px}
+.nav-label{padding:0 10px 4px;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+nav button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:7px 10px;border:0;background:transparent;border-radius:9px;color:var(--muted);font-size:13px;font-family:inherit;cursor:pointer}
 nav button:hover{background:var(--hover);color:var(--fg)}
-nav button.on{background:var(--hover);color:var(--fg);font-weight:600}
+nav button.on{background:color-mix(in srgb,var(--brand) 11%,var(--panel));color:var(--brand);font-weight:650}
+.nav-search{width:100%;padding:8px 10px;margin:0 0 16px;font-size:12px}
+.nav-empty{padding:8px 10px;color:var(--muted);font-size:12px}
 main{padding:22px 26px 60px;max-width:1120px}
-h1{font-size:21px;margin:0 0 4px}
+h1{font-size:23px;margin:0 0 4px;letter-spacing:-.02em}
 h2{font-size:14px;margin:22px 0 8px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .muted{color:var(--muted)}.small{font-size:12px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
@@ -36,6 +41,9 @@ tr:hover td{background:var(--hover)}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border))}
+.chip{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:9px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.chip:hover{background:var(--hover);color:var(--fg)}
+.chip.on{border-color:color-mix(in srgb,var(--brand) 35%,var(--border));background:color-mix(in srgb,var(--brand) 9%,var(--panel));color:var(--brand);font-weight:600}
 input,select,textarea{padding:7px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:14px}
 textarea{width:100%;min-height:100px;resize:vertical}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
@@ -54,10 +62,19 @@ textarea{width:100%;min-height:100px;resize:vertical}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 #toast.on{opacity:.95}
 .hide{display:none !important}
-/* 设置页：保存栏吸顶悬浮；统计页：锚点吸顶 + 跳转留白 */
+.subnav{display:flex;gap:6px;flex-wrap:wrap;position:sticky;top:0;z-index:5;padding:8px 0;background:var(--bg);border-bottom:1px solid var(--border);margin:0 0 16px}
+.subnav .chip{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer}
+.subnav .chip:hover{background:var(--hover);color:var(--fg)}
+.subnav .chip.on{background:var(--panel);border-color:var(--border);color:var(--brand);font-weight:600;box-shadow:var(--shadow)}
+.compact-details{margin:14px 0;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.compact-details>summary{padding:12px 15px;cursor:pointer;font-size:14px;font-weight:600;list-style:none}
+.compact-details>summary::-webkit-details-marker{display:none}
+.compact-details>summary:after{content:'＋';float:right;color:var(--muted)}
+.compact-details[open]>summary:after{content:'−'}
+.compact-details>.details-body{padding:0 15px 14px}
+/* 设置页：保存栏吸顶悬浮 */
 #settingsBar{position:sticky;top:0;z-index:7;box-shadow:0 8px 16px -12px rgba(15,23,42,.45)}
-#statsNav{position:sticky;top:0;z-index:6;background:var(--bg,#f6f7f9);padding:8px 0;margin-top:-4px}
-#statsPrice,#statsTrend,#statsImages,#statsBackup,#statsViews{scroll-margin-top:64px}
+#statsNav{margin-top:-4px}
 /* 访问记录：分「明细 / 统计」两个子视图，明细表内部滚动 + 表头吸顶 */
 #visTableWrap thead th{position:sticky;top:0;background:var(--panel,#fff);z-index:1;box-shadow:inset 0 -1px 0 var(--border,#e5e7eb)}
 #visTabs{margin-top:-4px}
@@ -67,10 +84,13 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
 /* 窄屏（平板/手机）：侧栏改为顶部横排，主区撑满 */
 @media (max-width:900px){
   .layout{grid-template-columns:1fr}
-  aside{position:static;height:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-right:0;border-bottom:1px solid var(--border)}
-  aside .brand{margin:0 8px 0 0}
-  aside nav{display:flex;flex-wrap:wrap;gap:4px;width:100%}
-  nav button{width:auto;padding:6px 10px;margin:0}
+  aside{position:static;height:auto;display:block;border-right:0;border-bottom:1px solid var(--border);padding:12px}
+  aside .brand{margin:0 8px 10px 0}
+  aside nav{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+  .nav-group{display:flex;flex-wrap:wrap;align-items:center;gap:3px;padding:5px;border:1px solid var(--border);border-radius:10px}
+  .nav-label{padding:0 6px}
+  nav button{width:auto;padding:6px 9px}
+  .nav-search{max-width:420px;margin-bottom:8px}
   main{padding:14px 12px 40px;max-width:none}
   .card{overflow-x:auto}
   table{font-size:13px}
@@ -82,17 +102,21 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
 <div class="layout">
   <aside>
     <a class="brand" href="/">← 返回网站</a>
+    <input id="navSearch" class="nav-search" type="search" placeholder="搜索后台功能…" aria-label="搜索后台功能">
     <nav>
-      <button data-page="users" class="on">用户管理</button>
-      <button data-page="games">游戏管理</button>
-      <button data-page="recycle">回收站</button>
-      <button data-page="visitors">访问记录</button>
-      <button data-page="announcements">站点通知</button>
-      <button data-page="steam">Steam 账号</button>
-      <button data-page="sync">日志</button>
-      <button data-page="mail">邮件测试</button>
-      <button data-page="settings">系统设置</button>
-      <button data-page="stats">数据统计</button>
+      <div class="nav-group"><div class="nav-label">内容运营</div>
+        <button data-page="games">游戏管理</button><button data-page="recycle">回收站</button><button data-page="announcements">站点通知</button>
+      </div>
+      <div class="nav-group"><div class="nav-label">访问与安全</div>
+        <button data-page="visitors">访问记录</button>
+      </div>
+      <div class="nav-group"><div class="nav-label">账号与服务</div>
+        <button data-page="users" class="on">用户管理</button><button data-page="steam">Steam 账号</button><button data-page="mail">邮件</button>
+      </div>
+      <div class="nav-group"><div class="nav-label">系统</div>
+        <button data-page="settings">系统设置</button><button data-page="stats">数据统计</button><button data-page="sync">日志</button>
+      </div>
+      <div id="navEmpty" class="nav-empty hide">没有匹配的功能</div>
     </nav>
     <div style="margin-top:18px" class="small muted" id="who"></div>
     <button class="btn" id="logout" style="margin-top:8px" hidden>退出</button>
@@ -103,8 +127,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
   </aside>
 
   <main>
-    <h1>控制台</h1>
-    <p class="muted small">只有管理员可用。价格由采集器写入，这里不能改价。</p>
+    <h1 id="consoleTitle">用户管理</h1>
+    <p class="muted small" id="consoleSubtitle">只有管理员可用。价格由采集器写入，这里不能改价。</p>
 
     <div id="loginBox" class="card pad" style="max-width:380px">
       <strong>管理员登录</strong>
@@ -144,6 +168,11 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="games" class="hide">
+        <div class="subnav" id="gamesNav" role="tablist" aria-label="游戏管理分类">
+          <button class="chip on" data-game-tab="directory" role="tab" aria-selected="true">游戏目录</button>
+          <button class="chip" data-game-tab="tasks" role="tab" aria-selected="false">同步与回填</button>
+        </div>
+        <div data-game-panel="tasks" class="hide" role="tabpanel">
         <h2>同步 Steam</h2>
         <div class="card pad">
           <div class="row">
@@ -166,7 +195,10 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           </div>
         </div>
 
-        <h2>数据回填（批量补全量元数据/价格）</h2>
+        <details class="compact-details">
+          <summary>高级维护：批量数据回填</summary>
+          <div class="details-body">
+        <p class="muted small">批量补全量元数据与价格；通常不需要日常操作。</p>
         <div class="card pad">
           <div class="row">
             <span class="small muted">上限</span>
@@ -185,15 +217,20 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <div class="logbox" id="bfBox" style="max-height:160px;margin-top:8px;display:none"></div>
           <p class="muted small">与同步共用一个任务槽位（同一时间只跑一个）。遇到 429/403 会立即中止回填，进度保留；重跑会自动跳过已补的。全量约 2000 批，按 3 秒间隔约 5 小时。</p>
         </div>
+          </div>
+        </details>
 
-        <h2 style="display:flex;align-items:center;gap:10px">同步记录
-          <button class="btn small" id="syncRunsToggle">展开全部</button>
-          <span class="small muted">默认只显示最近 5 条，结果列过长可悬停查看</span>
-        </h2>
+        <details class="compact-details">
+          <summary>同步历史 <span class="small muted">最近任务与执行结果</span></summary>
+          <div class="details-body">
         <div class="card">
           <table class="runs"><thead><tr><th style="width:88px">时间</th><th style="width:86px">模式</th><th style="width:130px">状态</th><th class="num" style="width:72px">耗时</th><th>结果</th></tr></thead><tbody id="syncRunRows"></tbody></table>
         </div>
+          </div>
+        </details>
 
+        </div>
+        <div data-game-panel="directory" role="tabpanel">
         <h2>同步结果</h2>
         <div class="card pad">
           <div class="row">
@@ -244,7 +281,9 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           </span>
         </div>
 
-        <h2>合并重复游戏</h2>
+        <details class="compact-details">
+          <summary>高级维护：合并重复游戏</summary>
+          <div class="details-body">
         <div class="card pad">
           <div class="row">
             <input id="mergeFrom" placeholder="源 appid（被合并掉）" style="width:170px">
@@ -252,6 +291,9 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <button class="btn danger" id="mergeBtn">合并</button>
             <span class="small muted" id="mergeMsg">把源游戏的报价/快照/日聚合/关注迁移到目标，然后删除源行（不可撤销）</span>
           </div>
+        </div>
+          </div>
+        </details>
         </div>
       </section>
 
@@ -273,7 +315,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="visitors" class="hide">
-        <div class="bar" id="visTabs">
+        <div class="subnav" id="visTabs" role="tablist" aria-label="访问管理分类">
           <button class="chip on" data-vtab="logs">访问记录</button>
           <button class="chip" data-vtab="manage">统计 / 黑名单 / 白名单</button>
           <button class="chip" data-vtab="reviews">待审核 <span id="reviewBadge"></span></button>
@@ -289,7 +331,10 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <div class="card" style="margin-top:6px"><table><thead><tr><th>IP</th><th>归属地</th><th class="num">次数</th><th>最近</th><th style="width:90px">操作</th></tr></thead><tbody id="topIpRows"></tbody></table></div>
         </div>
 
-        <h2>IP 黑名单（命中即整站 403）</h2>
+        <details class="compact-details">
+          <summary>IP 名单管理 <span class="small muted">黑名单与白名单</span></summary>
+          <div class="details-body">
+        <h2>IP 黑名单</h2>
         <div class="card pad">
           <div class="row">
             <input id="blIp" placeholder="IP，如 1.2.3.4 或 1.2.3.0/24" style="width:240px">
@@ -300,7 +345,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th>备注</th><th>加入时间</th><th style="width:90px">操作</th></tr></thead><tbody id="blRows"></tbody></table></div>
         </div>
 
-        <h2>IP 白名单（不受频率限制与黑名单影响）</h2>
+        <h2>IP 白名单</h2>
         <div class="card pad">
           <div class="row">
             <input id="wlIp" placeholder="IP，如 1.2.3.4 或 1.2.3.0/24" style="width:240px">
@@ -310,8 +355,12 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           </div>
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th>备注</th><th>加入时间</th><th style="width:90px">操作</th></tr></thead><tbody id="wlRows"></tbody></table></div>
         </div>
+          </div>
+        </details>
 
-        <h2>自动封禁（超频三振）</h2>
+        <details class="compact-details">
+          <summary>自动限流与封禁规则</summary>
+          <div class="details-body">
         <div class="card pad">
           <div class="row" style="justify-content:space-between">
             <span class="small muted" id="abuseMeta">规则加载中…</span>
@@ -320,6 +369,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频</th><th class="num">路径封禁</th><th>来源</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
           <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限自动封禁：<strong>第 1 次 10 分钟 → 第 2 次 30 分钟 → 第 3 次封到当天结束（次日 0 点自动恢复）</strong>，<strong>每天最多 3 次</strong>、跨天重置，<strong>不会自动写永久黑名单</strong>，每次封禁都记入「待审核」。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）只记录，由管理员在「待审核」里决定封 IP / 封设备 / 忽略。白名单 IP 不计数。</p>
         </div>
+          </div>
+        </details>
 
         </div>
         <div id="visLogs">
@@ -495,14 +546,14 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
       </section>
 
       <section data-section="stats" class="hide">
-        <div class="bar" id="statsNav">
-          <button class="chip" data-goto="statsPrice">价格变动</button>
-          <button class="chip" data-goto="statsTrend">近 7 天趋势</button>
-          <button class="chip" data-goto="statsImages">图片缓存</button>
-          <button class="chip" data-goto="statsBackup">备份</button>
-          <button class="chip" data-goto="statsViews">浏览排行</button>
-          <span class="small muted">页面较长，用这里快速跳转</span>
+        <div class="subnav" id="statsNav" role="tablist" aria-label="统计分类">
+          <button class="chip on" data-stat-tab="price" role="tab" aria-selected="true">价格变化</button>
+          <button class="chip" data-stat-tab="trend" role="tab" aria-selected="false">趋势</button>
+          <button class="chip" data-stat-tab="images" role="tab" aria-selected="false">图片缓存</button>
+          <button class="chip" data-stat-tab="backup" role="tab" aria-selected="false">备份</button>
+          <button class="chip" data-stat-tab="views" role="tab" aria-selected="false">浏览排行</button>
         </div>
+        <div data-stat-panel="price" role="tabpanel">
         <h2 id="statsPrice">价格变动（近 24 小时）</h2>
         <div class="card pad">
           <div class="row" id="priceReportSummary" style="gap:18px"><span class="muted">加载中…</span></div>
@@ -514,15 +565,18 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
         <div class="card" style="margin-top:10px">
           <table><thead><tr><th>游戏</th><th>平台</th><th class="num">原价</th><th class="num">现价</th><th class="num">变化</th><th>时间</th></tr></thead><tbody id="priceChangeRows"></tbody></table>
         </div>
-
+        </div>
+        <div data-stat-panel="trend" class="hide" role="tabpanel">
         <h2 id="statsTrend">近 7 天变动趋势</h2>
         <div class="card">
           <table><thead><tr><th>日期</th><th class="num">降价</th><th class="num">涨价</th><th class="num">合计</th></tr></thead><tbody id="priceDailyRows"></tbody></table>
         </div>
-
+        </div>
+        <div data-stat-panel="images" class="hide" role="tabpanel">
         <h2 id="statsImages">封面图缓存</h2>
         <div class="card pad"><div class="row" id="imgStats" style="gap:18px"><span class="muted">加载中…</span></div></div>
-
+        </div>
+        <div data-stat-panel="backup" class="hide" role="tabpanel">
         <h2 id="statsBackup">备份</h2>
         <div class="card pad">
           <div class="row">
@@ -533,10 +587,12 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <table><thead><tr><th>文件</th><th class="num">大小</th></tr></thead><tbody id="backupRows"></tbody></table>
           </div>
         </div>
-
-        <h2>浏览排行（90 天）</h2>
+        </div>
+        <div data-stat-panel="views" class="hide" role="tabpanel">
+        <h2 id="statsViews">浏览排行（90 天）</h2>
 <div class="row"><label class="small muted"><input type="checkbox" id="aggBtn"> 按游戏聚合（同一游戏的多个页面合并）</label></div>
         <div class="card"><table><thead><tr><th>游戏</th><th>页面</th><th class="num">现价</th><th class="num">访问次数</th><th>最近</th></tr></thead><tbody id="viewRows"></tbody></table></div>
+        </div>
       </section>
     </div>
   </main>
@@ -597,13 +653,26 @@ async function api(path, opts) {
 }
 
 let currentPage = 'users';
+let gameTab = 'directory';
+const PAGE_META = {
+  users: ['用户管理', '账号、角色与登录权限'], games: ['游戏管理', '目录、采集与数据维护'], recycle: ['回收站', '恢复已逻辑删除的游戏'],
+  visitors: ['访问记录', '流量、异常请求与访问控制'], announcements: ['站点通知', '管理前台公告与展示时间'], steam: ['Steam 账号', '查看已连接的 Steam 账号与游戏库'],
+  sync: ['运行日志', '查看当前服务的实时输出'], mail: ['邮件服务', 'SMTP 配置、测试与发送记录'], settings: ['系统设置', '配置数据源、网络代理与提醒'], stats: ['数据统计', '价格变化、缓存、备份与访问排行'],
+};
 function showPage(page) {
+  if (!PAGE_META[page]) page = 'users';
   currentPage = page;
-  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
+  document.querySelectorAll('nav button').forEach((b) => {
+    const active = b.dataset.page === page;
+    b.classList.toggle('on', active);
+    if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
+  $('consoleTitle').textContent = PAGE_META[page][0];
+  $('consoleSubtitle').textContent = PAGE_META[page][1];
   if (page === 'stats') { loadStats(); loadImgStats(); loadPriceReport(); loadBackups(); }
   if (page === 'sync') loadLogs();
-  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); if (bfPollTimer) { clearTimeout(bfPollTimer); bfPollTimer = null; } pollBackfill(); }
+  if (page === 'games') { setGameTab(gameTab); loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); if (bfPollTimer) { clearTimeout(bfPollTimer); bfPollTimer = null; } pollBackfill(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
   if (page === 'visitors') { setVisTab(visTab); loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); loadReviews(); }
@@ -612,6 +681,32 @@ function showPage(page) {
   if (page === 'settings') loadSettings();
 }
 document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', function () { location.hash = b.dataset.page; showPage(b.dataset.page); }));
+function setGameTab(tab) {
+  gameTab = tab === 'tasks' ? 'tasks' : 'directory';
+  document.querySelectorAll('#gamesNav [data-game-tab]').forEach((button) => {
+    const selected = button.dataset.gameTab === gameTab;
+    button.classList.toggle('on', selected);
+    button.setAttribute('aria-selected', String(selected));
+  });
+  document.querySelectorAll('[data-game-panel]').forEach((panel) => panel.classList.toggle('hide', panel.dataset.gamePanel !== gameTab));
+}
+document.querySelectorAll('#gamesNav [data-game-tab]').forEach((button) => {
+  button.addEventListener('click', () => setGameTab(button.dataset.gameTab));
+});
+$('navSearch').addEventListener('input', function () {
+  const query = this.value.trim().toLocaleLowerCase();
+  let visible = 0;
+  document.querySelectorAll('.nav-group').forEach((group) => {
+    let groupVisible = 0;
+    group.querySelectorAll('button[data-page]').forEach((button) => {
+      const match = !query || button.textContent.toLocaleLowerCase().includes(query);
+      button.classList.toggle('hide', !match);
+      if (match) { groupVisible++; visible++; }
+    });
+    group.classList.toggle('hide', groupVisible === 0);
+  });
+  $('navEmpty').classList.toggle('hide', visible > 0);
+});
 
 async function boot() {
   const d = await api('/api/me');
@@ -940,7 +1035,7 @@ $('userRows').addEventListener('click', async function (e) {
     if (btn.dataset.act === 'pwd') {
       const v = await askText({
         title: '重置密码',
-        hint: '至少 6 位；保存后该用户所有会话失效，需要重新登录。',
+        hint: '需要 8-200 位；保存后该用户所有会话失效，需要重新登录。',
         type: 'password',
       });
       if (!v) return;
@@ -1725,7 +1820,7 @@ async function loadMail() {
   } catch (e) { /* 表可能未建 */ }
 }
 
-// ---- 邮件内容弹窗：用户收不到邮件时，管理员直接看到验证码提供给用户 ----
+// ---- 邮件记录弹窗：验证码正文不会保存在服务端 ----
 let mailCache = [];
 let mailCode = null;
 function openMailModal(r) {
@@ -1806,13 +1901,6 @@ async function loadStats() {
     const d = await api('/api/admin/views');
     statsCache = (d.views || []).slice();
     renderStats();
-    if (false) $('viewRows').innerHTML = (d.views || []).map(function (v) {
-      return '<tr><td>' + (v.name ? esc(v.name) : '<span class="muted">未知</span>') + '</td>' +
-      '<td class="muted small">' + esc(v.path) + '</td>' +
-      '<td class="num">' + (v.price != null ? '¥' + (v.price / 100).toFixed(2) : '—') + '</td>' +
-      '<td class="num">' + v.views + '</td>' +
-      '<td class="muted small">' + when(v.last_at) + '</td></tr>';
-    }).join('') || '<tr><td colspan="5" class="muted">还没有浏览记录</td></tr>';
   } catch (e) { /* ignore */ }
 }
 
@@ -1947,12 +2035,19 @@ document.addEventListener('keydown', function (e) {
   saveSettings();
 });
 
-// 统计页锚点跳转
-document.querySelectorAll('#statsNav [data-goto]').forEach(function (b) {
-  b.onclick = function () {
-    const el = document.getElementById(b.dataset.goto);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+// 统计页按需查看单个模块，避免把所有报表堆在同一屏。
+function setStatsTab(tab) {
+  const allowed = ['price', 'trend', 'images', 'backup', 'views'];
+  const active = allowed.includes(tab) ? tab : 'price';
+  document.querySelectorAll('#statsNav [data-stat-tab]').forEach((button) => {
+    const selected = button.dataset.statTab === active;
+    button.classList.toggle('on', selected);
+    button.setAttribute('aria-selected', String(selected));
+  });
+  document.querySelectorAll('[data-stat-panel]').forEach((panel) => panel.classList.toggle('hide', panel.dataset.statPanel !== active));
+}
+document.querySelectorAll('#statsNav [data-stat-tab]').forEach((button) => {
+  button.addEventListener('click', () => setStatsTab(button.dataset.statTab));
 });
 
 // ---- 登录验证码 ----

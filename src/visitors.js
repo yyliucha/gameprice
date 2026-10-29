@@ -18,10 +18,10 @@ export function isPrivateAddress(ip) {
   const value = String(ip ?? '');
   if (!value) return false;
   if (value === '::1' || value.startsWith('127.')) return true;
-  if (value.startsWith('10.') || value.startsWith('192.168.')) return true;
+  if (value.startsWith('10.') || value.startsWith('192.168.') || value.startsWith('169.254.')) return true;
   const m = /^172\.(\d{1,3})\./.exec(value);
   if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
-  if (/^f[cd][0-9a-f]{2}:/i.test(value)) return true; // fc00::/7 私有段
+  if (/^f[cd][0-9a-f]{2}:/i.test(value) || /^fe[89ab][0-9a-f]:/i.test(value)) return true; // ULA / link-local
   return false;
 }
 
@@ -35,10 +35,14 @@ export function isPrivateAddress(ip) {
  */
 export function clientIp(req, { trustProxy = 'auto' } = {}) {
   const raw = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
-  const trust =
-    trustProxy === true ||
-    (trustProxy === 'auto' && isPrivateAddress(raw)) ||
-    process.env.TRUST_PROXY === '1';
+  const trustedProxyEntries = String(process.env.TRUSTED_PROXY_IPS ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  const trustedPeer = isPrivateAddress(raw) || (
+    process.env.TRUST_PROXY === '1' && trustedProxyEntries.some((entry) => matchesIpEntry(raw, entry))
+  );
+  const trust = trustProxy === true || (trustProxy === 'auto' && trustedPeer);
   if (trust) {
     // nginx 的 X-Real-IP 是代理覆盖写入的，优先级最高
     const real = String(req.headers['x-real-ip'] ?? '').trim();
@@ -89,7 +93,7 @@ function ipv4ToInt(ip) {
 }
 
 /** IPv4 CIDR 匹配；IPv6 只支持精确匹配。 */
-function matchEntry(ip, entry) {
+export function matchesIpEntry(ip, entry) {
   if (entry === ip) return true;
   if (!entry.includes('/') || !isIpv4(ip)) return false;
   const [net, bitsStr] = entry.split('/');
@@ -108,7 +112,7 @@ let blockedEntries = [];
 export function blockedBy(ip) {
   const s = String(ip ?? '').trim();
   if (!s) return null;
-  return blockedEntries.find((entry) => matchEntry(s, entry)) ?? null;
+  return blockedEntries.find((entry) => matchesIpEntry(s, entry)) ?? null;
 }
 
 /** 从库加载黑名单（替换内存态，启动与定时刷新都走这里）。 */

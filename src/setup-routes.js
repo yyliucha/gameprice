@@ -4,6 +4,7 @@
 import * as db from './store/pg.js';
 import * as settings from './settings.js';
 import { normalizeEmail } from './email-auth.js';
+import { sessionCookie } from './session-cookie.js';
 
 const jsonError = (json, res, status, message) => json(res, status, { error: message });
 
@@ -140,7 +141,7 @@ export async function handleSetupRoutes({
             redirect: '/console',
           },
           {
-            'set-cookie': `${cookieName}=${created.session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
+            'set-cookie': sessionCookie(req, created.session, 604800, cookieName),
           },
         ),
         true

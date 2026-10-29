@@ -179,8 +179,8 @@ test('建表：email_codes / smtp_settings 与 users.email', async () => {
   }
 });
 
-test('发码后邮件内容落库：正文含验证码且可哈希校验，管理员接口可读，过期可清理', async () => {
-  const { server: smtp, port } = await startFakeSmtp();
+test('发码后邮件内容落库：正文不存明文验证码，哈希可校验，管理员接口可读，过期可清理', async () => {
+  const { server: smtp, state, port } = await startFakeSmtp();
   const store = await openStore('pglite:', {});
   try {
     await db.migrate(store);
@@ -206,11 +206,16 @@ test('发码后邮件内容落库：正文含验证码且可哈希校验，管�
 
       const row = (await q('select id, subject, body, code_hash from email_codes order by id desc limit 1')).rows[0];
       assert.equal(row.subject, 'SteamDeals 登录验证码');
-      const code = /(\d{6})/.exec(row.body ?? '')?.[1];
-      assert.ok(code, '正文里要有 6 位验证码');
-      assert.equal(verifyCodeHash('alice@example.com', code, row.code_hash), true, '正文里的验证码能通过哈希校验');
+      assert.equal(row.body, '验证码邮件正文未保存。', '数据库不能留明文验证码');
+      // 真实验证码只在发出的邮件里：从假 SMTP 收到的 base64 正文里解出来，验证哈希仍然对得上
+      const rawMail = String(state.data || '');
+      const base64Body = rawMail.split(/\r?\n\r?\n/).slice(1).join('');
+      const mailText = Buffer.from(base64Body.replace(/\s+/g, ''), 'base64').toString('utf8');
+      const code = /(\d{6})/.exec(mailText)?.[1];
+      assert.ok(code, '发出的邮件正文里应有 6 位验证码');
+      assert.equal(verifyCodeHash('alice@example.com', code, row.code_hash), true, '邮件里的验证码能通过哈希校验');
 
-      // 管理员接口能看到主题/正文，直接提供验证码给收不到邮件的用户
+      // 管理员接口能看到主题/正文（正文已是脱敏占位，不再暴露验证码）
       const login = await fetch(`${base}/api/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -221,7 +226,7 @@ test('发码后邮件内容落库：正文含验证码且可哈希校验，管�
       assert.equal(emails.records[0].body, row.body);
       assert.equal(emails.records[0].subject, 'SteamDeals 登录验证码');
 
-      // 清理：3 天前的记录被删（正文含明文验证码，不能久留）
+      // 清理：3 天前的记录被删
       await q("update email_codes set created_at = now() - interval '4 days'");
       const purged = await purgeOldCodes(q, { days: 3 });
       assert.equal(purged, 1);

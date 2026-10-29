@@ -22,6 +22,7 @@ import {
 } from './email-auth.js';
 import { sendMail } from './notify.js';
 import { clientIp } from './visitors.js';
+import { sessionCookie } from './session-cookie.js';
 
 export function maskEmail(email) {
   const v = String(email ?? '');
@@ -87,29 +88,21 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       return true;
     }
 
-    const userRow = await q('select id, username, disabled, email_verified from users where email = $1', [email]);
-    const target = userRow.rows[0] ?? null;
-    if (!target) {
-      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'email_not_bound' });
-      json(res, 404, { error: '该邮箱还没有绑定账号，请让管理员在后台绑定' });
-      return true;
-    }
-    if (target.disabled) {
-      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'user_disabled' });
-      json(res, 403, { error: '账号已被禁用' });
-      return true;
-    }
-
-    if (target.email_verified !== true) {
-      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'email_unverified' });
-      json(res, 403, { error: '邮箱还没有验证，请联系管理员在后台完成验证' });
-      return true;
-    }
-
     const cfg = await smtpConfig(q);
     if (!isSmtpConfigured(cfg)) {
-      logger?.warn('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'smtp_not_configured' });
-      json(res, 503, { error: '系统还没有配置发信邮箱，请联系管理员在后台配置 SMTP' });
+      logger?.warn('auth.otp_failed', { purpose, reason: 'smtp_not_configured' });
+      json(res, 503, { error: '系统还没有配置发信邮箱，请联系管理员' });
+      return true;
+    }
+
+    const userRow = await q('select id, username, disabled, email_verified from users where email = $1', [email]);
+    const target = userRow.rows[0] ?? null;
+    if (!target || target.disabled || target.email_verified !== true) {
+      logger?.warn('auth.otp_failed', {
+        email: maskEmail(email), purpose,
+        reason: !target ? 'email_not_bound' : target.disabled ? 'user_disabled' : 'email_unverified',
+      });
+      json(res, 200, { ok: true, hint: '如果邮箱已绑定且可用，验证码将发送到该邮箱' });
       return true;
     }
 
@@ -124,7 +117,7 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       `insert into email_codes (email, user_id, purpose, code_hash, subject, body, expires_at)
        values ($1, $2, $3, $4, $5, $6, now() + ($7 || ' seconds')::interval)
        returning id`,
-      [email, target.id, purpose, hashCode(email, code), subject, text, String(CODE_TTL_SEC)],
+      [email, target.id, purpose, hashCode(email, code), subject, '验证码邮件正文未保存。', String(CODE_TTL_SEC)],
     );
     const id = inserted.rows[0].id;
 
@@ -145,12 +138,12 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       );
       await q('update email_codes set sent_ok = true where id = $1', [id]);
       logger?.info('auth.otp_requested', { email: maskEmail(email), purpose, sent: true });
-      json(res, 200, { ok: true, expiresIn: CODE_TTL_SEC, hint: '验证码已发送，请查收邮件（含垃圾箱）' });
+      json(res, 200, { ok: true, hint: '如果邮箱已绑定且可用，验证码将发送到该邮箱' });
     } catch (err) {
       const message = String(err.message).slice(0, 200);
       await q('update email_codes set sent_ok = false, error = $1 where id = $2', [message, id]);
       logger?.error('auth.otp_failed', { email: maskEmail(email), purpose, reason: 'send_error', message });
-      json(res, 502, { error: `验证码发送失败：${message}` });
+      json(res, 200, { ok: true, hint: '如果邮箱已绑定且可用，验证码将发送到该邮箱' });
     }
     return true;
   }
@@ -196,17 +189,18 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       return true;
     }
 
+    const resetPassword = purpose === 'reset' ? String(body.password ?? '') : null;
+    if (purpose === 'reset' && (resetPassword.length < 8 || resetPassword.length > 200)) {
+      json(res, 400, { error: '新密码需要 8-200 位' });
+      return true;
+    }
+
     // 校验通过：立刻作废，防止重放
     await q('update email_codes set used_at = now() where id = $1', [row.id]);
 
     if (purpose === 'reset') {
-      const password = String(body.password ?? '');
-      if (password.length < 6) {
-        json(res, 400, { error: '新密码至少 6 位' });
-        return true;
-      }
       const { setUserPassword } = await import('./store/pg.js');
-      const updated = await setUserPassword(q, { username: null, userId: row.user_id, password });
+      const updated = await setUserPassword(q, { username: null, userId: row.user_id, password: resetPassword });
       logger?.info('auth.otp_verified', { email: maskEmail(email), purpose: 'reset', ok: Boolean(updated) });
       json(res, 200, { ok: true, message: '密码已重置，请用新密码登录' });
       return true;
@@ -226,7 +220,7 @@ export async function handleEmailAuth({ path, req, res, q, logger, json, readBod
       res,
       200,
       { user: { id: account.id, username: account.username, role: account.role } },
-      { 'set-cookie': `gp_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800` },
+      { 'set-cookie': sessionCookie(req, token, 604800) },
     );
     return true;
   }

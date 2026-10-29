@@ -36,6 +36,22 @@ const hostOf = (url) => {
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
+// Steam 429 没有 Retry-After 时，保守冷却 30 分钟；不要用短间隔重试继续触发风控。
+const STEAM_429_COOLDOWN_MS = 30 * 60 * 1000;
+let steamCooldownUntil = 0;
+
+function retryAfterMs(value) {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const dateMs = Date.parse(value);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : 0;
+}
+
+function isSteamHost(host) {
+  return host === 'steampowered.com' || host.endsWith('.steampowered.com');
+}
+
 // 出网错误的"翻译表"：把 undici/Node 的英文错误码变成能照着做的中文提示。
 const CODE_HINTS = {
   ENOTFOUND: 'DNS 解析失败（域名不存在或 DNS 不可用）',
@@ -160,7 +176,16 @@ export async function fetchText(url, opts = {}) {
   const doFetch = fetchImpl ?? undici.fetch;
 
   let lastError;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
+  let attempt = 0;
+  let retriesUsed = 0;
+  let steam429Retried = false;
+  while (true) {
+    attempt += 1;
+    if (isSteamHost(hostOf(url)) && steamCooldownUntil > Date.now()) {
+      const delayMs = steamCooldownUntil - Date.now();
+      logger?.warn('http.rate_limit_wait', { label, delayMs, message: 'Steam 处于 429 冷却期，等待后再请求' });
+      await sleep(delayMs);
+    }
     const requestId = rid();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -169,7 +194,7 @@ export async function fetchText(url, opts = {}) {
     logger?.debug('http.request', {
       label,
       requestId,
-      attempt: attempt + 1,
+      attempt,
       method,
       url: redactUrl(url),
       timeoutMs,
@@ -197,7 +222,7 @@ export async function fetchText(url, opts = {}) {
       logger?.info('http.response', {
         label,
         requestId,
-        attempt: attempt + 1,
+        attempt,
         status: res.status,
         bytes: text.length,
         elapsedMs,
@@ -210,6 +235,7 @@ export async function fetchText(url, opts = {}) {
         const err = new Error(`HTTP ${res.status}`);
         err.status = res.status;
         err.body = text.slice(0, 500);
+        err.retryAfter = res.headers.get('retry-after');
         throw err;
       }
       return { body: text, status: res.status, bytes: text.length, elapsedMs, contentType: res.headers.get('content-type'), finalUrl: res.url };
@@ -221,6 +247,7 @@ export async function fetchText(url, opts = {}) {
       const code = aborted ? 'ABORTED' : info.code;
       const hint = errorHint(info, route, { aborted, timeoutMs });
       // 代理拒绝隧道（403/407）是配置问题，重试 3 次只会拖慢并刷屏；5xx 才值得再试
+      const steam429 = err.status === 429 && isSteamHost(hostOf(url));
       const retryable = aborted
         ? true
         : info.proxyStatus != null
@@ -230,7 +257,7 @@ export async function fetchText(url, opts = {}) {
       logger?.warn('http.error', {
         label,
         requestId,
-        attempt: attempt + 1,
+        attempt,
         elapsedMs,
         status: err.status ?? null,
         code,
@@ -245,13 +272,30 @@ export async function fetchText(url, opts = {}) {
         retryable,
       });
 
-      if (!retryable) break;
-      if (attempt < retries) {
-        // 429/403 是 Steam 边缘的限流信号：0.5 秒重试只会加重封禁，退避到 20 秒
-        const delayMs = err.status === 429 || err.status === 403 ? 20_000 : 500 * (attempt + 1);
-        logger?.info('http.retry', { label, requestId, attempt: attempt + 1, delayMs, status: err.status ?? null });
+      if (steam429) {
+        if (steam429Retried) break;
+        steam429Retried = true;
+        const delayMs = Math.max(STEAM_429_COOLDOWN_MS, retryAfterMs(err.retryAfter));
+        steamCooldownUntil = Math.max(steamCooldownUntil, Date.now() + delayMs);
+        logger?.warn('http.rate_limit_pause', {
+          label,
+          requestId,
+          status: 429,
+          delayMs,
+          retryAfter: err.retryAfter ?? null,
+          message: 'Steam 429：暂停请求，冷却后仅重试一次',
+        });
         await sleep(delayMs);
+        continue;
       }
+
+      if (!retryable || retriesUsed >= retries) break;
+      // 403 不应重试；其他短暂错误按普通退避处理。
+      if (err.status === 403) break;
+      retriesUsed += 1;
+      const delayMs = 500 * retriesUsed;
+      logger?.info('http.retry', { label, requestId, attempt, delayMs, status: err.status ?? null });
+      await sleep(delayMs);
     } finally {
       clearTimeout(timer);
     }

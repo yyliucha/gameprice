@@ -2,7 +2,7 @@
 
 镜像：`s1065420329/steamdeals:latest`（多架构：`linux/amd64` / `linux/arm64`）。
 
-**部署不需要 `.env`，也不需要改 docker-compose 文件里的业务配置。** 第一次打开页面会进入 `/setup`，创建管理员并填写数据源/代理/提醒；这些配置写到 PostgreSQL，之后在「控制台 → 系统设置」修改。
+**部署不需要 `.env`，也不需要改 docker-compose 文件里的业务配置。** 第一次打开页面会进入 `/setup`，创建管理员并填写数据源/代理/提醒；初始化口令会在启动输出中生成，也可以预先设置 `SETUP_TOKEN`。这些配置写到 PostgreSQL，之后在「控制台 → 系统设置」修改。
 
 ## 国内用户：腾讯云 TCR
 
@@ -133,7 +133,7 @@ docker run -d --name steamdeals \
 SETUP_TOKEN='换成一个随机长口令' docker compose -f compose.hub.yaml up -d
 ```
 
-设置后，`/setup` 会要求输入同一个口令；初始化完成后 setup 接口自动失效。
+首次初始化始终要求口令。显式设置后，`/setup` 使用该口令；未设置时服务会生成一次性口令并显示在启动输出中。初始化完成后 setup 接口自动失效。
 
 ## 数据与备份
 
@@ -182,7 +182,7 @@ docker compose -f compose.hub.yaml up -d
 | `DATABASE_URL` | 自带 db | 外部 PostgreSQL 连接串 |
 | `WEB_PORT` | `8090` | 宿主机端口（容器内固定 8080） |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
-| `SETUP_TOKEN` | 空 | 设置后初始化页要求口令 |
+| `SETUP_TOKEN` | 自动生成 | 初始化口令；未设置时启动输出会显示一次性口令 |
 | `SECRET_KEY` | 自动生成 | 可选；不设则用 `data/secret.key` |
 | `DB_WAIT_SEC` | `60` | 启动时最多等数据库多少秒 |
 | `SEED_ON_START` | `1` | 首次启动是否导入 `data/games.json` |

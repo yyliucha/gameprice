@@ -23,6 +23,7 @@ import { versionInfo } from './version.js';
 import { VERSION } from './settings.js';
 import * as settings from './settings.js';
 import { handleSetupRoutes } from './setup-routes.js';
+import { sessionCookie } from './session-cookie.js';
 import { handleSettingsRoutes } from './settings-routes.js';
 
 const TYPES = {
@@ -1145,7 +1146,7 @@ export function createApiServer({
         const ins = await q(
           "insert into email_codes (email, user_id, purpose, code_hash, subject, body, expires_at) " +
           "values ($1, $2, 'bind', $3, $4, $5, now() + interval '5 minutes') returning id",
-          [target.email, target.id, auth.hashCode(target.email, code), 'SteamDeals 邮箱验证码', '验证码：' + code + '\n有效期 5 分钟。'],
+          [target.email, target.id, auth.hashCode(target.email, code), 'SteamDeals 邮箱验证码', '验证码邮件正文未保存。'],
         );
         try {
           await sendMail(
@@ -1212,7 +1213,7 @@ export function createApiServer({
         if (!requireAdmin()) return;
         const body = await readBody(req);
         const password = String(body.password ?? '');
-        if (password.length < 6) return json(res, 400, { error: '密码至少 6 位' });
+        if (password.length < 8 || password.length > 200) return json(res, 400, { error: '密码需要 8-200 位' });
         const row = await db.setUserPassword(q, { username: decodeURIComponent(pwdMatch[1]), password });
         if (!row) return json(res, 404, { error: '没有该用户' });
         logger?.info('api.user_password_reset', { username: decodeURIComponent(pwdMatch[1]), by: user.username });
@@ -1616,8 +1617,8 @@ export function createApiServer({
         const body = await readBody(req);
         const username = String(body.username ?? '').trim();
         const password = String(body.password ?? '');
-        if (!username || password.length < 6) {
-          return json(res, 400, { error: '用户名必填，密码至少 6 位' });
+        if (!username || password.length < 8 || password.length > 200) {
+          return json(res, 400, { error: '用户名必填，密码需要 8-200 位' });
         }
         const created = await db.createUser(q, { username, password, role: body.role === 'admin' ? 'admin' : 'user' });
         logger?.info('api.user_created', { username: created.username, role: created.role });
@@ -1929,12 +1930,6 @@ function applySecurityHeaders(req, res) {
 }
 
 /** 会话 Cookie：HTTPS 时加 Secure（本地 http 调试不受影响）。 */
-function sessionCookie(req, value, maxAgeSec) {
-  const proto = String(req.headers['x-forwarded-proto'] ?? '').toLowerCase();
-  const https = proto === 'https' || Boolean(req.socket?.encrypted);
-  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${https ? '; Secure' : ''}`;
-}
-
 function serveStatic(res, outDir, pathname) {
   if (!outDir) {
     res.writeHead(404).end('not found');
@@ -1985,6 +1980,7 @@ export function startApiServer({
   const blockTimer = setInterval(() => {
     visitors.refreshBlocklist(query).catch(() => {});
     devices.loadBans(query).catch(() => {});
+    ratelimit.loadState(query).catch((err) => logger?.warn('rate.refresh_failed', { message: String(err.message).slice(0, 120) }));
   }, 60_000);
   blockTimer.unref?.();
   return new Promise((done, fail) => {
