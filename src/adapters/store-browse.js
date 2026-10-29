@@ -74,9 +74,11 @@ export function mapStoreItem(item) {
 
 /**
  * 批量取商店信息。超过 100 个自动分批；任一批失败只记日志，不抛（让调用方回退单条接口）。
+ * `throwOnFatal: true` 时，403/405/429 这类"继续跑只会更糟"的状态直接抛出，由调用方中止任务
+ * （回填用：限流时立刻停，别把 IP 打进黑名单）。
  * 返回 { items, failed: [appid...] }。
  */
-export async function fetchStoreItems(appids, { key, country = 'CN', language = 'schinese', logger = null, fetchImpl = null } = {}) {
+export async function fetchStoreItems(appids, { key, country = 'CN', language = 'schinese', logger = null, fetchImpl = null, throwOnFatal = false } = {}) {
   const unique = [...new Set((appids ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   const items = [];
   const failed = [];
@@ -112,8 +114,12 @@ export async function fetchStoreItems(appids, { key, country = 'CN', language = 
       for (const id of chunk) if (!got.has(id)) failed.push(id);
     } catch (err) {
       logger?.warn('store_browse.batch_failed', { size: chunk.length, message: String(err.message).slice(0, 160) });
+      if (throwOnFatal && FATAL_STATUSES.has(err.status)) throw err;
       failed.push(...chunk);
     }
   }
   return { items, failed };
 }
+
+/** 继续跑只会更糟的状态：方法错误（405）、被限流/风控（403/429）。 */
+export const FATAL_STATUSES = new Set([403, 405, 429]);

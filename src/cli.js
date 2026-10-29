@@ -1605,6 +1605,8 @@ async function cmdBackfill() {
   const batch = Math.max(1, Math.min(Number(flag('batch', '50')) || 50, 100));
   const sleepMs = Math.max(0, Number(flag('sleep', '1500')) || 0);
   const limit = Math.max(1, Math.min(Number(flag('limit', '20000')) || 20000, 200000));
+  // 单条回退上限：大跑时设 0 可完全关掉，把"缺的少量游戏"留给小任务慢慢补
+  const fallbackMax = Math.max(0, Math.min(Number(flag('fallback', '10')) || 0, 100));
   const { fetchStoreItems } = await import('./adapters/store-browse.js');
   const key = String(process.env.STEAM_API_KEY ?? '').trim();
   const startedMs = Date.now();
@@ -1614,7 +1616,13 @@ async function cmdBackfill() {
   let failed = 0;
   let batches = 0;
 
-  console.log(`批量回填：每批 ${batch} 个、间隔 ${sleepMs}ms、上限 ${limit} 款${key ? '' : '（未配置 STEAM_API_KEY，将全部走单条接口）'}`);
+  // 限流/风控/方法错误时立刻中止：继续跑只会把代理 IP 打进黑名单
+  const abort = (message, extra = {}) => {
+    logger.error('backfill.aborted', { message, ...extra });
+    throw new Error(message);
+  };
+
+  console.log(`批量回填：每批 ${batch} 个、间隔 ${sleepMs}ms、上限 ${limit} 款、单条回退 ${fallbackMax} 个/批${key ? '' : '（未配置 STEAM_API_KEY，将全部走单条接口）'}`);
 
   while (done < limit) {
     const size = Math.min(batch, limit - done);
@@ -1637,10 +1645,16 @@ async function cmdBackfill() {
     let missed = [];
     if (key) {
       try {
-        const r = await fetchStoreItems(appids, { key, logger });
+        const r = await fetchStoreItems(appids, { key, logger, throwOnFatal: true });
         items = r.items;
         missed = r.failed;
       } catch (err) {
+        if (err.status === 405) {
+          abort('批量接口返回 405（POST 被拒）：当前镜像过旧，GetItems 需要 GET + input_json（0.25.2+），升级后再跑', { status: 405 });
+        }
+        if (err.status === 403 || err.status === 429) {
+          abort(`Steam 返回 HTTP ${err.status}（限流/风控），已立即中止回填避免 IP 被封；等 30-60 分钟后把 --sleep 调大再试`, { status: err.status });
+        }
         logger.warn('backfill.batch_failed', { message: String(err.message).slice(0, 160) });
         missed = appids;
       }
@@ -1648,49 +1662,55 @@ async function cmdBackfill() {
       missed = appids;
     }
 
-    // 回退：批量接口没返回的，逐个走 appdetails（最多 10 个/批，避免拖慢）
-    for (const appid of missed.slice(0, 10)) {
-      try {
-        const one = await fetchMetadata([appid], { backend: 'official', logger });
-        if (one.items?.length) items.push(...one.items);
-        fallback += 1;
-      } catch (err) {
-        failed += 1;
-        logger.warn('backfill.item_failed', { appid, message: String(err.message).slice(0, 160) });
+    // 回退：批量接口没返回的，逐个走 appdetails（默认最多 10 个/批，避免拖慢）
+    if (fallbackMax > 0) {
+      for (const appid of missed.slice(0, fallbackMax)) {
+        try {
+          const one = await fetchMetadata([appid], { backend: 'official', logger });
+          if (one.items?.length) items.push(...one.items);
+          fallback += 1;
+        } catch (err) {
+          if (err.status === 403 || err.status === 429) {
+            abort(`单条回退遇到 HTTP ${err.status}（限流），已立即中止回填`, { status: err.status, appid });
+          }
+          failed += 1;
+          logger.warn('backfill.item_failed', { appid, message: String(err.message).slice(0, 160) });
+        }
+        await sleep(400);
       }
-      await sleep(400);
     }
-    failed += Math.max(0, missed.length - 10);
+    failed += Math.max(0, missed.length - fallbackMax);
 
-    const offers = [];
-    for (const item of items) {
+    // 写库：每批只开 1 个连接（之前是每款一个，100 连接/批，日志会被 db.connect 刷屏）
+    if (items.length) {
       await withStore(async (store) => {
         const q = (sql, p) => store.query(sql, p);
-        await db.upsertGameMeta(q, item);
-        if (item.priceOverview) {
-          offers.push({
-            platformCode: 'steam',
-            platformProductId: String(item.steamAppid),
-            steamAppid: item.steamAppid,
-            title: item.nameZh ?? String(item.steamAppid),
-            productType: 'official_direct',
-            region: 'cn',
-            currency: item.priceOverview.currency ?? 'CNY',
-            priceCents: Math.round(item.priceOverview.final),
-            originalCents: Math.round(item.priceOverview.initial ?? item.priceOverview.final),
-            discountPct: Number(item.priceOverview.discountPercent ?? 0),
-            inStock: true,
-            buyUrl: 'https://store.steampowered.com/app/' + item.steamAppid + '/',
-            meta: {},
-          });
+        const offers = [];
+        for (const item of items) {
+          await db.upsertGameMeta(q, item);
+          stored += 1;
+          if (item.priceOverview) {
+            offers.push({
+              platformCode: 'steam',
+              platformProductId: String(item.steamAppid),
+              steamAppid: item.steamAppid,
+              title: item.nameZh ?? String(item.steamAppid),
+              productType: 'official_direct',
+              region: 'cn',
+              currency: item.priceOverview.currency ?? 'CNY',
+              priceCents: Math.round(item.priceOverview.final),
+              originalCents: Math.round(item.priceOverview.initial ?? item.priceOverview.final),
+              discountPct: Number(item.priceOverview.discountPercent ?? 0),
+              inStock: true,
+              buyUrl: 'https://store.steampowered.com/app/' + item.steamAppid + '/',
+              meta: {},
+            });
+          }
+        }
+        if (offers.length) {
+          await ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger });
         }
       });
-      stored += 1;
-    }
-    if (offers.length) {
-      await withStore((store) =>
-        ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger }),
-      );
     }
 
     done += appids.length;
@@ -2068,6 +2088,7 @@ async function main() {
   diagnose             环境/数据库/网络自检，报告落盘
   proxy-check          代理专项排查：TCP → CONNECT → 经代理访问 Steam
   backfill             批量回填全量游戏的元数据/价格（GetItems，一次最多 100 个 appid）
+                       --limit 200000 --batch 100 --sleep 3000 --fallback 10（回退数设 0 关闭单条回退）
 
 通用参数：--db <target> --level <trace|debug|info|warn|error> --log-dir <dir>
 环境变量：DATABASE_URL / ITAD_API_KEY / LOG_LEVEL / LOG_DIR

@@ -81,3 +81,12 @@ test('分批请求：150 个 id 分两批，缺失的 appid 进 failed', async (
 test('没有 key 时抛错（由调用方回退单条接口）', async () => {
   await assert.rejects(() => fetchStoreItems([730], {}), /STEAM_API_KEY/);
 });
+
+test('throwOnFatal：405/429/403 直接抛出，交回调用方中止回填', async () => {
+  const fetchImpl = async () => jsonResponse({}, 405);
+  await assert.rejects(() => fetchStoreItems([730], { key: 'k', fetchImpl, throwOnFatal: true }), /HTTP 405/);
+  // 默认行为不变：只记 failed，继续下一批
+  const r = await fetchStoreItems([730, 570], { key: 'k', fetchImpl });
+  assert.deepEqual(r.failed, [730, 570]);
+  assert.equal(r.items.length, 0);
+});
