@@ -59,15 +59,15 @@ test('字段映射：DLC 与无价格', () => {
 test('分批请求：150 个 id 分两批，缺失的 appid 进 failed', async () => {
   const calls = [];
   const fetchImpl = async (url, opts) => {
-    const body = JSON.parse(opts.body);
+    const body = JSON.parse(new URL(url).searchParams.get('input_json'));
     calls.push(body.ids.length);
     if (calls.length === 1) {
       // 第一批返回 100 个里的 99 个（漏掉第一个）
       const ids = body.ids.map((x) => x.appid).slice(1);
-      return jsonResponse({ store_items: ids.map((id) => ({ appid: id, name: 'G' + id, type: 'app' })) });
+      return jsonResponse({ response: { store_items: ids.map((id) => ({ appid: id, name: 'G' + id, type: 'app' })) } });
     }
     const ids = body.ids.map((x) => x.appid);
-    return jsonResponse({ store_items: ids.map((id) => ({ appid: id, name: 'G' + id, type: 'app' })) });
+    return jsonResponse({ response: { store_items: ids.map((id) => ({ appid: id, name: 'G' + id, type: 'app' })) } });
   };
   const appids = Array.from({ length: 150 }, (_, i) => 1000 + i);
   const r = await fetchStoreItems(appids, { key: 'k', fetchImpl });

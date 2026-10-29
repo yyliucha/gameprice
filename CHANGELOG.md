@@ -18,6 +18,15 @@
 
 - 新增 `test/favicon.test.js`：三个页面引用一致且文件存在、SVG/ICO/PNG 格式合法性（含 ICO 头部与内嵌 PNG 校验）
 
+## [0.25.1] - 2026-10-29
+
+修复 GetItems 批量接口 405。
+
+### 修复
+
+- Steam 的 `IStoreBrowseService/GetItems` **只接受 GET**（POST 返回 405），改为
+  `GET ?key=&input_json=<JSON>`
+- 响应统一包在 `response` 里，按 `response.store_items` 读取（兼容直接返回 `store_items`）
 ## [0.25.0] - 2026-10-28
 
 批量回填全量游戏的元数据与国区价格。

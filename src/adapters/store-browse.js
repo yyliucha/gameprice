@@ -66,7 +66,7 @@ export function mapStoreItem(item) {
             final,
             initial: initial ?? final,
             discountPercent: Number(price?.discount_percent ?? 0),
-            currency: String(price?.discount_pct ?? '') && price?.final_price?.currency ? String(price.final_price.currency) : 'CNY',
+            currency: price?.final_price?.currency ? String(price.final_price.currency) : 'CNY',
           }
         : null,
   };
@@ -86,17 +86,21 @@ export async function fetchStoreItems(appids, { key, country = 'CN', language = 
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
     try {
-      const res = await fetchJson(ENDPOINT + '?key=' + encodeURIComponent(key), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(buildBody(chunk, { country, language })),
+      // 这个接口只接受 GET，参数用 input_json 传（POST 会返回 405）
+      const qs = new URLSearchParams({
+        key,
+        input_json: JSON.stringify(buildBody(chunk, { country, language })),
+      });
+      const res = await fetchJson(ENDPOINT + '?' + qs.toString(), {
+        method: 'GET',
         logger,
         label: 'steam.store_browse',
         retries: 1,
         timeoutMs: 20000,
         ...(fetchImpl ? { fetchImpl } : {}),
       });
-      const list = res.json?.store_items ?? [];
+      // Steam Web API 统一包在 response 里：{ response: { store_items: [...] } }
+      const list = res.json?.response?.store_items ?? res.json?.store_items ?? [];
       const got = new Set();
       for (const raw of list) {
         const mapped = mapStoreItem(raw);
