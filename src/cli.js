@@ -1631,6 +1631,9 @@ async function cmdBackfill() {
     const rows = await withStore((store) =>
       store.query(
         'select g.steam_appid from games g where g.steam_appid is not null and not g.deleted ' +
+          // 处理过的（backfill_at 非空）一天内不再选：否则"没有 steam 报价"的游戏会被每批反复选中，
+          // 10000 条进度其实只是同一批游戏跑了 100 遍。
+          "and (g.backfill_at is null or g.backfill_at < now() - interval '1 day') " +
           "and (g.description is null or g.description = '' or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam')) " +
           'order by g.id limit $1',
         [size],
@@ -1719,6 +1722,8 @@ async function cmdBackfill() {
         if (offersToWrite.length) {
           await ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers: offersToWrite, logger });
         }
+        // 无论有没有拿到报价都记一笔，避免这批（尤其是免费/锁区的）下一批又被选中
+        await db.markBackfilled(q, appids);
       });
     }
 

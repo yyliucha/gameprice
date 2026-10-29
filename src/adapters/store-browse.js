@@ -48,11 +48,12 @@ export function mapStoreItem(item) {
   const price = item.best_purchase_option ?? (Array.isArray(item.purchase_options) ? item.purchase_options[0] : null) ?? null;
   const isDlc = String(item.type ?? '').toLowerCase() === 'dlc';
   // 价格字段的真实名字是 final_price_in_cents / original_price_in_cents / discount_pct；
-  // 这里兼容旧测试夹具的 {amount} 形态，避免再因为字段名对不上而"静默无价格"。
+  // protobuf int64 在 JSON 里是字符串（"11900"），数字/字符串/旧 {amount} 形态都要认。
   const centsOf = (...values) => {
     for (const v of values) {
       if (v == null) continue;
       if (typeof v === 'number') return Math.round(v);
+      if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Math.round(Number(v));
       if (typeof v === 'object' && v.amount != null) return Math.round(Number(v.amount));
     }
     return null;
@@ -95,6 +96,7 @@ export async function fetchStoreItems(appids, { key, country = 'CN', language = 
   const unique = [...new Set((appids ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   const items = [];
   const failed = [];
+  let loggedShape = false;
   if (!unique.length) return { items, failed };
   if (!key) throw new Error('缺少 STEAM_API_KEY，无法使用批量接口');
 
@@ -120,6 +122,18 @@ export async function fetchStoreItems(appids, { key, country = 'CN', language = 
       for (const raw of list) {
         const mapped = mapStoreItem(raw);
         if (mapped) {
+          // 一条价格都没有时打一次原始结构，方便判断是"字段名不对"还是"Steam 没返回购买选项"
+          if (!loggedShape && logger && !mapped.priceOverview) {
+            loggedShape = true;
+            logger.warn('store_browse.no_price_shape', {
+              appid: mapped.steamAppid,
+              keys: Object.keys(raw).slice(0, 24).join(','),
+              hasBest: Boolean(raw.best_purchase_option ?? raw.bestPurchaseOption),
+              priceKeys: raw.best_purchase_option
+                ? Object.keys(raw.best_purchase_option).slice(0, 18).join(',')
+                : null,
+            });
+          }
           items.push(mapped);
           got.add(mapped.steamAppid);
         }

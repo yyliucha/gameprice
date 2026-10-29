@@ -261,3 +261,25 @@ test('元数据写入开发商/发行商/分类/标签', async () => {
     await store.close();
   }
 });
+
+test('回填：upsertGameMeta 写 description，markBackfilled 记录 backfill_at', async () => {
+  const store = await freshStore();
+  try {
+    const q = (sql, p) => store.query(sql, p);
+    await db.upsertGameMeta(q, { steamAppid: 990001, nameZh: '回填测试', description: '一段说明' });
+    let row = (await q('select description, backfill_at from games where steam_appid = 990001')).rows[0];
+    assert.equal(row.description, '一段说明');
+    assert.equal(row.backfill_at, null);
+
+    await db.markBackfilled(q, [990001]);
+    row = (await q('select backfill_at from games where steam_appid = 990001')).rows[0];
+    assert.ok(row.backfill_at != null, '处理过应打上 backfill_at');
+
+    // 人工/已有说明不被覆盖（只填空）
+    await db.upsertGameMeta(q, { steamAppid: 990001, nameZh: '回填测试', description: '新说明' });
+    row = (await q('select description from games where steam_appid = 990001')).rows[0];
+    assert.equal(row.description, '一段说明');
+  } finally {
+    await store.close();
+  }
+});

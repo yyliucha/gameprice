@@ -92,11 +92,12 @@ export async function syncPrices(opts = {}) {
   const unique = [...new Set(appids.map(Number).filter(Number.isFinite))];
   const batches = chunk(unique, batchSize);
   const result = { offers: [], skipped: [], requests: 0, bytes: 0 };
+  let loggedNoOffers = false;
 
   for (let i = 0; i < batches.length; i += 1) {
     const batch = batches[i];
     const url = buildAppDetailsUrl(batch, { region, lang });
-    const { json, bytes } = await fetchJson(url, { fetchImpl, logger, label: 'steam.appdetails' });
+    const { json, bytes, body } = await fetchJson(url, { fetchImpl, logger, label: 'steam.appdetails' });
     const parsed = parseAppDetails(json, { region });
     result.offers.push(...parsed.offers);
     result.skipped.push(...parsed.skipped);
@@ -110,6 +111,16 @@ export async function syncPrices(opts = {}) {
       skipped: parsed.skipped.length,
       bytes,
     });
+    // 0 报价时把响应片段打出来（只打第一次）：区分"免费/锁区"和"接口返回 success:false"
+    if (!loggedNoOffers && parsed.offers.length === 0) {
+      loggedNoOffers = true;
+      logger?.warn('adapter.steam.no_offers', {
+        batch: i + 1,
+        appids: batch.slice(0, 5),
+        bytes,
+        sample: String(body ?? '').slice(0, 300),
+      });
+    }
     log(`[steam] 批次 ${i + 1}/${batches.length} appids=${batch.length} 有效报价=${parsed.offers.length} 跳过=${parsed.skipped.length}`);
     if (i < batches.length - 1) await sleep(rateLimitMs);
   }

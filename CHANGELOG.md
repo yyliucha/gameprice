@@ -2,6 +2,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.30.5] - 2026-10-29
+
+修复回填原地打转：同一批游戏被反复处理，价格永远写不进去。
+
+### 修复
+
+- **回填原地打转**：`upsertGameMeta` 不写 `description`，且选择条件里
+  `not exists (steam offer)` 对无报价游戏永远为真，导致每批都选中同一批游戏
+  （实测 20 个单批请求全部是 `appid=730`，「写入 10000」只是同一批跑了 100 遍）
+  - 新增 `games.backfill_at`：处理过的游戏（无论有没有拿到报价）一天内不再被选中
+  - `upsertGameMeta` 现在会写 `description`（只填空，不覆盖人工编辑）
+  - 每批写库后统一 `markBackfilled`，进度是真正的新游戏
+- 诊断日志：GetItems 无价格时打 `store_browse.no_price_shape`（顶层字段 + `best_purchase_option` 字段）；
+  appdetails 0 报价时打 `adapter.steam.no_offers`，带响应片段，用于区分「success:false / 免费 / 锁区」
+
+### 测试
+
+- `pg.test.js` 新增：`description` 写入、`backfill_at` 标记、已有说明不被覆盖（12/12）
+
 ## [0.30.4] - 2026-10-29
 
 回填价格改用 appdetails 回退取价：不再依赖 GetItems 的价格字段。

@@ -79,6 +79,24 @@ test('字段映射：真实 GetItems 字段 final_price_in_cents / discount_pct'
   assert.equal(item.isFree, false);
 });
 
+test('字段映射：int64 价格是字符串（"11900"）也要能解析', () => {
+  const item = mapStoreItem({
+    appid: 271590,
+    name: 'GTA V',
+    type: 'app',
+    is_free: false,
+    basic_info: {},
+    best_purchase_option: {
+      final_price_in_cents: '11900',
+      original_price_in_cents: '17900',
+      discount_pct: 33,
+    },
+  });
+  assert.equal(item.priceOverview.final, 11900);
+  assert.equal(item.priceOverview.initial, 17900);
+  assert.equal(item.priceOverview.discountPercent, 33);
+});
+
 test('字段映射：免费游戏 is_free 为 true（没有购买选项也不影响）', () => {
   const item = mapStoreItem({ appid: 570, name: 'Dota 2', type: 'app', is_free: true, basic_info: {} });
   assert.equal(item.isFree, true);

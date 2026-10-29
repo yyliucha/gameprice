@@ -312,6 +312,8 @@ const ALTERS = [
   // 逻辑删除：不真删数据，只打标记；前台与后台默认列表都排除，回收站里能看到并恢复
   'alter table games add column if not exists deleted boolean not null default false',
   'alter table games add column if not exists deleted_at timestamptz',
+  // 回填标记：处理过的游戏（哪怕没拿到报价）也记一笔，避免同一批无报价游戏被每批反复选中
+  'alter table games add column if not exists backfill_at timestamptz',
   // 价格快照记录前价，报表直接算涨跌（老数据为 null，报表只看新数据）
   'alter table price_snapshots add column if not exists prev_price_cents integer',
 ];
@@ -1568,8 +1570,8 @@ export async function upsertGameMeta(q, item) {
   const appType = item.appType == null ? null : String(item.appType).toLowerCase();
   const r = await q(
     `insert into games (steam_appid, name, name_en, app_type, is_free, header_image, release_date,
-                        developers, publishers, genres, tags)
-     values ($1, $2, $3, $4, coalesce($5, false), $6, $7, $8, $9, $10, $11)
+                        developers, publishers, genres, tags, description)
+     values ($1, $2, $3, $4, coalesce($5, false), $6, $7, $8, $9, $10, $11, $12)
      on conflict (steam_appid) do update set
        name = coalesce(games.name, excluded.name),
        name_en = coalesce(games.name_en, excluded.name_en),
@@ -1581,6 +1583,7 @@ export async function upsertGameMeta(q, item) {
        publishers = coalesce(excluded.publishers, games.publishers),
        genres = coalesce(excluded.genres, games.genres),
        tags = coalesce(excluded.tags, games.tags),
+       description = coalesce(nullif(games.description, ''), excluded.description),
        updated_at = now()
      returning id, (xmax = 0) as inserted`,
     [
@@ -1595,10 +1598,19 @@ export async function upsertGameMeta(q, item) {
       item.publishers ?? null,
       item.genres ?? null,
       item.tags ?? null,
+      item.description ?? null,
     ],
   );
   const row = r.rows[0];
   return { id: Number(row.id), created: row.inserted === true };
+}
+
+/** 标记这批 appid 已跑过回填（无论有没有拿到报价），让下一次选择跳过它们。 */
+export async function markBackfilled(q, appids = []) {
+  const ids = [...new Set((appids ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return 0;
+  const r = await q('update games set backfill_at = now() where steam_appid = any($1::int[])', [ids]);
+  return r.rowCount ?? 0;
 }
 
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响展示，不影响采集与金额统计。 */
