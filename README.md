@@ -19,6 +19,7 @@
 - [功能](#功能)
 - [设计原则](#设计原则)
 - [架构](#架构)
+- [项目总览文档](docs/PROJECT-OVERVIEW.md)
 - [快速开始](#快速开始)
 - [命令参考](#命令参考)
 - [配置](#配置)
@@ -107,9 +108,9 @@
 | 结构化日志 | ✅ | JSONL + `runId` 串联 + 密钥脱敏 + 轮转 |
 | 自检 `diagnose` | ✅ | 环境 / 数据库 / 网络逐项检查，报告落盘 |
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
-| Docker 部署 | ⚠️ | 非 root / tini / healthcheck 已写；镜像未构建验证 |
+| Docker 部署 | ✅ | 非 root / tini / healthcheck；镜像由 GitHub Actions 构建并推送 TCR / Docker Hub，线上容器版本以部署记录为准 |
 | 价格曲线网页 | ✅ | 静态 HTML + 内联 SVG，无外部依赖，浏览器直接打开 |
-| **Web 前端 + 用户系统** | ✅ | `web/` 单页应用 + JSON API；匿名可读、登录个性化、管理员后台 |
+| **Web 前端 + 用户系统** | ✅ | `frontend/` Vue 3 + Vite + Element Plus；前台、初始化、封禁页与控制台全部由 Vue 渲染，没有构建产物时回退 `web/` 旧页面 |
 | 访问记录与 IP 黑名单 | ✅ | 页面/API 访问落库（IP+归属地），后台可查；拉黑 IP/CIDR 即整站 403 |
 | 内置静态页服务 | ✅ | `serve` 命令 / compose 的 `web` 服务，直接 `IP:端口` 访问，不依赖 nginx |
 | 曲线页自动重建 | ✅ | 采集成功后由调度器自动刷新 `out/`（`CHART_ON_SYNC=0` 可关） |
@@ -141,6 +142,8 @@
 `price_snapshots` 只追加、价格没变就不写；`daily_prices` 按天聚合。晚一天开始，那天的价格就永远补不回来——这是这个项目里唯一"过期不候"的东西。
 
 ## 架构
+
+后续维护或新会话建议先读 **[项目总览：架构、功能与代码落点](docs/PROJECT-OVERVIEW.md)**；这里保留产品定位和采集链路概览，设计取舍见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ```
                         ┌──────────────────────────────────────────┐
@@ -270,6 +273,8 @@ node src/cli.js init          # 建表 + 平台字典（幂等）
 node src/cli.js seed          # 导入 data/games.json
 node src/cli.js diagnose      # 环境 / 数据库 / 网络自检
 ```
+
+前端源码在 `frontend/`（Vue 3 + Vue Router + Element Plus + Vite）。开发时另开终端运行 `npm run frontend:dev`（Vite 默认 5174，API 代理到本机 `8090`），改完刷新即可；生产镜像构建时由多阶段 Dockerfile 自动生成 `frontend/dist`，`frontend/dist/` 不入库。前台首页、初始化、封禁页和控制台十个模块全部由 Vue 渲染；`web/` 里的旧页面只在没有构建产物时作为回退。
 
 没有 PG 服务器也能跑起来（内置 wasm 版 PostgreSQL，仅用于验证逻辑）：
 
@@ -478,7 +483,7 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
 - **限流响应**：429 + `Retry-After`，封禁期间提示还需等待多久；API/脚本收到纯文本。
 - **设备指纹**：前台页面加载时上报平台/语言/时区/屏幕/CPU/内存/WebGL/Canvas 等，服务端只存 sha256 指纹；
   控制台「访问记录 → 设备」可查看最近设备、按指纹封禁。封禁按指纹生效，换 IP 也会命中。
-- **封禁提示页**：被 IP/设备封禁的浏览器请求返回 `web/banned.html`（403），按 `navigator.language` 自动切换
+- **封禁提示页**：被 IP/设备封禁的浏览器请求返回 Vue 封禁页（403），可提交邮件申诉；封禁期间仅放行该页所需的构建 JS/CSS。
   简中/繁中/英/日/韩/俄/西/法/德，带申诉编号与 `mailto:` 申诉入口（没装邮件客户端时点击会复制申诉内容并显示邮箱）；API/脚本仍收到纯文本。
   页面里的站点名与申诉邮箱来自 `SITE_NAME` / `APPEAL_EMAIL`；每次返回提示页会记 `ban.page` 日志（含申诉编号），
   收到申诉邮件后按编号在 `logs/app-*.jsonl` 里能查到对应的 IP / 到期时间 / 原因。

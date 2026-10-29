@@ -2,6 +2,49 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-10-29
+
+前后台页面全面迁移到 Vue 3 + Vite + Element Plus，旧的零构建页面保留为回退。
+
+### 新增
+
+- **Vue 3 前端工程** `frontend/`：Vite 构建、Vue Router 路由、Element Plus 组件；
+  前台首页、初始化向导、封禁页、管理控制台全部由 Vue 渲染
+- **管理控制台重做**：游戏管理、回收站、站点通知、访问记录、用户管理、Steam 账号、
+  邮件服务、系统设置、数据统计、运行日志共 10 个模块；侧栏分组 + 功能搜索 +
+  `?section=` 深链
+- 服务端新增 `frontendDir` 静态分发：`/`、`/console`、`/setup`、`/banned` 与 `/assets/*`
+  由 `frontend/dist` 提供；没有构建产物时自动回退旧的 `web/` 页面
+- 封禁页改为 Vue 渲染：服务端把站点名/申诉邮箱/到期时间/申诉编号注入
+  `window.__BAN_PAGE__`，封禁期间只放行该页所需的 `/assets/*.js|css`
+- 游戏列表返回 `currency` 字段（`src/store/pg.js`），前台按报价币种显示价格
+- 新增 [docs/PROJECT-OVERVIEW.md](docs/PROJECT-OVERVIEW.md)：项目全貌、功能落点与维护约定，
+  README / ARCHITECTURE 已互相链接
+
+### 变更
+
+- **`Dockerfile` 改为多阶段构建**：先在 `node:22-bookworm-slim` 里 `npm ci` + `vite build`
+  产出 `frontend/dist`，再拷进运行镜像；`frontend/dist/` 不入库
+- `vue`、`vue-router`、`element-plus`、`@element-plus/icons-vue`、`vite`、
+  `@vitejs/plugin-vue` 从 `dependencies` 移到 `devDependencies`（运行时只需要构建产物）
+- 新增 `npm run frontend:dev` / `frontend:build` / `frontend:preview`
+- 旧 `web/console.html` 支持 `?embed` 隐藏侧栏，便于旧模块嵌入
+
+### 修复
+
+- 封禁页申诉按钮兜底：点击后先展示完整申诉全文，复制成功才提示「已复制」，
+  复制失败则聚焦只读文本框，没装邮件客户端的环境下也能手动复制
+
+### 测试
+
+- `npm test`（40 个文件）全绿；`email-auth` / `api` / `cli-dispatch` 三个链外文件单独跑也通过
+- `npm run frontend:build` 构建通过；`npm ci --dry-run` 确认 lockfile 与 `package.json` 一致
+- `node scripts/check-html-syntax.mjs`（含 `banned.html`）通过
+- 本地 `serve` 冒烟：`/`、`/console`、`/banned`、`/assets/*` 返回预期内容，缺失资源 404，
+  封禁页正确注入 `window.__BAN_PAGE__`
+- 浏览器渲染验证：首页渲染出 47 款游戏与报价；后台 10 个模块逐个切换无 JS 报错
+  （仅本机无 Steam 出口导致封面图 404，属环境限制）
+
 ## [0.32.0] - 2026-10-29
 
 Steam 定时任务改为「每日刷新已有报价」，长任务遇到 429 自动退避重试。

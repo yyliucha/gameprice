@@ -40,6 +40,7 @@ p{margin:10px 0;color:var(--muted)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:9px 16px;border-radius:10px;background:var(--brand);color:#fff;text-decoration:none;font-weight:600;font-size:14px}
 .btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--border);font-weight:500}
 .tip{font-size:12px;color:var(--muted);margin-top:8px}
+.appeal-fallback{display:block;width:100%;min-height:108px;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--fg);font:12px/1.5 ui-monospace,Consolas,monospace;resize:vertical}
 .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;font-size:12px;color:var(--muted)}
 select{font:inherit;font-size:12px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--fg)}
 code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color-mix(in srgb,var(--fg) 7%,transparent);padding:1px 6px;border-radius:6px}
@@ -80,6 +81,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
     <a class="btn" id="appealBtn" href="#" data-i18n="appealButton">发送申诉邮件</a>
     <button class="btn ghost" id="appealCopy" type="button" hidden>复制申诉内容</button>
     <p class="tip" id="appealMsg" hidden></p>
+    <textarea class="appeal-fallback" id="appealFallback" readonly hidden aria-label="Appeal message"></textarea>
     <p class="tip" id="noEmail" hidden data-i18n="noEmail">管理员还没有配置申诉邮箱，请联系站点管理员。</p>
     <p class="tip" data-i18n="appealTip">申诉时请说明你当时的操作（例如正在浏览列表 / 使用脚本 / 共享网络），复核会更快。</p>
   </div>
@@ -271,7 +273,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
     m.textContent = text;
     m.hidden = false;
   }
-  function copyText(text) {
+  async function copyText(text) {
     try {
       var ta = document.createElement('textarea');
       ta.value = text;
@@ -285,10 +287,9 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
       if (ok) return true;
     } catch (e) { /* 继续尝试 Clipboard API */ }
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(function () {});
-        return true;
-      }
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+      else return false;
+      return true;
     } catch (e) { /* 最后按复制失败处理 */ }
     return false;
   }
@@ -298,16 +299,26 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:color
   // mailto 在没装邮件客户端的环境里点了完全没反应：点击时顺手复制申诉内容并给出可见提示
   var appealBtnEl = document.getElementById('appealBtn');
   if (appealBtnEl) {
-    appealBtnEl.addEventListener('click', function () {
-      var ok = copyText(appealPayload());
+    appealBtnEl.addEventListener('click', async function () {
+      var payload = appealPayload();
+      var fallback = document.getElementById('appealFallback');
+      fallback.value = payload;
+      fallback.hidden = false;
       var x = extra(select.value);
-      appMsg((x.noClient || '').replace('{email}', appealAddr) + (ok ? '' : (x.copyFail || '')));
+      appMsg((x.noClient || '').replace('{email}', appealAddr));
+      var ok = await copyText(payload);
+      if (ok) appMsg(x.copied);
+      else fallback.focus();
     });
   }
   var appealCopyEl = document.getElementById('appealCopy');
   if (appealCopyEl) {
-    appealCopyEl.addEventListener('click', function () {
-      var ok = copyText(appealPayload());
+    appealCopyEl.addEventListener('click', async function () {
+      var payload = appealPayload();
+      var fallback = document.getElementById('appealFallback');
+      fallback.value = payload;
+      fallback.hidden = false;
+      var ok = await copyText(payload);
       var x = extra(select.value);
       appMsg(ok ? x.copied : (x.copyFail || ''));
     });

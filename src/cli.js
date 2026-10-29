@@ -1234,6 +1234,7 @@ async function cmdAll() {
   const port = Number(flag('port', process.env.WEB_PORT ?? 8080));
   const host = String(flag('host', '0.0.0.0'));
   const dir = String(flag('dir', existsSync('web') ? 'web' : (process.env.OUT_DIR ?? 'out')));
+  const frontendDir = existsSync('frontend/dist/index.html') ? 'frontend/dist' : null;
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
 
   const store = await openStore(dbTarget, { logger });
@@ -1249,6 +1250,7 @@ async function cmdAll() {
     query: q,
     logger,
     outDir: dir,
+    frontendDir,
     port,
     host,
     store,
@@ -1290,6 +1292,7 @@ async function cmdServe() {
   const host = String(flag('host', '0.0.0.0'));
   // 有 web/ 就服务前端工程，否则退回静态页目录
   const dir = String(flag('dir', existsSync('web') ? 'web' : (process.env.OUT_DIR ?? 'out')));
+  const frontendDir = existsSync('frontend/dist/index.html') ? 'frontend/dist' : null;
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
@@ -1305,6 +1308,7 @@ async function cmdServe() {
     query: q,
     logger,
     outDir: dir,
+    frontendDir,
     port,
     host,
     store,

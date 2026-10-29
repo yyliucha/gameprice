@@ -35,15 +35,19 @@ node src/cli.js serve --port 8090
 | 路径 | 说明 |
 |---|---|
 | `/setup` | 首次初始化：创建管理员、数据源/代理/提醒；完成前其他页面一律 302 到这里 |
-| `/` | 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称）、登录、后台 |
-| `/console` | 控制台（仅管理员）：用户、游戏管理、访问记录、**Steam 账号**、日志、邮箱、**系统设置**、统计 |
-| 点游戏名 | 详情弹窗：价格曲线（客户端 SVG）、各平台报价、开发商/发行商/分类；管理员可直接改标记 |
+| `/` | Vue 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称）、登录 |
+| `/console` | Vue 控制台（仅管理员）：游戏管理、回收站、站点通知、访问记录、用户管理、**Steam 账号**、邮件服务、**系统设置**、数据统计、运行日志；`?section=` 可直链到某个模块 |
+| `/banned` | Vue 封禁提示页（403）：服务端注入 `window.__BAN_PAGE__`（站点名/申诉邮箱/到期时间/申诉编号），封禁期间只放行该页需要的 `/assets/*.js|css` |
+| 点游戏名 | 详情弹窗：各平台报价、折扣、简介；管理员可直接改标记、设到价提醒 |
 
 **前台不提供 Steam 登录**：Steam OpenID 登录与游戏库同步全部放在控制台的「Steam 账号」页，
 与站点账号体系相互独立；前台只展示游戏优惠数据。
 
-前端是**零构建**的：`web/index.html` / `console.html` / `setup.html` 直接改，刷新即可生效，不需要 npm build。
-设置表单由 `web/settings-ui.js` 按服务端 schema 渲染，setup 与控制台共用。
+前端源码在 `frontend/`（Vue 3 + Vue Router + Element Plus + Vite）：多页面入口由 `frontend/src/router/index.js` 定义，
+页面在 `frontend/src/pages/`，样式在 `frontend/src/styles/main.css`。开发用 `npm run frontend:dev`，
+构建用 `npm run frontend:build`（产物 `frontend/dist/`，不入库，镜像构建时生成）。
+`src/server.js` 的 `frontendDir` 负责把 `/`、`/console`、`/setup`、`/banned` 与 `/assets/*` 交给构建产物；
+没有 `frontend/dist/index.html` 时自动回退到 `web/` 旧页面（旧页面里的设置表单仍由 `web/settings-ui.js` 渲染）。
 
 ## 初始化与系统设置
 
@@ -158,7 +162,9 @@ POST /api/setup/complete
 ```bash
 node test/api.test.js       # 5 项：匿名可读、权限隔离、登录/登出、密码哈希、已拥有标记
 node test/visitors.test.js  # 5 项：IP/CIDR 校验、记录落库过滤、黑名单 403 拦截、权限隔离
-node test/serve.test.js     # 5 项：静态服务路径穿越与内容类型（旧静态模式）
+node test/serve.test.js     # 5 项：静态服务路径穿越与内容类型（无 frontend/dist 时的回退路径）
 ```
 
-前端脚本没有单元测试，用 `new Function` 做语法校验（见提交说明）；行为依赖人工冒烟。
+Vue 页面没有单元测试：改动前端后至少跑 `npm run frontend:build` 确认能构建，再用浏览器过一遍
+`/`、`/console`、`/banned` 与改动的后台模块。`web/` 里旧页面的内联脚本由
+`node scripts/check-html-syntax.mjs web/index.html web/console.html web/setup.html` 做语法校验（CI 会跑）。

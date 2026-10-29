@@ -2,6 +2,8 @@
 
 这份文档记录**为什么这样设计**，而不是罗列代码。命令与部署见 [DEPLOY.md](DEPLOY.md)，数据源实测记录见 [DATA-SOURCES.md](DATA-SOURCES.md)。
 
+项目全貌、Web 前后端、功能代码落点和常用入口见 [PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md)。
+
 ## 1. 约束从哪来
 
 | 约束 | 来源 | 对设计的直接影响 |

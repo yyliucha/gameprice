@@ -61,14 +61,22 @@ function bannedTemplate(outDir) {
 }
 
 /** 封禁提示页：多语言在前端按 navigator.language 选，这里只注入站点名/申诉邮箱/到期时间/申诉编号。 */
-function serveBanPage(res, outDir, { status = 403, until = null, reason = '', siteName = 'SteamDeals', appealEmail = '' } = {}) {
+function serveBanPage(res, outDir, { status = 403, until = null, reason = '', siteName = 'SteamDeals', appealEmail = '' } = {}, frontendDir = null) {
   const code = 'AP-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-  const html = bannedTemplate(outDir)
-    .replaceAll('__SITE_NAME__', escapeHtml(siteName))
-    .replaceAll('__APPEAL_EMAIL__', escapeHtml(appealEmail))
-    .replaceAll('__UNTIL__', until ? new Date(until).toISOString() : '')
-    .replaceAll('__REASON__', escapeHtml(reason))
-    .replaceAll('__CODE__', code);
+  const untilIso = until ? new Date(until).toISOString() : '';
+  const distIndex = frontendDir && resolve(frontendDir, 'index.html');
+  let html;
+  if (distIndex && existsSync(distIndex)) {
+    const payload = JSON.stringify({ status, until: untilIso, reason, site: siteName, email: appealEmail, code }).replace(/</g, '\\u003c');
+    html = readFileSync(distIndex, 'utf8').replace('</head>', `<script>window.__BAN_PAGE__=${payload}</script></head>`);
+  } else {
+    html = bannedTemplate(outDir)
+      .replaceAll('__SITE_NAME__', escapeHtml(siteName))
+      .replaceAll('__APPEAL_EMAIL__', escapeHtml(appealEmail))
+      .replaceAll('__UNTIL__', untilIso)
+      .replaceAll('__REASON__', escapeHtml(reason))
+      .replaceAll('__CODE__', code);
+  }
   const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   if (until) headers['retry-after'] = String(Math.max(1, Math.ceil((Number(until) - Date.now()) / 1000)));
   res.writeHead(status, headers);
@@ -171,6 +179,7 @@ export function createApiServer({
   query,
   logger = null,
   outDir = null,
+  frontendDir = null,
   store = null,
   setupToken = '',
   getSetupState = null,
@@ -279,7 +288,7 @@ export function createApiServer({
   /** 统一的封禁响应：浏览器给提示页，API/脚本给纯文本。 */
   const denyBanned = (req, res, { status = 403, until = null, reason = '访问被拒绝', ip = null } = {}) => {
     if (wantsHtml(req)) {
-      const code = serveBanPage(res, outDir, { status, until, reason, siteName: siteName(), appealEmail: appealEmail() });
+      const code = serveBanPage(res, outDir, { status, until, reason, siteName: siteName(), appealEmail: appealEmail() }, frontendDir);
       // 记录申诉编号，管理员收到申诉邮件后能按编号在日志里定位这次封禁
       logger?.warn('ban.page', { ip, code, status, until, reason });
       return code;
@@ -341,6 +350,7 @@ export function createApiServer({
       const deviceId = devices.normalizeDeviceId(cookies[DEVICE_COOKIE]);
       const deviceBan = deviceId && !adminBypass && !whitelisted ? devices.isBanned({ deviceId }) : null;
       if (deviceBan) {
+        if (req.method === 'GET' && isFrontendAsset(path)) return serveFrontendStatic(res, frontendDir, outDir, path);
         logger?.warn('device.denied', { ip, deviceId, until: deviceBan.until });
         logBlocked({ ip, req, path, status: 403, reason: '设备已被封禁' });
         return denyBanned(req, res, { status: 403, until: deviceBan.until, reason: '设备已被封禁', ip });
@@ -352,6 +362,7 @@ export function createApiServer({
         // 统一走 hit：封禁期内的请求也会被计数，够数就记一条待审核（**不再自动永久封**）
         const verdict = await ratelimit.hit(q, ip, { bucket: guard.isAssetPath(path) ? 'asset' : 'page' });
         if (verdict.limited) {
+          if (req.method === 'GET' && isFrontendAsset(path)) return serveFrontendStatic(res, frontendDir, outDir, path);
           const until = Number(verdict.until) || 0;
           logger?.warn('rate.limited', {
             ip,
@@ -379,6 +390,7 @@ export function createApiServer({
 
       const hit = ip && !adminBypass && !whitelisted ? visitors.blockedBy(ip) : null;
       if (hit) {
+        if (req.method === 'GET' && isFrontendAsset(path)) return serveFrontendStatic(res, frontendDir, outDir, path);
         logger?.warn('block.ip_denied', { ip, path, rule: hit });
         logBlocked({ ip, req, path, status: 403, reason: `IP 黑名单（${hit}）` });
         return denyBanned(req, res, { status: 403, reason: '访问被拒绝', ip });
@@ -439,12 +451,13 @@ export function createApiServer({
         // 图标也要放行：否则 /setup 自身的 favicon 请求会被 302 成 HTML，标签页图标就丢了
         if (
           path === '/setup' ||
+          (req.method === 'GET' && isFrontendAsset(path)) ||
           path === '/settings-ui.js' ||
           path === '/favicon.svg' ||
           path === '/favicon.ico' ||
           path === '/apple-touch-icon.png'
         ) {
-          return serveStatic(res, outDir, path);
+          return serveFrontendStatic(res, frontendDir, outDir, path);
         }
         if (path.startsWith('/api/setup/')) {
           const handled = await handleSetupRoutes({
@@ -492,7 +505,7 @@ export function createApiServer({
 
       // ---- 封禁提示页（直接打开也返回同样的页面）----
       if (path === '/banned' || path === '/banned/') {
-        const code = serveBanPage(res, outDir, { status: 403, siteName: siteName(), appealEmail: appealEmail(), reason: '访问受限' });
+        const code = serveBanPage(res, outDir, { status: 403, siteName: siteName(), appealEmail: appealEmail(), reason: '访问受限' }, frontendDir);
         logger?.info('ban.page_direct', { ip, code });
         return;
       }
@@ -501,7 +514,7 @@ export function createApiServer({
       // 注意：/img/ 是服务端图片代理路由（本地缓存 → CDN 兜底），不能当静态文件处理，
       // 否则会直接 404——这正是之前"前台只有名字没有图"的真正原因。
       if (!path.startsWith('/api/') && !path.startsWith('/img/')) {
-        return serveStatic(res, outDir, path);
+        return serveFrontendStatic(res, frontendDir, outDir, path);
       }
 
       // ---- 公开接口：站点信息 / 公告 / 设备指纹上报 ----
@@ -1970,10 +1983,25 @@ function serveStatic(res, outDir, pathname) {
   res.end(body);
 }
 
+/** Vue 构建产物负责站点所有页面；无构建产物时回退到 web 目录。 */
+function serveFrontendStatic(res, frontendDir, outDir, pathname) {
+  if (!frontendDir || !existsSync(resolve(frontendDir, 'index.html'))) return serveStatic(res, outDir, pathname);
+  if (['/', '/console', '/console/', '/setup', '/setup/', '/banned', '/banned/', '/index.html', '/console.html', '/setup.html', '/banned.html'].includes(pathname)) {
+    return serveStatic(res, frontendDir, '/index.html');
+  }
+  if (pathname.startsWith('/assets/')) return serveStatic(res, frontendDir, pathname);
+  return serveStatic(res, outDir, pathname);
+}
+
+function isFrontendAsset(pathname) {
+  return /^\/assets\/[A-Za-z0-9._/-]+\.(?:js|css)$/.test(pathname);
+}
+
 export function startApiServer({
   query,
   logger = null,
   outDir = null,
+  frontendDir = null,
   port = 8090,
   host = '0.0.0.0',
   store = null,
@@ -1981,7 +2009,7 @@ export function startApiServer({
   getSetupState = null,
   imageFetch = null,
 }) {
-  const server = createApiServer({ query, logger, outDir, store, setupToken, getSetupState, imageFetch });
+  const server = createApiServer({ query, logger, outDir, frontendDir, store, setupToken, getSetupState, imageFetch });
   // 黑名单定时刷新（管理端增删后也会即时刷新；unref 不阻止进程退出）
   const blockTimer = setInterval(() => {
     visitors.refreshBlocklist(query).catch(() => {});

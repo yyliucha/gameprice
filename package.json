@@ -1,6 +1,6 @@
 {
   "name": "steamdeals",
-  "version": "0.32.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "以 Steam 为准的跨平台游戏比价：采集各授权渠道价格、留存价格历史、按需提醒。PostgreSQL + CLI + Web 前后端。",
@@ -54,17 +54,24 @@
     "stats": "node src/cli.js stats",
     "diagnose": "node src/cli.js diagnose",
     "logs": "node src/cli.js logs",
-    "sync:all": "node src/cli.js sync all"
+    "sync:all": "node src/cli.js sync all",
+    "frontend:dev": "vite --config frontend/vite.config.js",
+    "frontend:build": "vite build --config frontend/vite.config.js",
+    "frontend:preview": "vite preview --config frontend/vite.config.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.11",
-    "element-plus": "^2.14.7",
     "pg": "^8.23.1",
-    "undici": "^8.12.3",
-    "vue": "^3.5.44"
+    "undici": "^8.12.3"
   },
   "devDependencies": {
     "@electric-sql/pglite-socket": "^0.2.14",
+    "@element-plus/icons-vue": "2.3.2",
+    "@vitejs/plugin-vue": "6.0.10",
+    "element-plus": "2.14.7",
+    "vite": "8.3.5",
+    "vue": "3.5.44",
+    "vue-router": "4.6.4",
     "yaml": "^2.9.1"
   }
 }

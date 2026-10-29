@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+FROM node:22-bookworm-slim AS frontend-build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend ./frontend
+RUN npm run frontend:build
+
 FROM node:22-bookworm-slim
 
 # TZ 影响日志时间与 date 列，默认东八区；DB_WAIT_SEC 让容器等数据库就绪再启动
@@ -23,6 +30,7 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node data ./data
 # 前端工程（单页应用）——漏了这行，容器里 /app/web 不存在，GET / 会 404
 COPY --chown=node:node web ./web
+COPY --from=frontend-build --chown=node:node /app/frontend/dist ./frontend/dist
 COPY --chown=node:node scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /app/logs \

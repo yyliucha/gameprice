@@ -18,3 +18,4 @@ compose.cn.external-db.local.yaml
 *.db-wal
 *.db-shm
 data/secret.key
+frontend/dist/

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>SteamDeals · 控制台</title>
+<script>if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embedded')</script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -72,6 +73,9 @@ textarea{width:100%;min-height:100px;resize:vertical}
 .compact-details>summary:after{content:'＋';float:right;color:var(--muted)}
 .compact-details[open]>summary:after{content:'−'}
 .compact-details>.details-body{padding:0 15px 14px}
+html.embedded .layout{display:block;min-height:0}
+html.embedded aside,html.embedded #consoleTitle,html.embedded #consoleSubtitle{display:none!important}
+html.embedded main{padding:12px;max-width:none}
 /* 设置页：保存栏留在文档流内，避免展开设置项时覆盖搜索栏 */
 #settingsBar{margin-bottom:14px}
 #statsNav{margin-top:-4px}
