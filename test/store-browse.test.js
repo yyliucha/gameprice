@@ -57,7 +57,35 @@ test('字段映射：DLC 与无价格', () => {
   assert.equal(mapStoreItem(null), null);
 });
 
-test('字段映射：final_price 是整数时也能解出价格（新接口两种形态）', () => {
+test('字段映射：真实 GetItems 字段 final_price_in_cents / discount_pct', () => {
+  const item = mapStoreItem({
+    appid: 271590,
+    name: 'Grand Theft Auto V',
+    type: 'app',
+    is_free: false,
+    basic_info: { short_description: '开放世界' },
+    best_purchase_option: {
+      packageid: 12345,
+      final_price_in_cents: 11900,
+      original_price_in_cents: 17900,
+      discount_pct: 33,
+      formatted_final_price: '¥119.00',
+    },
+  });
+  assert.equal(item.priceOverview.final, 11900);
+  assert.equal(item.priceOverview.initial, 17900);
+  assert.equal(item.priceOverview.discountPercent, 33);
+  assert.equal(item.priceOverview.currency, 'CNY');
+  assert.equal(item.isFree, false);
+});
+
+test('字段映射：免费游戏 is_free 为 true（没有购买选项也不影响）', () => {
+  const item = mapStoreItem({ appid: 570, name: 'Dota 2', type: 'app', is_free: true, basic_info: {} });
+  assert.equal(item.isFree, true);
+  assert.equal(item.priceOverview, null);
+});
+
+test('字段映射：final_price 是整数时也能解出价格（旧形态兼容）', () => {
   const item = mapStoreItem({
     appid: 570,
     name: 'Dota 2',

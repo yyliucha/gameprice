@@ -2,6 +2,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.30.3] - 2026-10-29
+
+修复回填「有元数据、没价格」的真正原因：价格字段名解析错了。
+
+### 修复
+
+- **`mapStoreItem` 读错价格字段**：Steam `GetItems` 返回的是
+  `final_price_in_cents` / `original_price_in_cents` / `discount_pct`，
+  之前读的是 `final_price.amount`，导致每条的 `priceOverview` 都是 null →
+  `offers` / `daily_prices` 一条没写，前端「有价格」一直停在约 1000 款
+- 同时兼容旧形态（`final_price` 为整数或 `{amount}`）和 `purchase_options` 数组；
+  免费游戏用 `is_free` 判断
+- 说明：`include_best_purchase_option` 在 proto 里默认就是 true，0.30.1 补的那一项无害，
+  但不是问题根因（请求前后响应字节数完全一致）
+
+### 测试
+
+- `store-browse.test.js` 增加真实字段名、免费游戏 `is_free` 的用例（共 10 项）
+
 ## [0.30.2] - 2026-10-29
 
 控制台游戏管理：去掉「显示图片」开关，图片列改为始终显示。

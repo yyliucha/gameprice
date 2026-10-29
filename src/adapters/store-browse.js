@@ -44,26 +44,27 @@ const stripHtml = (raw) =>
 export function mapStoreItem(item) {
   if (!item || !item.appid) return null;
   const basic = item.basic_info ?? {};
-  // 新接口用 best_purchase_option；个别版本/参数下会放在 purchase_options 数组里
+  // 正常在 best_purchase_option；include_all_purchase_options 时可能在 purchase_options 数组里
   const price = item.best_purchase_option ?? (Array.isArray(item.purchase_options) ? item.purchase_options[0] : null) ?? null;
   const isDlc = String(item.type ?? '').toLowerCase() === 'dlc';
-  // final_price 有两种返回形态：{ amount, currency } 或直接整数（分）
-  const amountOf = (v) => {
-    if (v == null) return null;
-    if (typeof v === 'number') return Math.round(v);
-    if (typeof v === 'object' && v.amount != null) return Math.round(Number(v.amount));
+  // 价格字段的真实名字是 final_price_in_cents / original_price_in_cents / discount_pct；
+  // 这里兼容旧测试夹具的 {amount} 形态，避免再因为字段名对不上而"静默无价格"。
+  const centsOf = (...values) => {
+    for (const v of values) {
+      if (v == null) continue;
+      if (typeof v === 'number') return Math.round(v);
+      if (typeof v === 'object' && v.amount != null) return Math.round(Number(v.amount));
+    }
     return null;
   };
-  const currencyOf = (v, fallback) =>
-    v && typeof v === 'object' && v.currency ? String(v.currency) : fallback ? String(fallback) : 'CNY';
-  const final = price ? amountOf(price.final_price) : null;
-  const initial = price ? amountOf(price.original_price) : null;
+  const final = price ? centsOf(price.final_price_in_cents, price.final_price) : null;
+  const initial = price ? centsOf(price.original_price_in_cents, price.original_price) : null;
   return {
     steamAppid: Number(item.appid),
     nameEn: null,
     nameZh: item.name ?? null,
     appType: isDlc ? 'dlc' : item.type ? 'game' : null,
-    isFree: final == null ? null : final === 0,
+    isFree: item.is_free === true ? true : final == null ? null : final === 0,
     headerImage: null,
     releaseDate: null,
     developers: Array.isArray(basic.developers) ? basic.developers : null,
@@ -77,8 +78,8 @@ export function mapStoreItem(item) {
         ? {
             final,
             initial: initial ?? final,
-            discountPercent: Number(price?.discount_percent ?? 0),
-            currency: currencyOf(price?.final_price, price?.currency_code),
+            discountPercent: Number(price?.discount_pct ?? price?.discount_percent ?? 0),
+            currency: String(price?.currency_code ?? 'CNY'),
           }
         : null,
   };
