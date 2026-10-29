@@ -127,9 +127,70 @@ export function createApiServer({
   const q = query;
   // 手动同步的进程内状态：同一时刻只允许一个同步任务
   let syncChild = null;
-  let syncRun = null; // { id, mode, startedAt }
+  let syncRun = null; // { id, mode, startedAt, params }
   let syncOutput = ''; // 子进程输出尾巴，供前端轮询
   let syncSettled = true;
+  let syncStopRequested = false; // 后台点了"停止"，子进程退出后记为 cancelled
+
+  /**
+   * 启动一个 Steam 子进程任务（同步 / 回填共用同一个槽位，保证同一时间只有一个任务）。
+   * 记录到 sync_runs，输出尾巴供前端轮询；返回 { runId, pid }。
+   */
+  async function startSteamJob({ mode, args, params = null, by = null }) {
+    if (syncChild) {
+      const err = new Error('已有任务在运行（同步/回填），请等它结束');
+      err.code = 'BUSY';
+      err.run = syncRun;
+      throw err;
+    }
+    // 进程内没记录但库里有 running（服务重启残留）→ 先标失败，避免永远拒绝
+    const stale = await db.runningSyncRun(q).catch(() => null);
+    if (stale) await db.markStaleSyncRuns(q).catch(() => {});
+    const run = await db.insertSyncRun(q, { mode, args: args.join(' ') });
+    const { spawn } = await import('node:child_process');
+    const fsMod = await import('node:fs');
+    // SYNC_RUN_ID 让子进程复用这一条记录，避免重复建行
+    const child = spawn(process.execPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, SYNC_RUN_ID: String(run.id) },
+    });
+    syncChild = child;
+    syncRun = { id: run.id, mode, args: args.join(' '), startedAt: run.startedAt, params };
+    syncOutput = '';
+    syncSettled = false;
+    syncStopRequested = false;
+    const append = (chunk) => {
+      syncOutput = (syncOutput + chunk).slice(-8000);
+      try {
+        fsMod.appendFileSync('logs/spawn.log', chunk);
+      } catch {
+        /* 日志目录不可写时忽略，DB 里仍有输出 */
+      }
+    };
+    const finish = async (status, exitCode, note) => {
+      if (syncSettled) return;
+      syncSettled = true;
+      syncChild = null;
+      if (syncStopRequested) status = 'cancelled';
+      if (note) append('\n' + note);
+      try {
+        await db.finishSyncRun(q, run.id, { status, exitCode, output: syncOutput });
+      } catch {
+        /* 记录失败不影响主流程 */
+      }
+      logger?.info('api.sync_finished', { mode, runId: run.id, status, exitCode });
+    };
+    child.stdout?.on('data', (d) => append(String(d)));
+    child.stderr?.on('data', (d) => append(String(d)));
+    child.on('error', (err) => {
+      void finish('failed', null, '[spawn error] ' + String(err.message).slice(0, 300));
+    });
+    child.on('close', (code) => {
+      void finish(code === 0 ? 'ok' : 'failed', code, null);
+    });
+    logger?.info('api.sync_started', { mode, args: args.join(' '), by, pid: child.pid, runId: run.id });
+    return { runId: run.id, pid: child.pid };
+  }
 
   // 被拦截请求的采样日志：同一 IP 每分钟最多一条，避免刷屏和污染访问统计
   const blockedLoggedAt = new Map();
@@ -1035,10 +1096,6 @@ export function createApiServer({
       // 记录到 sync_runs（开始/结束/输出尾巴），前端轮询状态显示实时输出。
       if (path === '/api/admin/sync' && req.method === 'POST') {
         if (!requireAdmin()) return;
-        if (syncChild) return json(res, 409, { error: '已有同步在运行，请等它结束', run: syncRun });
-        // 进程内没记录但库里有 running（服务重启残留）→ 先标失败，避免永远拒绝
-        const stale = await db.runningSyncRun(q).catch(() => null);
-        if (stale) await db.markStaleSyncRuns(q).catch(() => {});
         const body = await readBody(req);
         const mode = body.mode === 'catalog' ? 'catalog' : 'steamall';
         const args = ['src/cli.js', 'sync', mode];
@@ -1047,48 +1104,13 @@ export function createApiServer({
           const sleep = Math.min(Math.max(Number(body.sleep ?? 2) || 2, 1), 30);
           args.push('--limit', String(limit), '--sleep', String(sleep));
         }
-        const run = await db.insertSyncRun(q, { mode, args: args.join(' ') });
-        const { spawn } = await import('node:child_process');
-        const fsMod = await import('node:fs');
-        // SYNC_RUN_ID 让子进程复用这一条记录，避免重复建行
-        const child = spawn(process.execPath, args, {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, SYNC_RUN_ID: String(run.id) },
-        });
-        syncChild = child;
-        syncRun = { id: run.id, mode, args: args.join(' '), startedAt: run.startedAt };
-        syncOutput = '';
-        syncSettled = false;
-        const append = (chunk) => {
-          syncOutput = (syncOutput + chunk).slice(-8000);
-          try {
-            fsMod.appendFileSync('logs/spawn.log', chunk);
-          } catch {
-            /* 日志目录不可写时忽略，DB 里仍有输出 */
-          }
-        };
-        const finish = async (status, exitCode, note) => {
-          if (syncSettled) return;
-          syncSettled = true;
-          syncChild = null;
-          if (note) append('\n' + note);
-          try {
-            await db.finishSyncRun(q, run.id, { status, exitCode, output: syncOutput });
-          } catch {
-            /* 记录失败不影响主流程 */
-          }
-          logger?.info('api.sync_finished', { mode, runId: run.id, status, exitCode });
-        };
-        child.stdout?.on('data', (d) => append(String(d)));
-        child.stderr?.on('data', (d) => append(String(d)));
-        child.on('error', (err) => {
-          void finish('failed', null, '[spawn error] ' + String(err.message).slice(0, 300));
-        });
-        child.on('close', (code) => {
-          void finish(code === 0 ? 'ok' : 'failed', code, null);
-        });
-        logger?.info('api.sync_started', { mode, args: args.join(' '), by: user.username, pid: child.pid, runId: run.id });
-        return json(res, 202, { started: true, runId: run.id, mode, pid: child.pid });
+        try {
+          const job = await startSteamJob({ mode, args, by: user.username });
+          return json(res, 202, { started: true, runId: job.runId, mode, pid: job.pid });
+        } catch (err) {
+          if (err.code === 'BUSY') return json(res, 409, { error: err.message, run: err.run });
+          throw err;
+        }
       }
 
       if (path === '/api/admin/sync/status' && req.method === 'GET') {
@@ -1115,6 +1137,58 @@ export function createApiServer({
         if (!requireAdmin()) return;
         const limit = Number(url.searchParams.get('limit') ?? 20);
         return json(res, 200, { runs: await db.listSyncRuns(q, { limit }) });
+      }
+
+      // ---- 管理员：数据回填（批量补全量元数据/价格，与同步共用子进程槽位）----
+      if (path === '/api/admin/backfill' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const { normalizeBackfillParams, backfillArgs } = await import('./backfill.js');
+        const params = normalizeBackfillParams(body);
+        try {
+          const job = await startSteamJob({ mode: 'backfill', args: backfillArgs(params), params, by: user.username });
+          logger?.info('api.backfill_started', { runId: job.runId, by: user.username, ...params });
+          return json(res, 202, { started: true, runId: job.runId, pid: job.pid, params });
+        } catch (err) {
+          if (err.code === 'BUSY') return json(res, 409, { error: err.message, run: err.run });
+          throw err;
+        }
+      }
+
+      if (path === '/api/admin/backfill/stop' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        if (!syncChild) return json(res, 409, { error: '当前没有运行中的任务' });
+        const child = syncChild;
+        const runId = syncRun?.id ?? null;
+        syncStopRequested = true;
+        child.kill('SIGTERM');
+        // 10 秒还没退就强杀，避免卡死子进程一直占着槽位
+        const killTimer = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* 已退出 */
+          }
+        }, 10000);
+        killTimer.unref?.();
+        logger?.warn('api.backfill_stop', { runId, pid: child.pid, by: user.username });
+        return json(res, 202, { stopping: true, runId, pid: child.pid });
+      }
+
+      if (path === '/api/admin/backfill/status' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const { parseBackfillProgress } = await import('./backfill.js');
+        const isBackfill = syncRun?.mode === 'backfill';
+        const runs = await db.listSyncRuns(q, { limit: 10 }).catch(() => []);
+        return json(res, 200, {
+          running: Boolean(syncChild) && isBackfill,
+          busy: Boolean(syncChild),
+          mode: syncRun?.mode ?? null,
+          run: syncRun,
+          output: syncOutput.slice(-6000),
+          progress: isBackfill ? parseBackfillProgress(syncOutput) : null,
+          last: runs.find((r) => r.mode === 'backfill') ?? null,
+        });
       }
 
       // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----

@@ -165,6 +165,26 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           </div>
         </div>
 
+        <h2>数据回填（批量补全量元数据/价格）</h2>
+        <div class="card pad">
+          <div class="row">
+            <span class="small muted">上限</span>
+            <input id="bfLimit" value="200000" style="width:90px" title="本次最多处理多少款">
+            <span class="small muted">每批</span>
+            <input id="bfBatch" value="100" style="width:60px" title="一次 GetItems 最多 100 个 appid">
+            <span class="small muted">间隔 ms</span>
+            <input id="bfSleep" value="3000" style="width:70px" title="两批之间等待，越大越安全">
+            <span class="small muted">回退/批</span>
+            <input id="bfFallback" value="10" style="width:55px" title="批量没返回时逐个回退的上限，0 = 关闭">
+            <button class="btn primary" id="bfStart">开始回填</button>
+            <button class="btn" id="bfStop" disabled>停止</button>
+            <span class="small muted" id="bfMsg"></span>
+          </div>
+          <div class="small muted" id="bfProgress" style="margin-top:6px"></div>
+          <div class="logbox" id="bfBox" style="max-height:160px;margin-top:8px;display:none"></div>
+          <p class="muted small">与同步共用一个任务槽位（同一时间只跑一个）。遇到 429/403 会立即中止回填，进度保留；重跑会自动跳过已补的。全量约 2000 批，按 3 秒间隔约 5 小时。</p>
+        </div>
+
         <h2 style="display:flex;align-items:center;gap:10px">同步记录
           <button class="btn small" id="syncRunsToggle">展开全部</button>
           <span class="small muted">默认只显示最近 5 条，结果列过长可悬停查看</span>
@@ -526,7 +546,7 @@ function showPage(page) {
   document.querySelectorAll('section[data-section]').forEach((s) => s.classList.toggle('hide', s.dataset.section !== page));
   if (page === 'stats') { loadStats(); loadImgStats(); loadPriceReport(); loadBackups(); }
   if (page === 'sync') loadLogs();
-  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); }
+  if (page === 'games') { loadGameList(); loadGameStats(); loadSyncRuns(); loadSyncSchedule(); if (syncPollTimer) { clearTimeout(syncPollTimer); syncPollTimer = null; } pollSyncStatus(); if (bfPollTimer) { clearTimeout(bfPollTimer); bfPollTimer = null; } pollBackfill(); }
   if (page === 'recycle') loadRecycleBin();
   if (page === 'steam') loadSteam();
   if (page === 'visitors') { setVisTab(visTab); loadWhitelist(); loadAbuse(); loadBlacklist(); loadVisitors(); }
@@ -1091,8 +1111,10 @@ if ($('vSize')) $('vSize').onchange = function () { loadVisitors(1); };
 
 // ---- 同步：不跳页、按钮禁用、运行中显示实时输出，结束后恢复 ----
 let syncPollTimer = null;
+const MODE_LABELS = { catalog: '导入目录', steamall: '增量同步', backfill: '数据回填' };
+function modeLabel(mode) { return MODE_LABELS[mode] || String(mode || '—'); }
 function setSyncBusy(busy) {
-  ['syncAll', 'syncCatalog', 'syncLimit', 'syncSleep'].forEach(function (id) {
+  ['syncAll', 'syncCatalog', 'syncLimit', 'syncSleep', 'bfStart'].forEach(function (id) {
     const el = $(id);
     if (el) el.disabled = busy;
   });
@@ -1109,13 +1131,13 @@ async function loadSyncRuns() {
       const dur = r.finished_at && r.started_at
         ? Math.max(1, Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000)) + ' 秒'
         : (running ? '运行中' : '—');
-      const pill = running ? '<span class="pill">运行中</span>' : r.status === 'ok' ? '<span class="pill ok">成功</span>' : '<span class="pill off">失败</span>';
+      const pill = running ? '<span class="pill">运行中</span>' : r.status === 'ok' ? '<span class="pill ok">成功</span>' : r.status === 'cancelled' ? '<span class="pill off">已停止</span>' : '<span class="pill off">失败</span>';
       // 只取第一行做摘要，太长就截断；完整内容在悬停提示里
       const full = String(r.output || '').trim();
       const firstLine = full.split('\n').map(function (s) { return s.trim(); }).filter(Boolean)[0] || '';
       const summary = firstLine.length > 90 ? firstLine.slice(0, 90) + '…' : firstLine;
       return '<tr><td class="muted small">' + when(r.started_at) + '</td>' +
-        '<td class="small">' + esc(r.mode === 'catalog' ? '导入目录' : '增量同步') + '</td>' +
+        '<td class="small">' + esc(modeLabel(r.mode)) + '</td>' +
         '<td>' + pill + (r.exit_code != null ? ' <span class="small muted">exit ' + r.exit_code + '</span>' : '') + '</td>' +
         '<td class="num small">' + esc(dur) + '</td>' +
         '<td class="small" title="' + esc(full.slice(-4000)) + '">' +
@@ -1162,7 +1184,7 @@ async function pollSyncStatus() {
       sawSyncRunning = true;
       setSyncBusy(true);
       if (live) live.classList.remove('hide');
-      if (meta) meta.textContent = '运行中：' + (d.run.mode === 'catalog' ? '导入目录' : '增量同步') +
+      if (meta) meta.textContent = '运行中：' + modeLabel(d.run.mode) +
         ' · 开始于 ' + when(d.run.startedAt) + ' · 实时输出';
       if (box) { box.textContent = d.output || '（暂无输出，等待子进程…）'; box.scrollTop = box.scrollHeight; }
       syncPollTimer = setTimeout(pollSyncStatus, 10000);
@@ -1207,6 +1229,97 @@ async function triggerSync(mode) {
 }
 $('syncAll').onclick = function () { triggerSync('steamall'); };
 if ($('syncCatalog')) $('syncCatalog').onclick = function () { triggerSync('catalog'); };
+
+// ---- 数据回填：后台跑，与同步共用一个任务槽位 ----
+let bfPollTimer = null;
+let bfWasRunning = false;
+function setBackfillBusy({ busy = false, running = false } = {}) {
+  if ($('bfStart')) $('bfStart').disabled = Boolean(busy);
+  if ($('bfStop')) $('bfStop').disabled = !running;
+  ['bfLimit', 'bfBatch', 'bfSleep', 'bfFallback'].forEach(function (id) {
+    const el = $(id);
+    if (el) el.disabled = Boolean(running);
+  });
+}
+function renderBackfill(d) {
+  const prog = $('bfProgress');
+  const box = $('bfBox');
+  if (!prog) return;
+  if (d && d.running && d.progress) {
+    const p = d.progress;
+    prog.textContent = '批次 ' + p.batches + ' · 已处理 ' + p.done + '/' + p.limit + '（' + p.percent + '%）' +
+      ' · 写入 ' + p.written + ' · 回退 ' + p.fallback + ' · 失败 ' + p.failed + ' · ' + p.ratePerMin + ' 款/分钟';
+  } else if (d && d.running) {
+    prog.textContent = '运行中（等待第一批结果…）';
+  } else if (d && d.last) {
+    const st = d.last.status === 'ok' ? '成功' : d.last.status === 'cancelled' ? '已停止' : '失败';
+    prog.textContent = '最近一次回填：' + st + ' · ' + when(d.last.started_at);
+  } else {
+    prog.textContent = '还没有回填记录';
+  }
+  if (box) {
+    if (d && d.output) {
+      box.style.display = '';
+      box.textContent = d.output;
+      box.scrollTop = box.scrollHeight;
+    } else {
+      box.style.display = 'none';
+    }
+  }
+}
+async function pollBackfill() {
+  if (document.hidden) { bfPollTimer = setTimeout(pollBackfill, 30000); return; }
+  try {
+    const d = await api('/api/admin/backfill/status');
+    renderBackfill(d);
+    setBackfillBusy({ busy: Boolean(d.busy), running: Boolean(d.running) });
+    if (d.running) {
+      bfWasRunning = true;
+      bfPollTimer = setTimeout(pollBackfill, 5000);
+      return;
+    }
+    bfPollTimer = null;
+    if (bfWasRunning) {
+      bfWasRunning = false;
+      await loadSyncRuns();
+      const st = d.last?.status;
+      toast(st === 'ok' ? '回填完成' : st === 'cancelled' ? '回填已停止' : '回填结束（有失败，看输出）');
+    }
+  } catch (e) {
+    bfPollTimer = setTimeout(pollBackfill, 10000);
+  }
+}
+if ($('bfStart')) $('bfStart').onclick = async function () {
+  const params = {
+    limit: Number(($('bfLimit') || {}).value || 200000),
+    batch: Number(($('bfBatch') || {}).value || 100),
+    sleep: Number(($('bfSleep') || {}).value || 3000),
+    fallback: Number(($('bfFallback') || {}).value || 0),
+  };
+  if (!confirm('开始回填？上限 ' + params.limit + ' 款，任务会持续较久（可在本页停止）。')) return;
+  if ($('bfMsg')) $('bfMsg').textContent = '正在启动…';
+  try {
+    const d = await api('/api/admin/backfill', { method: 'POST', body: JSON.stringify(params) });
+    if ($('bfMsg')) $('bfMsg').textContent = '已开始（任务 #' + d.runId + '）';
+    toast('回填已开始');
+    setBackfillBusy({ busy: true, running: true });
+    if (bfPollTimer) clearTimeout(bfPollTimer);
+    pollBackfill();
+  } catch (err) {
+    if ($('bfMsg')) $('bfMsg').textContent = '启动失败：' + err.message;
+    toast('启动失败：' + err.message);
+  }
+};
+if ($('bfStop')) $('bfStop').onclick = async function () {
+  if (!confirm('停止回填？已写入的数据会保留，重跑会跳过已补的。')) return;
+  try {
+    await api('/api/admin/backfill/stop', { method: 'POST', body: '{}' });
+    if ($('bfMsg')) $('bfMsg').textContent = '正在停止…';
+    toast('正在停止回填');
+  } catch (err) {
+    if ($('bfMsg')) $('bfMsg').textContent = '停止失败：' + err.message;
+  }
+};
 
 // ---- Steam 账号（仅后台）：OpenID 登录 + 游戏库同步 ----
 async function loadSteam() {
