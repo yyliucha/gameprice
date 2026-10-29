@@ -72,8 +72,8 @@ textarea{width:100%;min-height:100px;resize:vertical}
 .compact-details>summary:after{content:'＋';float:right;color:var(--muted)}
 .compact-details[open]>summary:after{content:'−'}
 .compact-details>.details-body{padding:0 15px 14px}
-/* 设置页：保存栏吸顶悬浮 */
-#settingsBar{position:sticky;top:0;z-index:7;box-shadow:0 8px 16px -12px rgba(15,23,42,.45)}
+/* 设置页：保存栏留在文档流内，避免展开设置项时覆盖搜索栏 */
+#settingsBar{margin-bottom:14px}
 #statsNav{margin-top:-4px}
 /* 访问记录：分「明细 / 统计」两个子视图，明细表内部滚动 + 表头吸顶 */
 #visTableWrap thead th{position:sticky;top:0;background:var(--panel,#fff);z-index:1;box-shadow:inset 0 -1px 0 var(--border,#e5e7eb)}

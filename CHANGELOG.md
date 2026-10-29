@@ -2,6 +2,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.31.2] - 2026-10-29
+
+设置页保存栏不再吸顶，避免遮住顶部搜索栏。
+
+### 修复
+
+- `#settingsBar` 从 `position:sticky` 改为普通文档流（保留底部间距），展开设置项时不会覆盖搜索栏
+
 ## [0.31.1] - 2026-10-29
 
 限流退避修正：429 重试改为 20 秒。
