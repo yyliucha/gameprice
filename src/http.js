@@ -293,7 +293,7 @@ export async function fetchText(url, opts = {}) {
       // 403 不应重试；其他短暂错误按普通退避处理。
       if (err.status === 403) break;
       retriesUsed += 1;
-      const delayMs = 500 * retriesUsed;
+      const delayMs = err.status === 429 ? 20_000 : 500 * retriesUsed;
       logger?.info('http.retry', { label, requestId, attempt, delayMs, status: err.status ?? null });
       await sleep(delayMs);
     } finally {
