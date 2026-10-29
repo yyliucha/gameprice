@@ -466,6 +466,17 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
 
 日志自动脱敏：`apiKey` / `token` / `cookie` 打成 `***`；连接串只抹密码、保留 host 与库名（排障需要）。按 8MB 轮转、保留 10 份。
 
+### 访问安全与自动封禁
+
+- **限流分桶**：页面/API 默认 60 次/60 秒，静态资源与封面图单独一桶（300 次/60 秒）——正常翻页的几十张封面不会把用户顶到阈值。
+- **路径守卫**：白名单 = 页面、图标、`outDir` 下真实存在的静态文件、`/api/`、`/img/`、`robots.txt` 等良性探测；
+  扫描器签名（`.env`、`.git`、`*.php`、`..`、`/wp-`、`/phpmyadmin` 等）命中立即封 1 小时，24 小时内重犯封 24 小时，**永不自动永久**。
+- **未知路径**默认只记录（`PATH_BAN_UNKNOWN_MODE=log`），可配成 10 分钟内 30 个不同路径才封。
+- **被拦截的请求**（429/403/扫描路径）按 IP 每分钟采样一条写入访问记录，带 `blocked` 标记，不计入访问量；
+  控制台「访问记录」页可切换「正常访问 / 被拦截 / 全部」。
+- 封禁名单与计数都在 `ip_abuse`（临时）和 `ip_blacklist`（永久，仅人工/超频三振写入）；控制台「统计 / 黑名单 / 白名单」页可一键解封。
+- **反代部署**才需要 `TRUST_PROXY=1`；生效 IP 取 `X-Real-IP` 或 `X-Forwarded-For` 最后一跳并校验格式，防止伪造 XFF。
+
 ## 测试
 
 ```bash
@@ -496,7 +507,9 @@ node test/visitors.test.js   # 5 项：IP/CIDR 校验、记录落库与过滤、
 node test/sync-runs.test.js  # 2 项：同步任务记录生命周期、重启中断标记、状态接口权限
 node test/pool.test.js       # 4 项：并发上限、结果顺序、单项失败隔离
 node test/version.test.js    # 4 项：版本比较、release/tag 回退、缓存与强制刷新
-node test/ratelimit.test.js  # 4 项：发信限流逐级封禁、白名单豁免、手动解封
+node test/ratelimit.test.js  # 4 项：IP 频率限制三振、白名单豁免、手动解封、禁用
+node test/guard.test.js      # 6 项：路径白名单、扫描器签名、编码归一化、未知路径去重计数
+node test/pathban.test.js    # 7 项：扫描路径临时封禁、正常资源不封、拦截采样、接口筛选、限流分桶、XFF 防伪造
 node test/store-browse.test.js # 5 项：GetItems 批量请求体、字段映射、分批与缺 key 回退
 node test/images.test.js     # 4 项：封面缓存路径安全、原子写、下载失败兜底
 node test/settings.test.js   # 8 项：设置定义、密钥加密、env 兜底与水合、SMTP 特殊存储
@@ -506,7 +519,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **271 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **284 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 

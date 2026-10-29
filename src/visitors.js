@@ -28,6 +28,10 @@ export function isPrivateAddress(ip) {
 /**
  * 生效 IP：只有「直连来源是内网/本机」（即 nginx/caddy 反代）时才采信 X-Forwarded-For，
  * 否则用 socket 地址——避免公网直连时伪造 XFF 绕过限流/黑名单。
+ *
+ * 取 XFF 的**最后一跳**而不是第一个：反代常用 `$proxy_add_x_forwarded_for` 追加，
+ * 第一个值可能是客户端自己伪造的；最后一跳才是最近的代理看到的真实来源。
+ * 取值前校验确实是 IP，避免 `deadbeef` 这类垃圾字符串被当成 IP 记进黑名单。
  */
 export function clientIp(req, { trustProxy = 'auto' } = {}) {
   const raw = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
@@ -36,10 +40,16 @@ export function clientIp(req, { trustProxy = 'auto' } = {}) {
     (trustProxy === 'auto' && isPrivateAddress(raw)) ||
     process.env.TRUST_PROXY === '1';
   if (trust) {
-    const xff = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
-    if (/^[\d.a-fA-F:]+$/.test(xff)) return xff;
+    // nginx 的 X-Real-IP 是代理覆盖写入的，优先级最高
     const real = String(req.headers['x-real-ip'] ?? '').trim();
-    if (/^[\d.a-fA-F:]+$/.test(real)) return real;
+    if (isIpLike(real)) return real;
+    const parts = String(req.headers['x-forwarded-for'] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      if (isIpLike(parts[i])) return parts[i];
+    }
   }
   return raw;
 }

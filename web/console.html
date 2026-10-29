@@ -295,8 +295,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <span class="small muted" id="abuseMeta">规则加载中…</span>
             <button class="btn" id="abuseRefresh">刷新</button>
           </div>
-          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">累计超频</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
-          <p class="muted small" style="margin-bottom:0">规则：<strong>60 秒内超过 60 次</strong>页面/API 请求视为异常；第 1 次封 10 分钟，第 2 次封 30 分钟，第 3 次写入永久黑名单。<strong>封禁期内继续请求每累计 100 次，直接升级一档</strong>（10 分钟 → 30 分钟 → 永久）。白名单 IP 不计数。</p>
+          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频</th><th class="num">路径封禁</th><th>来源</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
+          <p class="muted small" style="margin-bottom:0">规则：<strong>页面/API 60 秒 60 次</strong>、<strong>静态资源/图片 60 秒 300 次</strong>分开计数；超限第 1 次封 10 分钟、第 2 次 30 分钟、第 3 次永久，封禁期内继续请求每累计 100 次升级一档。扫描器路径（<code>.env</code>、<code>.git</code>、<code>*.php</code>、<code>..</code> 等）直接封 1 小时，24 小时内重犯封 24 小时，<strong>不会自动永久</strong>。白名单 IP 不计数。</p>
         </div>
 
         </div>
@@ -304,11 +304,17 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
         <h2>访问记录</h2>
         <div class="card pad">
           <div class="row">
+            <span style="display:flex;gap:6px">
+              <button class="chip on" data-vfilter="visits">正常访问</button>
+              <button class="chip" data-vfilter="blocked">被拦截</button>
+              <button class="chip" data-vfilter="all">全部</button>
+            </span>
             <input id="vIp" placeholder="按 IP 过滤" style="width:170px">
             <input id="vPath" placeholder="按路径过滤" style="width:200px">
             <button class="btn" id="vRefresh">刷新</button>
             <span class="small muted" id="vMeta"></span>
           </div>
+          <p class="muted small" style="margin:6px 0 0">被拦截的请求（429/403/扫描路径）按 IP 每分钟采样一条，单独标记，不计入「今日访问」。</p>
         </div>
         <div class="card" id="visTableWrap" style="margin-top:10px;max-height:58vh;overflow:auto">
           <table><thead><tr><th>IP</th><th>归属地</th><th>路径</th><th class="num">状态</th><th>时间</th><th style="width:90px">操作</th></tr></thead><tbody id="vRows"></tbody></table>
@@ -888,13 +894,14 @@ $('addUser').onclick = async function () {
 let vPage = 1;
 let vPages = 1;
 let vTotal = 0;
+let vFilter = 'visits';
 async function loadVisitors(page) {
   if (page) vPage = page;
   const pageSize = Number(($('vSize') || {}).value || 50);
   const ip = ($('vIp') ? $('vIp').value.trim() : '');
   const path = ($('vPath') ? $('vPath').value.trim() : '');
   try {
-    const d = await api('/api/admin/visitors?page=' + vPage + '&pageSize=' + pageSize +
+    const d = await api('/api/admin/visitors?page=' + vPage + '&pageSize=' + pageSize + '&filter=' + vFilter +
       (ip ? '&ip=' + encodeURIComponent(ip) : '') + (path ? '&path=' + encodeURIComponent(path) : ''));
     vPages = d.pages || 1; vTotal = d.total || 0;
     $('vMeta').textContent = '共 ' + d.total + ' 条';
@@ -905,6 +912,7 @@ async function loadVisitors(page) {
       $('visitorSummary').innerHTML =
         '<span>今日访问 <strong>' + d.summary.today_visits + '</strong></span>' +
         '<span>今日独立 IP <strong>' + d.summary.today_ips + '</strong></span>' +
+        '<span>今日拦截 <strong>' + (d.summary.today_blocked || 0) + '</strong></span>' +
         '<span>黑名单 <strong class="lv-error">' + d.summary.blocked_count + '</strong> 条</span>';
       $('topIpRows').innerHTML = (d.summary.topIps || []).map(function (r) {
         return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="small">' + esc(r.region || '未知') + '</td>' +
@@ -915,10 +923,14 @@ async function loadVisitors(page) {
     $('vRows').innerHTML = (d.rows || []).map(function (r) {
       const ipText = esc(r.ip) + (r.remote_ip && r.remote_ip !== r.ip ? '<div class="small muted">直连 ' + esc(r.remote_ip) + '</div>' : '');
       const status = r.status == null ? '—' : String(r.status);
+      const statusCell = r.blocked
+        ? '<span class="pill off">已拦截 ' + status + '</span>'
+        : (Number(status) >= 400 ? '<span class="lv-error">' + status + '</span>' : status);
+      const pathCell = esc(r.path) + (r.blocked && r.block_reason ? '<div class="small muted">' + esc(r.block_reason) + '</div>' : '');
       return '<tr><td class="mono small">' + ipText + '</td>' +
-        '<td class="small">' + esc(r.region || '<span class="muted">未知</span>') + '</td>' +
-        '<td class="small">' + esc(r.path) + '</td>' +
-        '<td class="num">' + (Number(status) >= 400 ? '<span class="lv-error">' + status + '</span>' : status) + '</td>' +
+        '<td class="small">' + esc(r.region || '未知') + '</td>' +
+        '<td class="small">' + pathCell + '</td>' +
+        '<td class="num">' + statusCell + '</td>' +
         '<td class="muted small">' + when(r.created_at) + '</td>' +
         '<td><button class="btn danger" data-ban="' + esc(r.ip) + '">拉黑</button></td></tr>';
     }).join('') || '<tr><td colspan="6" class="muted">还没有访问记录</td></tr>';
@@ -926,6 +938,13 @@ async function loadVisitors(page) {
     $('vRows').innerHTML = '<tr><td colspan="6" class="lv-error">读取失败：' + esc(e.message) + '</td></tr>';
   }
 }
+document.querySelectorAll('[data-vfilter]').forEach(function (b) {
+  b.onclick = function () {
+    vFilter = b.dataset.vfilter;
+    document.querySelectorAll('[data-vfilter]').forEach(function (x) { x.classList.toggle('on', x === b); });
+    loadVisitors(1);
+  };
+});
 async function loadBlacklist() {
   try {
     const d = await api('/api/admin/blacklist');
@@ -1026,7 +1045,8 @@ async function loadWhitelist() {
         '<td><button class="btn" data-wl-remove="' + esc(r.ip) + '">移出</button></td></tr>';
     }).join('') || '<tr><td colspan="4" class="muted">白名单为空（建议把自己的出口 IP 加进来）</td></tr>';
     if ($('abuseMeta') && d.config) {
-      $('abuseMeta').textContent = '当前规则：' + d.config.max + ' 次 / ' + d.config.windowSec + ' 秒 · ' +
+      $('abuseMeta').textContent = '当前规则：页面/API ' + d.config.max + ' 次 / ' + d.config.windowSec + ' 秒 · 静态 ' +
+        (d.config.assetMax || 300) + ' 次 / ' + d.config.windowSec + ' 秒 · ' +
         (d.config.enabled ? '已启用' : '已禁用');
     }
   } catch (e) { if ($('wlMsg')) $('wlMsg').textContent = '读取失败：' + e.message; }
@@ -1040,11 +1060,15 @@ async function loadAbuse() {
       const permanent = Boolean(r.blacklist_note);
       const active = permanent || (until && until.getTime() > Date.now());
       const state = permanent ? '<span class="pill off">永久拉黑</span>' : active ? '<span class="pill">临时封禁</span>' : '<span class="pill ok">已恢复</span>';
-      return '<tr><td class="mono small">' + esc(r.ip) + '</td><td class="num">' + esc(String(r.strikes || 0)) + '</td>' +
+      const source = r.ban_source === 'path' ? '路径规则' : r.ban_source === 'rate' ? '频率限制' : '—';
+      return '<tr><td class="mono small">' + esc(r.ip) + '</td>' +
+        '<td class="num">' + esc(String(r.strikes || 0)) + '</td>' +
+        '<td class="num">' + esc(String(r.path_strikes || 0)) + '</td>' +
+        '<td class="small">' + esc(source) + '</td>' +
         '<td class="small">' + (until ? until.toLocaleString('zh-CN') : '—') + '</td>' +
         '<td>' + state + '</td>' +
         '<td><button class="btn" data-abuse-unban="' + esc(r.ip) + '">解封</button></td></tr>';
-    }).join('') || '<tr><td colspan="5" class="muted">暂时没有超频记录</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">暂时没有超频/路径封禁记录</td></tr>';
   } catch (e) { if ($('abuseMeta')) $('abuseMeta').textContent = '读取失败：' + e.message; }
 }
 if ($('wlAdd')) $('wlAdd').onclick = async function () {

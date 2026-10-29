@@ -15,6 +15,7 @@ import * as db from './store/pg.js';
 import * as visitors from './visitors.js';
 import * as images from './images.js';
 import * as ratelimit from './ratelimit.js';
+import * as guard from './guard.js';
 import * as captcha from './captcha.js';
 import { createBackup, listBackups } from './backup.js';
 import { versionInfo } from './version.js';
@@ -130,6 +131,28 @@ export function createApiServer({
   let syncOutput = ''; // 子进程输出尾巴，供前端轮询
   let syncSettled = true;
 
+  // 被拦截请求的采样日志：同一 IP 每分钟最多一条，避免刷屏和污染访问统计
+  const blockedLoggedAt = new Map();
+  const logBlocked = ({ ip, req, path, status, reason }) => {
+    const now = Date.now();
+    if (now - (blockedLoggedAt.get(ip) ?? 0) < 60_000) return;
+    blockedLoggedAt.set(ip, now);
+    if (blockedLoggedAt.size > 5000) {
+      for (const [k, v] of blockedLoggedAt) if (now - v > 300_000) blockedLoggedAt.delete(k);
+    }
+    db.insertVisitorLog(q, {
+      ip,
+      remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
+      region: visitors.cachedRegion(ip),
+      path,
+      method: req.method ?? 'GET',
+      userAgent: req.headers['user-agent'],
+      status,
+      blocked: true,
+      blockReason: reason,
+    }).catch(() => {});
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
@@ -158,9 +181,10 @@ export function createApiServer({
       }
 
       // 频率限制：白名单/管理员不参与三振；内网/本机（反代、健康检查）不计数
+      // 分桶：页面/API 与静态资源/图片分开计数——一个列表页几十张封面不该顶到页面阈值
       if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip)) {
         // 统一走 hit：封禁期内的请求也会被计数，够数就升级封禁（不能直接丢弃计数）
-        const verdict = await ratelimit.hit(q, ip);
+        const verdict = await ratelimit.hit(q, ip, { bucket: guard.isAssetPath(path) ? 'asset' : 'page' });
         if (verdict.limited) {
           const until = Number(verdict.until) || 0;
           const retrySec = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 600;
@@ -179,15 +203,7 @@ export function createApiServer({
             'retry-after': String(retrySec),
           });
           res.end(verdict.reason);
-          db.insertVisitorLog(q, {
-            ip,
-            remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
-            region: visitors.cachedRegion(ip),
-            path,
-            method: req.method ?? 'GET',
-            userAgent: req.headers['user-agent'],
-            status: 429,
-          }).catch(() => {});
+          logBlocked({ ip, req, path, status: 429, reason: verdict.reason });
           return;
         }
       }
@@ -197,16 +213,32 @@ export function createApiServer({
         logger?.warn('block.ip_denied', { ip, path, rule: hit });
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end('访问被拒绝');
-        db.insertVisitorLog(q, {
-          ip,
-          remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
-          region: visitors.cachedRegion(ip),
-          path,
-          method: req.method ?? 'GET',
-          userAgent: req.headers['user-agent'],
-          status: 403,
-        }).catch(() => {});
+        logBlocked({ ip, req, path, status: 403, reason: `IP 黑名单（${hit}）` });
         return;
+      }
+
+      // ---- 路径守卫：白名单 / 扫描器签名 / 未知路径计数 ----
+      // 正常用户一定会请求资源文件（封面、favicon、JS），这些是白名单，绝不能当异常封。
+      if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip) && visitors.isIpLike(ip)) {
+        try {
+          const g = await guard.inspect({ q, ip, path, method: req.method ?? 'GET', outDir, logger });
+          if (g.action === 'ban') {
+            const until = Number(g.until) || 0;
+            const retrySec = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 600;
+            logger?.warn('guard.banned', { ip, path, rule: g.verdict.rule, minutes: g.minutes, strikes: g.strikes });
+            res.writeHead(403, {
+              'content-type': 'text/plain; charset=utf-8',
+              'cache-control': 'no-store',
+              'retry-after': String(retrySec),
+            });
+            res.end('访问被拒绝');
+            logBlocked({ ip, req, path, status: 403, reason: g.reason });
+            return;
+          }
+        } catch (err) {
+          // 守卫自己出错只记日志，绝不影响正常请求（fail-open）
+          logger?.warn('guard.failed', { ip, path, message: String(err.message).slice(0, 160) });
+        }
       }
 
       // ---- 访问记录：静态资源不记，页面与 API 必记（状态码在 finish 时补）----
@@ -1373,9 +1405,11 @@ export function createApiServer({
         const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 50) || 50, 5), 200);
         const ip = String(url.searchParams.get('ip') ?? '').trim();
         const p = String(url.searchParams.get('path') ?? '').trim();
-        const list = await db.listVisitorLogs(q, { page, pageSize, ip: ip || null, path: p || null });
+        // filter=visits（默认，正常访问）| blocked（被拦截）| all
+        const filter = String(url.searchParams.get('filter') ?? 'visits');
+        const list = await db.listVisitorLogs(q, { page, pageSize, ip: ip || null, path: p || null, filter });
         const summary = await db.visitorSummary(q);
-        return json(res, 200, { ...list, page, pageSize, pages: Math.max(1, Math.ceil(list.total / pageSize)), summary });
+        return json(res, 200, { ...list, page, pageSize, filter, pages: Math.max(1, Math.ceil(list.total / pageSize)), summary });
       }
 
       // ---- 管理员：封面图本地缓存统计 ----
@@ -1608,12 +1642,28 @@ export function startApiServer({
         ratelimit.configure({
           enabled: process.env.RATE_LIMIT_ENABLED !== '0',
           max: Number(process.env.RATE_LIMIT_MAX ?? 60),
+          assetMax: Number(process.env.RATE_LIMIT_ASSET_MAX ?? 300),
           windowSec: Number(process.env.RATE_LIMIT_WINDOW_SEC ?? 60),
         });
         const loaded = await ratelimit.loadState(query);
         logger?.info('rate.init', { ...ratelimit.currentConfig(), ...loaded });
       } catch (err) {
         logger?.warn('rate.init_failed', { message: String(err.message).slice(0, 120) });
+      }
+      try {
+        // 路径守卫：合法页面/静态资源白名单；扫描器签名立即封；未知路径默认只记录
+        guard.configure({
+          enabled: process.env.PATH_BAN_ENABLED !== '0',
+          signatureMode: process.env.PATH_BAN_SIGNATURE_MODE === 'log' ? 'log' : 'block',
+          unknownMode: process.env.PATH_BAN_UNKNOWN_MODE === 'block' ? 'block' : 'log',
+          unknownMax: Number(process.env.PATH_BAN_UNKNOWN_MAX ?? 30),
+          unknownWindowSec: Number(process.env.PATH_BAN_UNKNOWN_WINDOW_SEC ?? 600),
+          banMinutes: Number(process.env.PATH_BAN_MINUTES ?? 60),
+          repeatBanMinutes: Number(process.env.PATH_BAN_REPEAT_MINUTES ?? 1440),
+        });
+        logger?.info('guard.init', { ...guard.currentConfig(), outDir: outDir ? resolve(outDir) : null });
+      } catch (err) {
+        logger?.warn('guard.init_failed', { message: String(err.message).slice(0, 120) });
       }
       try {
         // 服务重启后残留的 running 记录标失败，避免同步按钮永远禁用
