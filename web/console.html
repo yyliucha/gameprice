@@ -295,8 +295,8 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
             <span class="small muted" id="abuseMeta">规则加载中…</span>
             <button class="btn" id="abuseRefresh">刷新</button>
           </div>
-          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">超频次数</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
-          <p class="muted small" style="margin-bottom:0">规则：<strong>60 秒内超过 60 次</strong>页面/API 请求视为异常；第 1 次封 10 分钟，第 2 次封 30 分钟，第 3 次写入永久黑名单。白名单 IP 不计数。</p>
+          <div class="card" style="margin-top:10px"><table><thead><tr><th>IP</th><th class="num">累计超频</th><th>封禁至</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody id="abuseRows"></tbody></table></div>
+          <p class="muted small" style="margin-bottom:0">规则：<strong>60 秒内超过 60 次</strong>页面/API 请求视为异常；第 1 次封 10 分钟，第 2 次封 30 分钟，第 3 次写入永久黑名单。<strong>封禁期内继续请求每累计 100 次，直接升级一档</strong>（10 分钟 → 30 分钟 → 永久）。白名单 IP 不计数。</p>
         </div>
 
         </div>

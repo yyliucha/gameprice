@@ -138,6 +138,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
     <button class="chip" data-sort="discount">折扣</button>
     <button class="chip" data-sort="price">价格</button>
     <button class="chip" data-sort="name">名称</button>
+    <button class="chip" id="refreshBtn" title="手动刷新数据（不再自动刷新）">刷新</button>
   </div>
 
   <div class="card">
@@ -853,27 +854,19 @@ me().then(load);
 
 // 分页：号码按钮由 render() 绑定，其余在 pagers() 里绑定（服务端分页）
 
-// 前台实时更新：每 10 秒查一次轻量「数据指纹」，只有库里的数据变了才重新拉列表。
-// 这样自动刷新不再每次跑完整列表查询，也不会把自己的轮询写进访问记录。
-const REFRESH_MS = 10 * 1000;
-let lastStamp = null;
-async function pollStamp() {
-  if (document.hidden) return;
-  try {
-    const r = await fetch('/api/games/stamp', { credentials: 'same-origin' });
-    if (!r.ok) return;
-    const d = await r.json();
-    if (!d.stamp) return;
-    if (lastStamp === null) { lastStamp = d.stamp; return; } // 首次只记录基线
-    if (d.stamp === lastStamp) return;                        // 数据没变，什么都不做
-    lastStamp = d.stamp;
-    await load(true);
-  } catch {
-    /* 网络抖动忽略，下个周期再试 */
-  }
-}
-setInterval(pollStamp, REFRESH_MS);
-document.addEventListener('visibilitychange', function () { if (!document.hidden) pollStamp(); });
+// 刷新完全由用户触发（不再自动轮询：手机/多标签页会自动累积请求，容易被限流误伤）。
+// 页面顶部「刷新」按钮、切换页签/排序/搜索、浏览器手动刷新都会重新拉数据。
+(function bindRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  if (!btn) return;
+  btn.onclick = function () {
+    btn.disabled = true;
+    load().catch(function () { /* 忽略 */ }).then(function () {
+      btn.disabled = false;
+      toast('已刷新');
+    });
+  };
+})();
 </script>
 <button id="toTop" class="toTop" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 顶部</button>
 <div id="toast"></div>

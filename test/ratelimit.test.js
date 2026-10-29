@@ -28,9 +28,9 @@ function fakeQ() {
   return { q, abuse, blacklist, whitelist };
 }
 
-test('未超限放行；超限第一次封 10 分钟，第二次 30 分钟，第三次永久拉黑', async () => {
+test('未超限放行；超限第一次封 10 分钟；封禁期内继续轰炸会升级到 30 分钟、永久', async () => {
   ratelimit.resetState();
-  ratelimit.configure({ enabled: true, max: 5, windowSec: 60 });
+  ratelimit.configure({ enabled: true, max: 5, windowSec: 60, blockedEscalate: 5 });
   const { q, blacklist } = fakeQ();
   const ip = '203.0.113.9';
 
@@ -45,16 +45,16 @@ test('未超限放行；超限第一次封 10 分钟，第二次 30 分钟，第
   const mins1 = Math.round((first.until - Date.now()) / 60000);
   assert.ok(mins1 >= 9 && mins1 <= 10, '第一次应封约 10 分钟，实际 ' + mins1);
 
-  // 窗口已清空，再来一轮超限 → 第 2 次
-  for (let i = 0; i < 5; i += 1) await ratelimit.hit(q, ip);
-  const second = await ratelimit.hit(q, ip);
+  // 封禁期内继续请求 5 次 → 升级到第 2 档（30 分钟）
+  let second = null;
+  for (let i = 0; i < 5; i += 1) second = await ratelimit.hit(q, ip);
   assert.equal(second.strikes, 2);
   const mins2 = Math.round((second.until - Date.now()) / 60000);
   assert.ok(mins2 >= 29 && mins2 <= 30, '第二次应封约 30 分钟，实际 ' + mins2);
 
-  // 第三轮 → 永久
-  for (let i = 0; i < 5; i += 1) await ratelimit.hit(q, ip);
-  const third = await ratelimit.hit(q, ip);
+  // 再继续 5 次 → 第 3 档永久拉黑
+  let third = null;
+  for (let i = 0; i < 5; i += 1) third = await ratelimit.hit(q, ip);
   assert.equal(third.strikes, 3);
   assert.equal(third.permanent, true);
   assert.ok(blacklist.has(ip), '第三次应写进永久黑名单');
@@ -76,7 +76,7 @@ test('白名单不计数、不限流', async () => {
 
 test('手动解封清掉临时封禁与永久黑名单', async () => {
   ratelimit.resetState();
-  ratelimit.configure({ enabled: true, max: 1, windowSec: 60 });
+  ratelimit.configure({ enabled: true, max: 1, windowSec: 60, blockedEscalate: 2 });
   const { q, blacklist } = fakeQ();
   const ip = '203.0.113.55';
   for (let round = 0; round < 3; round += 1) {

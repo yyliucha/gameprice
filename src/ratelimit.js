@@ -11,9 +11,11 @@ export const DEFAULTS = {
   max: 60, // 窗口内允许的请求数
   windowSec: 60, // 窗口长度（秒）
   banMinutes: [10, 30], // 第 1、2 次封禁时长；第 3 次永久
+  blockedEscalate: 100, // 封禁期内继续请求多少次 → 升级一档封禁
 };
 
 const windowHits = new Map(); // ip -> number[]（毫秒时间戳）
+const blockedHits = new Map(); // ip -> 封禁期内被拒的请求数（用于升级封禁）
 const banUntil = new Map(); // ip -> 毫秒时间戳
 const whitelist = new Set();
 
@@ -22,11 +24,13 @@ let config = { ...DEFAULTS };
 export function configure(next = {}) {
   const max = Number(next.max);
   const windowSec = Number(next.windowSec);
+  const escalate = Number(next.blockedEscalate);
   config = {
     enabled: next.enabled === undefined ? config.enabled : Boolean(next.enabled),
     max: Number.isFinite(max) && max > 0 ? max : config.max,
     windowSec: Number.isFinite(windowSec) && windowSec > 0 ? windowSec : config.windowSec,
     banMinutes: Array.isArray(next.banMinutes) && next.banMinutes.length >= 2 ? next.banMinutes : config.banMinutes,
+    blockedEscalate: Number.isFinite(escalate) && escalate > 0 ? escalate : config.blockedEscalate,
   };
   return { ...config };
 }
@@ -77,31 +81,7 @@ export function bannedUntil(ip) {
   return until;
 }
 
-/**
- * 记一次请求。返回 { limited, until, reason }。
- * 只有超限时才写库（三振 + 永久拉黑），正常请求零数据库开销。
- */
-export async function hit(q, ip, { max = config.max, windowSec = config.windowSec } = {}) {
-  if (!config.enabled || !ip) return { limited: false };
-  if (isWhitelisted(ip)) return { limited: false };
-
-  const now = Date.now();
-  const span = windowSec * 1000;
-  const key = String(ip);
-  const list = (windowHits.get(key) ?? []).filter((t) => now - t < span);
-  list.push(now);
-  windowHits.set(key, list);
-
-  // 窗口清理：避免 Map 无限增长（超过 1 万个 IP 时清掉空窗口）
-  if (windowHits.size > 10000) {
-    for (const [k, v] of windowHits) if (!v.length || now - v[v.length - 1] > span) windowHits.delete(k);
-  }
-
-  if (list.length <= max) return { limited: false };
-
-  // 超限：三振处理
-  windowHits.delete(key);
-  let strikes = 1;
+async function addStrike(q, key) {
   try {
     const r = await q(
       `insert into ip_abuse (ip, strikes) values ($1, 1)
@@ -109,12 +89,13 @@ export async function hit(q, ip, { max = config.max, windowSec = config.windowSe
        returning strikes`,
       [key],
     );
-    strikes = Number(r.rows[0]?.strikes ?? 1);
+    return Number(r.rows[0]?.strikes ?? 1);
   } catch {
-    /* 表未建时退化为内存计数 */
-    strikes = 1;
+    return 1;
   }
+}
 
+async function applyBan(q, key, strikes, { max, windowSec }) {
   if (strikes >= 3) {
     try {
       await q(
@@ -126,21 +107,63 @@ export async function hit(q, ip, { max = config.max, windowSec = config.windowSe
       /* 忽略 */
     }
     banUntil.set(key, Number.MAX_SAFE_INTEGER);
-    return { limited: true, until: null, reason: '永久拉黑（多次超频）', strikes, permanent: true };
+    return { permanent: true, until: null, reason: '永久拉黑（多次超频）' };
   }
-
   const minutes = config.banMinutes[Math.min(strikes - 1, config.banMinutes.length - 1)];
-  const until = now + minutes * 60_000;
+  const until = Date.now() + minutes * 60_000;
   banUntil.set(key, until);
+  blockedHits.set(key, 0);
   try {
-    await q('update ip_abuse set banned_until = to_timestamp($2 / 1000.0), updated_at = now() where ip = $1', [
-      key,
-      until,
-    ]);
+    await q('update ip_abuse set banned_until = to_timestamp($2 / 1000.0), updated_at = now() where ip = $1', [key, until]);
   } catch {
     /* 忽略 */
   }
-  return { limited: true, until, reason: `请求过于频繁，临时封禁 ${minutes} 分钟`, strikes, permanent: false };
+  return { permanent: false, until, reason: `请求过于频繁，临时封禁 ${minutes} 分钟` };
+}
+
+/**
+ * 记一次请求。返回 { limited, until, reason, strikes, permanent, escalated }。
+ *
+ * 关键：封禁期内继续请求不再直接丢弃，而是累计「违禁请求」，达到
+ * blockedEscalate 次就**升级一档封禁**（10 分钟 → 30 分钟 → 永久黑名单）。
+ * 之前这里直接 429 返回、不计数，导致「634 次请求只记 1 次超频」。
+ */
+export async function hit(q, ip) {
+  if (!config.enabled || !ip) return { limited: false };
+  if (isWhitelisted(ip)) return { limited: false };
+
+  const now = Date.now();
+  const span = config.windowSec * 1000;
+  const key = String(ip);
+  const list = (windowHits.get(key) ?? []).filter((t) => now - t < span);
+  list.push(now);
+  windowHits.set(key, list);
+
+  // 窗口清理：避免 Map 无限增长（超过 1 万个 IP 时清掉空窗口）
+  if (windowHits.size > 10000) {
+    for (const [k, v] of windowHits) if (!v.length || now - v[v.length - 1] > span) windowHits.delete(k);
+  }
+
+  // 封禁中：累计违禁请求，够数就升级
+  const activeBan = banUntil.get(key);
+  if (activeBan && now < activeBan) {
+    const blocked = (blockedHits.get(key) ?? 0) + 1;
+    blockedHits.set(key, blocked);
+    if (blocked >= config.blockedEscalate) {
+      blockedHits.set(key, 0);
+      const strikes = await addStrike(q, key);
+      const ban = await applyBan(q, key, strikes, { max: config.max, windowSec: config.windowSec });
+      return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: ban.permanent, escalated: true };
+    }
+    return { limited: true, until: activeBan, reason: '请求过于频繁（封禁中）', banned: true };
+  }
+
+  if (list.length <= config.max) return { limited: false };
+
+  windowHits.delete(key);
+  const strikes = await addStrike(q, key);
+  const ban = await applyBan(q, key, strikes, { max: config.max, windowSec: config.windowSec });
+  return { limited: true, until: ban.until, reason: ban.reason, strikes, permanent: ban.permanent };
 }
 
 /** 管理员手动解封。返回是否清掉了记录。 */
@@ -163,6 +186,7 @@ export async function unban(q, ip) {
 /** 测试用：清空内存状态。 */
 export function resetState() {
   windowHits.clear();
+  blockedHits.clear();
   banUntil.clear();
   whitelist.clear();
   config = { ...DEFAULTS };

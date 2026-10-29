@@ -159,28 +159,25 @@ export function createApiServer({
 
       // 频率限制：白名单/管理员不参与三振；内网/本机（反代、健康检查）不计数
       if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip)) {
-        const banned = ratelimit.bannedUntil(ip);
-        if (banned) {
-          const mins = Math.max(1, Math.ceil((banned - Date.now()) / 60000));
-          logger?.info('rate.blocked', { ip, path, untilMs: banned });
-          res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(mins * 60) });
-          res.end('请求过于频繁，请 ' + mins + ' 分钟后再试');
-          db.insertVisitorLog(q, {
-            ip,
-            remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
-            region: visitors.cachedRegion(ip),
-            path,
-            method: req.method ?? 'GET',
-            userAgent: req.headers['user-agent'],
-            status: 429,
-          }).catch(() => {});
-          return;
-        }
+        // 统一走 hit：封禁期内的请求也会被计数，够数就升级封禁（不能直接丢弃计数）
         const verdict = await ratelimit.hit(q, ip);
         if (verdict.limited) {
-          logger?.warn('rate.banned', { ip, path, strikes: verdict.strikes, reason: verdict.reason, permanent: verdict.permanent });
+          const until = Number(verdict.until) || 0;
+          const retrySec = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 600;
+          logger?.warn('rate.banned', {
+            ip,
+            path,
+            strikes: verdict.strikes ?? null,
+            reason: verdict.reason,
+            permanent: Boolean(verdict.permanent),
+            escalated: Boolean(verdict.escalated),
+          });
           if (verdict.permanent) visitors.refreshBlocklist(q).catch(() => {});
-          res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+          res.writeHead(429, {
+            'content-type': 'text/plain; charset=utf-8',
+            'cache-control': 'no-store',
+            'retry-after': String(retrySec),
+          });
           res.end(verdict.reason);
           db.insertVisitorLog(q, {
             ip,
