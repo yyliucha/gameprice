@@ -213,7 +213,6 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
               <option value="done">已同步</option>
             </select>
             <button class="btn" id="gameRefresh">刷新</button>
-            <label class="small muted"><input type="checkbox" id="showImgs"> 显示图片</label>
             <span class="small muted" id="gameMeta"></span>
           </div>
           <div class="row" style="margin-top:6px">
@@ -692,14 +691,13 @@ async function loadGameList(page) {
     if ($('gameMeta')) $('gameMeta').textContent = '共 ' + d.total + ' 款（按更新时间倒序）';
     renderPager();
     $('gameRows').innerHTML = (d.games || []).map(function (g) {
-      const showImgs = ($('showImgs') || {}).checked;
       const plats = Array.isArray(g.platform_names) ? g.platform_names : [];
       const platPills = plats.length
         ? plats.map(function (n) { return '<span class="pill">' + esc(n) + '</span>'; }).join(' ')
         : '<span class="muted">—</span>';
       const key = g.steam_appid || ('id:' + g.id);
       return '<tr>' +
-        '<td>' + (showImgs && g.steam_appid
+        '<td>' + (g.steam_appid
           ? '<img loading="lazy" src="/img/steam/' + g.steam_appid + '/capsule_sm_120" style="width:92px;height:43px;object-fit:cover;border-radius:6px" onerror="this.style.display=\'none\'">'
           : '<span class="muted small">—</span>') + '</td>' +
         '<td class="small">' + (g.steam_appid ? g.steam_appid : '<span class="muted">—</span>') + '</td>' +
