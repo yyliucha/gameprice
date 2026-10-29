@@ -23,7 +23,7 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 a{color:var(--brand);text-decoration:none}
-.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
 header{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 84%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
 header .wrap{display:flex;align-items:center;gap:12px;height:58px}
 .brand{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--fg)}
@@ -83,7 +83,6 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
   .card{overflow-x:auto}
   table{font-size:13px}
   th,td{padding:8px 8px}
-  .gameImg{width:64px;height:30px;margin-right:6px}
   .detailHead{flex-wrap:wrap}
   #detailDlg{width:96vw;padding:14px}
   #detailDlg table{min-width:560px}
@@ -95,8 +94,36 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
 .toTop{position:fixed;right:20px;bottom:88px;z-index:40;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--fg);cursor:pointer;box-shadow:var(--shadow);font-family:inherit;opacity:.92}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;z-index:60;pointer-events:none}
 #toast.on{opacity:.95}
-.gameImg{width:92px;height:43px;object-fit:cover;border-radius:6px;margin-right:10px;vertical-align:middle;background:var(--hover)}
-.name{display:inline-block;vertical-align:middle}
+/* 列表首列：封面与游戏名固定同一行，名字超长用省略号，不再折行把封面挤到中间 */
+.gameCell{display:flex;align-items:center;gap:10px;min-width:0}
+.gameImg{flex:0 0 92px;width:92px;height:43px;object-fit:cover;border-radius:6px;background:var(--hover)}
+.gameText{flex:1 1 auto;min-width:0}
+.name{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;font-weight:600}
+.name .title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.name .title .en{margin-left:6px}
+.name .tag{flex:none;margin-left:0}
+/* 现价下方的「其他平台最低」压成一行，避免个别行被撑高 */
+#rows td.num .small{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+/* 列宽固定：名字列按剩余空间伸缩，长名字省略而不是把表格撑出卡片 */
+.games{table-layout:fixed}
+@media (min-width:761px){
+  .games th:nth-child(2){width:180px}
+  .games th:nth-child(3){width:96px}
+  .games th:nth-child(4){width:80px}
+  .games th:nth-child(5){width:236px}
+}
+@media (max-width:760px){
+  /* 窄屏：表格保持桌面列宽、卡片内横向滚动；封面缩小，名字仍然单行省略 */
+  .gameCell{gap:6px}
+  .gameImg{flex:0 0 64px;width:64px;height:30px}
+  .games{table-layout:fixed;min-width:760px}
+  .games th:nth-child(2){width:150px}
+  .games th:nth-child(3){width:80px}
+  .games th:nth-child(4){width:70px}
+  .games th:nth-child(5){width:200px}
+  /* 跨平台参考价在窄屏会挤成竖排，各平台列的胶囊已经表达了同样信息 */
+  #rows td.num .small{display:none}
+}
 </style>
 </head>
 <body>
@@ -142,7 +169,7 @@ input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:1
   </div>
 
   <div class="card">
-    <table>
+    <table class="games">
       <thead><tr>
         <th>游戏</th><th class="num">现价</th><th class="num">原价</th>
         <th class="num">折扣</th><th>各平台</th>
@@ -368,7 +395,9 @@ function render() {
     const owned = g.owned === true ? '<span class="tag warn">已拥有</span>' : '';
     // 不感兴趣：给个低调标签，避免"点了没反应"的错觉
     const uninterested = g.interested === false ? '<span class="tag" style="background:var(--hover);color:var(--muted)">不感兴趣</span>' : '';
-    const en = g.name_en && g.name_en !== g.name ? '<div class="en">' + esc(g.name_en) + '</div>' : '';
+    const en = g.name_en && g.name_en !== g.name
+      ? '<span class="en" title="' + esc(g.name_en) + '">' + esc(g.name_en) + '</span>'
+      : '';
     // 类型徽标：DLC/试玩等非游戏类型要一眼看出来（game 不标，默认即游戏）
     const typeKey = String(g.app_type ?? '').toLowerCase();
     const typeTag = typeKey && typeKey !== 'game'
@@ -378,9 +407,11 @@ function render() {
     const cover = g.steam_appid
       ? '<img class="gameImg" loading="lazy" src="/img/steam/' + esc(g.steam_appid) + '/capsule_sm_120" alt="" onerror="this.style.display=\'none\'">'
       : '';
-    const link = '<a href="#" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
+    const link = '<a href="#" title="' + esc(g.name) + '" data-appid="' + esc(g.steam_appid ?? '') + '" data-gid="' + esc(g.id) + '">' + esc(g.name) + '</a>';
     return '<tr>' +
-      '<td>' + cover + '<div class="name">' + link + lowTag + typeTag + owned + uninterested + '</div>' + en + '</td>' +
+      '<td><div class="gameCell">' + cover +
+        '<div class="gameText"><div class="name"><span class="title">' + link + en + '</span>' +
+        lowTag + typeTag + owned + uninterested + '</div></div></div></td>' +
       (function(){
         var steam = null;
         for (var i = 0; i < offers.length; i++) if (offers[i].platform === 'steam') steam = offers[i];
