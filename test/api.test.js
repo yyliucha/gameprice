@@ -665,6 +665,15 @@ test('数据指纹：数据变化后 stamp 改变，轮询不写访问日志', a
     await new Promise((r) => setTimeout(r, 300)); // 日志在响应 finish 后异步写
     const after = (await q('select count(*)::int as n from visitor_logs')).rows[0].n;
     assert.equal(after, before, '轮询指纹不应产生访问记录');
+
+    // 控制台轮询接口（sync/status、sync/runs）同样不写访问日志
+    const admin = await login(base, 'admin', 'admin123456');
+    const baseline = (await q('select count(*)::int as n from visitor_logs')).rows[0].n;
+    await (await fetch(`${base}/api/admin/sync/status`, { headers: { cookie: admin.cookie } })).text();
+    await (await fetch(`${base}/api/admin/sync/runs?limit=5`, { headers: { cookie: admin.cookie } })).text();
+    await new Promise((r) => setTimeout(r, 300));
+    const afterPoll = (await q('select count(*)::int as n from visitor_logs')).rows[0].n;
+    assert.equal(afterPoll, baseline, '控制台轮询接口不应产生访问记录');
   } finally {
     await srv.close();
     await store.close();

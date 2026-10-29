@@ -1129,6 +1129,8 @@ if ($('syncScheduleRefresh')) $('syncScheduleRefresh').onclick = loadSyncSchedul
 // 记录本轮是否真的看到过"运行中"：只有从运行中转为结束才自动刷新，避免进页面时就重复拉一遍
 let sawSyncRunning = false;
 async function pollSyncStatus() {
+  // 页面不可见时降频：后台标签页不再每 3 秒打一次接口
+  if (document.hidden) { syncPollTimer = setTimeout(pollSyncStatus, 30000); return; }
   try {
     const d = await api('/api/admin/sync/status');
     const live = $('syncLive'), meta = $('syncLiveMeta'), box = $('syncLiveBox');
@@ -1139,7 +1141,7 @@ async function pollSyncStatus() {
       if (meta) meta.textContent = '运行中：' + (d.run.mode === 'catalog' ? '导入目录' : '增量同步') +
         ' · 开始于 ' + when(d.run.startedAt) + ' · 实时输出';
       if (box) { box.textContent = d.output || '（暂无输出，等待子进程…）'; box.scrollTop = box.scrollHeight; }
-      syncPollTimer = setTimeout(pollSyncStatus, 3000);
+      syncPollTimer = setTimeout(pollSyncStatus, 10000);
       return;
     }
     // 同步刚结束：自动把列表、统计、同步记录刷新成最新（不用手动按刷新）
@@ -1275,8 +1277,8 @@ if ($('logClear')) $('logClear').onclick = function () {
   if ($('logAuto')) $('logAuto').checked = false;
 };
 $('logGrep').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadLogs(); });
-setInterval(function () { if (currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
-setInterval(function () { if (currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 3000);
+setInterval(function () { if (!document.hidden && currentPage === 'sync' && $('logAuto').checked) loadLogs(); }, 3000);
+setInterval(function () { if (!document.hidden && currentPage === 'logs' && $('allAuto').checked) loadAllLogs(); }, 10000);
 
 async function loadSmtp() {
   // SMTP 配置已统一到「系统设置 → 降价提醒」，这里只显示状态，用来发测试邮件

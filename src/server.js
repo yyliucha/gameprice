@@ -1511,6 +1511,8 @@ function isLoggablePath(path) {
   if (path === '/favicon.ico') return false;
   // 前台轮询用的轻量指纹接口：每 10 秒一次，记访问日志只会污染统计
   if (path === '/api/games/stamp') return false;
+  // 控制台轮询类接口：只用于刷新 UI，记进访问日志只会让统计虚高
+  if (path === '/api/admin/sync/status' || path === '/api/admin/sync/runs') return false;
   if (/\.(png|jpe?g|gif|webp|svg|ico|css|js|map|woff2?|ttf|otf|eot|json|xml|txt|md)$/i.test(path)) return false;
   if (path.startsWith('/img/')) return false;
   return true;
