@@ -1,6 +1,6 @@
 {
   "name": "steamdeals",
-  "version": "0.31.2",
+  "version": "0.31.3",
   "private": true,
   "type": "module",
   "description": "以 Steam 为准的跨平台游戏比价：采集各授权渠道价格、留存价格历史、按需提醒。PostgreSQL + CLI + Web 前后端。",

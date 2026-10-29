@@ -1711,11 +1711,12 @@ async function cmdBackfill() {
 
     // GetItems 没带价格的（字段缺失/接口变化），用 appdetails 批量回退取价：
     // GetItems 只负责元数据，价格这条链路以 appdetails 的 price_overview 为准。
+    // Steam 限 200 次/5 分钟：单批 50 个、间隔 2 秒（150 次/5 分钟），留出余量。
     const missing = missingPriceAppids(items);
     let fallbackOffers = [];
     if (missing.length) {
       try {
-        const got = await syncPrices({ appids: missing, logger, region: 'cn', batchSize: 30, rateLimitMs: 1100 });
+        const got = await syncPrices({ appids: missing, logger, region: 'cn', batchSize: 50, rateLimitMs: 2000 });
         fallbackOffers = got.offers;
         logger.info('backfill.price_fallback', {
           appids: missing.length,

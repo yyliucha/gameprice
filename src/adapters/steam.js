@@ -74,8 +74,9 @@ export function parseAppDetails(payload, ctx = {}) {
 }
 
 /**
- * 批量拉价格。appdetails 支持逗号分隔多个 appid，单批数量保守取 30。
- * 默认每批之间停 1.1s，约等于 1 请求/秒。
+ * 批量拉价格。appdetails 支持逗号分隔多个 appid（需带 filters=price_overview，最多 100 个），
+ * 但 Steam 对该接口限流 **200 次/5 分钟**（≈ 最低 1.5 秒/请求，见 SteamDB store prices API 说明）；
+ * 这里每批之间停 2 秒（150 次/5 分钟），避免把出口 IP 打进 429。
  */
 export async function syncPrices(opts = {}) {
   const {
@@ -85,7 +86,7 @@ export async function syncPrices(opts = {}) {
     region = descriptor.defaultRegion,
     lang = 'schinese',
     batchSize = 30,
-    rateLimitMs = 1100,
+    rateLimitMs = 2000,
     log = () => {},
   } = opts;
 
@@ -129,7 +130,7 @@ export async function syncPrices(opts = {}) {
 
 /** 只取元数据（名字/类型/封面），给新加的游戏补名字用。 */
 export async function syncMeta(opts = {}) {
-  const { appids, fetchImpl, logger = null, batchSize = 20, rateLimitMs = 1100, log = () => {} } = opts;
+  const { appids, fetchImpl, logger = null, batchSize = 20, rateLimitMs = 2000, log = () => {} } = opts;
   const unique = [...new Set(appids.map(Number).filter(Number.isFinite))];
   const batches = chunk(unique, batchSize);
   const metas = [];
