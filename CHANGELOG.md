@@ -2,6 +2,24 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.30.4] - 2026-10-29
+
+回填价格改用 appdetails 回退取价：不再依赖 GetItems 的价格字段。
+
+### 修复
+
+- **GetItems 拿不到价格**（字段名/接口变化，实测 `priced=0`）：回填对没有价格的 appid 自动用
+  `store.steampowered.com/api/appdetails` 批量回退（30 个/请求、1.1s 间隔），拿到 `price_overview`
+  后再写 `offers` / `daily_prices`
+- GetItems 自带价格仍然优先使用；两路结果按 appid 去重，不会重复写
+- 新增 `backfill.price_fallback` 日志（回退 appid 数 / 请求数 / 拿到报价数）；
+  回退遇到 403/429 立即中止，避免把出口 IP 打进风控
+- 单批「价格 0 条」的提示改为「GetItems 与 appdetails 回退都没拿到」
+
+### 测试
+
+- `backfill.test.js` 新增 4 项：缺价 appid 筛选与去重、GetItems 报价转换、两路报价合并去重
+
 ## [0.30.3] - 2026-10-29
 
 修复回填「有元数据、没价格」的真正原因：价格字段名解析错了。

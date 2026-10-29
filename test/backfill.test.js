@@ -1,7 +1,14 @@
-// 后台回填：参数收敛、命令行拼装、进度解析
+// 后台回填：参数收敛、命令行拼装、进度解析、价格回退合并
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeBackfillParams, backfillArgs, parseBackfillProgress } from '../src/backfill.js';
+import {
+  normalizeBackfillParams,
+  backfillArgs,
+  parseBackfillProgress,
+  missingPriceAppids,
+  offerFromItem,
+  mergePriceOffers,
+} from '../src/backfill.js';
 
 test('参数归一化：默认值与上限/下限', () => {
   assert.deepEqual(normalizeBackfillParams({}), { limit: 200000, batch: 100, sleep: 3000, fallback: 10 });
@@ -37,4 +44,48 @@ test('进度解析：取最后一条批次行并算百分比', () => {
     done: 200, limit: 200000, ratePerMin: 640, percent: 0.1,
   });
   assert.equal(parseBackfillProgress('没有进度'), null);
+});
+
+test('缺价 appid：只挑没有 priceOverview 的，去重且忽略非法 appid', () => {
+  const items = [
+    { steamAppid: 730, priceOverview: { final: 0 } },
+    { steamAppid: 570 },
+    { steamAppid: 570 },
+    { steamAppid: 271590, priceOverview: null },
+    { steamAppid: 0 },
+    { steamAppid: null },
+  ];
+  assert.deepEqual(missingPriceAppids(items), [570, 271590]);
+  assert.deepEqual(missingPriceAppids([]), []);
+});
+
+test('GetItems 报价 → RawOffer，字段对齐 syncPrices 输出', () => {
+  const offer = offerFromItem({
+    steamAppid: 271590,
+    nameZh: 'GTA V',
+    priceOverview: { final: 11900, initial: 17900, discountPercent: 33, currency: 'CNY' },
+  });
+  assert.equal(offer.platformCode, 'steam');
+  assert.equal(offer.steamAppid, 271590);
+  assert.equal(offer.title, 'GTA V');
+  assert.equal(offer.priceCents, 11900);
+  assert.equal(offer.originalCents, 17900);
+  assert.equal(offer.discountPct, 33);
+  assert.equal(offer.region, 'cn');
+  assert.equal(offerFromItem({ steamAppid: 1 }), null);
+});
+
+test('合并报价：GetItems 自带 + appdetails 回退，同一 appid 不重复写', () => {
+  const items = [
+    { steamAppid: 730, nameZh: 'CS2', priceOverview: { final: 0, initial: 0, discountPercent: 0 } },
+    { steamAppid: 570, nameZh: 'Dota 2' },
+  ];
+  const fallback = [
+    { platformCode: 'steam', steamAppid: 570, title: 'Dota 2', priceCents: 100, originalCents: 100, discountPct: 0, region: 'cn' },
+    { platformCode: 'steam', steamAppid: 730, title: 'CS2', priceCents: 0, originalCents: 0, discountPct: 0, region: 'cn' },
+    { platformCode: 'steam', steamAppid: 440, title: 'TF2', priceCents: 0, originalCents: 0, discountPct: 0, region: 'cn' },
+  ];
+  const merged = mergePriceOffers(items, fallback);
+  assert.deepEqual(merged.map((o) => o.steamAppid).sort((a, b) => a - b), [440, 570, 730]);
+  assert.equal(merged.length, 3, '同一 appid 不能出现两条');
 });

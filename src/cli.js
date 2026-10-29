@@ -8,6 +8,7 @@ import { openStore, ping } from './store/index.js';
 import { startApiServer } from './server.js';
 import * as db from './store/pg.js';
 import { ingestOffers } from './ingest.js';
+import { missingPriceAppids, mergePriceOffers } from './backfill.js';
 import { buildSite } from './report.js';
 import { evaluateAlerts, renderDigest, toPayload } from './alerts.js';
 import { channelsFromEnv, deliver, hasNotifier } from './notify.js';
@@ -1682,38 +1683,41 @@ async function cmdBackfill() {
     }
     failed += Math.max(0, missed.length - fallbackMax);
 
-    // 本批拿到价格的条数：批量接口不返回 best_purchase_option 时这里会是 0
-    const batchPriced = items.filter((i) => i.priceOverview).length;
+    // GetItems 没带价格的（字段缺失/接口变化），用 appdetails 批量回退取价：
+    // GetItems 只负责元数据，价格这条链路以 appdetails 的 price_overview 为准。
+    const missing = missingPriceAppids(items);
+    let fallbackOffers = [];
+    if (missing.length) {
+      try {
+        const got = await syncPrices({ appids: missing, logger, region: 'cn', batchSize: 30, rateLimitMs: 1100 });
+        fallbackOffers = got.offers;
+        logger.info('backfill.price_fallback', {
+          appids: missing.length,
+          offers: fallbackOffers.length,
+          skipped: got.skipped.length,
+          requests: got.requests,
+        });
+      } catch (err) {
+        if (err.status === 403 || err.status === 429) {
+          abort(`价格回退遇到 HTTP ${err.status}（限流/风控），已立即中止回填避免 IP 被封`, { status: err.status });
+        }
+        logger.warn('backfill.price_fallback_failed', { appids: missing.length, message: String(err.message).slice(0, 160) });
+      }
+    }
+    const offersToWrite = mergePriceOffers(items, fallbackOffers);
+    const batchPriced = offersToWrite.length;
     priced += batchPriced;
 
     // 写库：每批只开 1 个连接（之前是每款一个，100 连接/批，日志会被 db.connect 刷屏）
     if (items.length) {
       await withStore(async (store) => {
         const q = (sql, p) => store.query(sql, p);
-        const offers = [];
         for (const item of items) {
           await db.upsertGameMeta(q, item);
           stored += 1;
-          if (item.priceOverview) {
-            offers.push({
-              platformCode: 'steam',
-              platformProductId: String(item.steamAppid),
-              steamAppid: item.steamAppid,
-              title: item.nameZh ?? String(item.steamAppid),
-              productType: 'official_direct',
-              region: 'cn',
-              currency: item.priceOverview.currency ?? 'CNY',
-              priceCents: Math.round(item.priceOverview.final),
-              originalCents: Math.round(item.priceOverview.initial ?? item.priceOverview.final),
-              discountPct: Number(item.priceOverview.discountPercent ?? 0),
-              inStock: true,
-              buyUrl: 'https://store.steampowered.com/app/' + item.steamAppid + '/',
-              meta: {},
-            });
-          }
         }
-        if (offers.length) {
-          await ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers, logger });
+        if (offersToWrite.length) {
+          await ingestOffers(store, { platform: { code: 'steam', name: 'Steam 国区', kind: 'official' }, offers: offersToWrite, logger });
         }
       });
     }
@@ -1721,11 +1725,12 @@ async function cmdBackfill() {
     done += appids.length;
     const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);
     console.log(`  批次 ${batches}：本批 ${appids.length} 款，写入 ${items.length}，回退 ${fallback}，失败 ${failed}；累计 ${done}/${limit}（${rate} 款/分钟）`);
-    if (key && items.length && batchPriced === 0) {
+    if (items.length && batchPriced === 0) {
       logger.warn('backfill.batch_no_price', {
         batch: batches,
         items: items.length,
-        hint: 'GetItems 没返回 best_purchase_option：检查请求体 include_best_purchase_option',
+        missing: missing.length,
+        hint: 'GetItems 与 appdetails 回退都没拿到价格（免费/锁区，或 Steam 接口异常）',
       });
     }
     if (sleepMs) await sleep(sleepMs);
@@ -1734,8 +1739,8 @@ async function cmdBackfill() {
   logger.info('backfill.done', { done, stored, priced, fallback, failed, batches, elapsedMs: Date.now() - startedMs });
   console.log(`完成：处理 ${done} 款，元数据 ${stored} 条，价格 ${priced} 条，单条回退 ${fallback}，失败 ${failed}`);
   if (stored > 0 && priced === 0) {
-    console.warn('⚠️ 一条价格都没拿到：GetItems 没有返回 best_purchase_option。检查请求体是否带 include_best_purchase_option（0.29.1+ 默认带上）。');
-    logger.warn('backfill.no_prices', { stored, hint: 'include_best_purchase_option' });
+    console.warn('⚠️ 一条价格都没拿到：GetItems 与 appdetails 回退都没返回价格（可能全部免费/锁区，或 Steam 接口异常）。');
+    logger.warn('backfill.no_prices', { stored, hint: 'getitems+appdetails both empty' });
   }
 }
 

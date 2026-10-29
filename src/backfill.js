@@ -63,3 +63,65 @@ export function parseBackfillProgress(output) {
     percent: limit > 0 ? Math.min(100, Math.round((done / limit) * 1000) / 10) : 0,
   };
 }
+
+// ---------------------------------------------------------------- GetItems → 报价
+
+/**
+ * GetItems 没带价格（preview 缺失/字段变化）的 appid，用于回退 appdetails 批量取价。
+ * 同一批里去重，忽略没有 appid 的条目。
+ */
+export function missingPriceAppids(items = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of items) {
+    const appid = Number(item?.steamAppid);
+    if (!Number.isFinite(appid) || appid <= 0) continue;
+    if (item.priceOverview) continue;
+    if (seen.has(appid)) continue;
+    seen.add(appid);
+    out.push(appid);
+  }
+  return out;
+}
+
+/** 把 GetItems 自带的价格转成 RawOffer（与 syncPrices 的输出结构一致）。 */
+export function offerFromItem(item) {
+  const p = item?.priceOverview;
+  const appid = Number(item?.steamAppid);
+  if (!p || !Number.isFinite(appid) || appid <= 0) return null;
+  return {
+    platformCode: 'steam',
+    platformProductId: String(appid),
+    steamAppid: appid,
+    title: item.nameZh ?? String(appid),
+    productType: 'official_direct',
+    region: 'cn',
+    currency: p.currency ?? 'CNY',
+    priceCents: Math.round(p.final),
+    originalCents: Math.round(p.initial ?? p.final),
+    discountPct: Number(p.discountPercent ?? 0),
+    inStock: true,
+    buyUrl: 'https://store.steampowered.com/app/' + appid + '/',
+    meta: {},
+  };
+}
+
+/** 合并 GetItems 自带报价 + appdetails 回退报价（同一 appid 只保留一条，避免重复写）。 */
+export function mergePriceOffers(items = [], fallbackOffers = []) {
+  const offers = [];
+  const seen = new Set();
+  for (const item of items) {
+    const offer = offerFromItem(item);
+    if (!offer) continue;
+    seen.add(String(offer.steamAppid));
+    offers.push(offer);
+  }
+  for (const offer of fallbackOffers) {
+    if (!offer || !Number.isFinite(Number(offer.steamAppid))) continue;
+    const key = String(offer.steamAppid);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    offers.push(offer);
+  }
+  return offers;
+}
