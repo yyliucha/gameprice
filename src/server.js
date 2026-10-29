@@ -214,6 +214,9 @@ export function createApiServer({
         if (!isLoggablePath(path)) return;
         const region = visitors.cachedRegion(ip);
         res.once('finish', () => {
+          // GET /api/* 的 2xx/3xx 是页面自身的数据请求（一次刷新会有十几条），不计入访问记录；
+          // 页面访问、登录/修改（POST 等）、以及所有错误状态才记，统计才等于「真实访问」。
+          if (req.method === 'GET' && path.startsWith('/api/') && res.statusCode < 400) return;
           db.insertVisitorLog(q, {
             ip,
             remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),

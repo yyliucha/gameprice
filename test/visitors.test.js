@@ -107,13 +107,16 @@ test('server 层拦截：拉黑后整站 403、管理员放行、解封恢复', 
     const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0];
     assert.equal(loginRes.status, 200);
 
-    // 正常访问可通，且访问记录已落库（fire-and-forget，轮询等待）
-    const ok = await fetch(`${base}/api/games`);
-    assert.equal(ok.status, 200);
+    // 登录（POST）会记访问记录；GET /api 数据请求不记（避免一次刷新十几条）
     await waitFor(async () => {
-      const rows = await q("select count(*)::int as n from visitor_logs where path = '/api/games'");
+      const rows = await q("select count(*)::int as n from visitor_logs where path = '/api/login'");
       return rows.rows[0].n >= 1 ? rows.rows[0].n : 0;
     });
+    const ok = await fetch(`${base}/api/games`);
+    assert.equal(ok.status, 200);
+    await new Promise((r) => setTimeout(r, 300));
+    const apiLogs = (await q("select count(*)::int as n from visitor_logs where path = '/api/games'")).rows[0].n;
+    assert.equal(apiLogs, 0, 'GET /api/* 2xx 不应写访问记录');
 
     // 管理员拉黑 127.0.0.1
     const ban = await fetch(`${base}/api/admin/blacklist`, {
