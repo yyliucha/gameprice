@@ -2,7 +2,7 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.26.3] - 2026-10-29
+## [0.26.2] - 2026-10-29
 
 前台列表布局：封面与游戏名固定同一行，名字不再折行。
 
