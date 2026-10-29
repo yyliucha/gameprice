@@ -296,6 +296,62 @@ async function cmdSyncSteam() {
   }
 }
 
+/** 每日刷新已经有 Steam 报价的游戏，避免对全目录的免费/未售游戏重复请求。 */
+async function cmdSyncSteamPrices() {
+  const limit = Math.max(1, Math.min(Number(flag('limit', '200000')) || 200000, 200000));
+  const appids = await withStore(async (store) => {
+    const r = await store.query(
+      "select distinct g.steam_appid from games g " +
+        "join offers o on o.game_id = g.id and o.platform_code = 'steam' " +
+        'where g.steam_appid is not null and not g.deleted order by g.steam_appid limit $1',
+      [limit],
+    );
+    return r.rows.map((x) => Number(x.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
+  });
+  if (!appids.length) {
+    logger.info('sync.steam_prices_empty', { hint: '先在后台完成首次数据回填' });
+    console.log('没有需要刷新的 Steam 报价；请先在后台完成首次数据回填。');
+    return;
+  }
+
+  logger.info('sync.start', { platform: 'steam', mode: 'prices', appids: appids.length });
+  const runId_ = await withStore((store) => db.startFetchRun((sql, p) => store.query(sql, p), steam.code));
+  try {
+    const result = await syncPrices({
+      appids,
+      logger,
+      region: 'cn',
+      batchSize: 30,
+      rateLimitMs: 1100,
+      log: (m) => logger.debug('sync.progress', { msg: m }),
+    });
+    const stats = await withStore((store) => ingestOffers(store, { platform: steam, offers: result.offers, logger }));
+    await withStore((store) =>
+      db.finishFetchRun((sql, p) => store.query(sql, p), runId_, {
+        requests: result.requests,
+        total: appids.length,
+        ok: result.offers.length,
+        skipped: result.skipped.length,
+        failed: appids.length - result.offers.length - result.skipped.length,
+        status: 'ok',
+        note: `${(result.bytes / 1024).toFixed(0)}KB`,
+      }),
+    );
+    logger.info('sync.done', { platform: steam.code, mode: 'prices', ...stats });
+  } catch (err) {
+    await withStore((store) =>
+      db.finishFetchRun((sql, p) => store.query(sql, p), runId_, {
+        total: appids.length,
+        failed: appids.length,
+        status: 'failed',
+        note: String(err.message).slice(0, 200),
+      }),
+    );
+    logger.error('sync.failed', { platform: steam.code, mode: 'prices', err: serializeError(err) });
+    throw err;
+  }
+}
+
 /**
  * 同步库里所有 Steam 游戏：元数据（名字/开发商/分类/说明）+ Steam 自身价格。
  * 这是「以 Steam 为准」的批量入口，后台按钮与定时任务都走它。
@@ -360,6 +416,7 @@ async function cmdSyncSteamAll() {
     const r = await store.query(
       "select g.steam_appid from games g where g.steam_appid is not null " +
         "and not g.deleted " +
+        "and (g.backfill_at is null or g.backfill_at < now() - interval '1 day') " +
         "and (g.description is null or g.description = '' or not exists (select 1 from offers o where o.game_id = g.id and o.platform_code = 'steam')) " +
         "order by g.id limit $1",
       [limit],
@@ -368,7 +425,11 @@ async function cmdSyncSteamAll() {
   });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const appids = rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
-  if (!appids.length) throw new Error('库里没有带 appid 的游戏：先 node src/cli.js import steam --appids ...');
+  if (!appids.length) {
+    logger.info('sync.steamall_complete', { hint: '没有缺少说明或 Steam 报价的游戏' });
+    console.log('没有需要补全的 Steam 游戏。');
+    return;
+  }
 
   console.log(`同步 ${appids.length} 款 Steam 游戏（官方接口：元数据 + 说明 + 价格，并发 ${concurrency}）`);
   const backend = String(flag('backend', 'official'));
@@ -455,6 +516,12 @@ async function cmdSyncSteamAll() {
   } else {
     console.log(`完成：${items.length} 条元数据，没有可入库的价格（汇率区/免费游戏）`);
     syncNote = `元数据 ${items.length} 条（无可入库价格）`;
+  }
+
+  // 只冷却成功收到元数据的项目；真正请求失败的 appid 留待后续重试。
+  const handledAppids = [...new Set(items.map((item) => Number(item.steamAppid)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (handledAppids.length) {
+    await withStore((store) => db.markBackfilled((sql, p) => store.query(sql, p), handledAppids));
   }
 
   // 增量同步顺带补封面图：前台不用再等 4 小时的补图任务；--images 0 可关，--image-sleep 控制节奏
@@ -2096,13 +2163,14 @@ async function main() {
     if (target === 'all') return cmdSyncAll();
     // 各源同步都留一条记录（定时任务也能在控制台「同步记录」里看到）
     if (target === 'steam') return runSyncTracked('steam', cmdSyncSteam, { fetchRun: false });
+    if (target === 'steam-prices') return runSyncTracked('steam-prices', cmdSyncSteamPrices, { fetchRun: false });
     if (target === 'steamall') return runSyncTracked('steamall', cmdSyncSteamAll);
     if (target === 'catalog') return runSyncTracked('catalog', cmdImportSteamCatalog);
     if (target === 'sonkwo') return runSyncTracked('sonkwo', cmdSyncSonkwo);
     if (target === 'itad') return runSyncTracked('itad', cmdSyncItad);
     if (target === 'gog') return runSyncTracked('gog', cmdSyncGog);
     if (target === 'humble') return runSyncTracked('humble', cmdSyncHumble);
-    throw new Error('用法: node src/cli.js sync all|steam|steamall|catalog|sonkwo|itad|gog|humble');
+    throw new Error('用法: node src/cli.js sync all|steam|steam-prices|steamall|catalog|sonkwo|itad|gog|humble');
   }
   const fn = commands[command];
   if (!fn) {
@@ -2114,6 +2182,7 @@ async function main() {
   seed                 从 data/games.json 导入游戏
   add-sku <id...>      往 data/skus.json 加杉果 SKU（可 --appid 关联 Steam）
   sync steam           拉 Steam 国区价格（需能访问 store.steampowered.com）
+  sync steam-prices    刷新已有 Steam 报价（调度器默认每日执行）
   sync steamall        补元数据/说明/价格 + 封面图（--limit 200 --sleep 2 --concurrency 4 --images 0 可关）
   sync sonkwo          按 SKU 抓杉果价格
   sync itad            走 ITAD 官方 API（需 ITAD_API_KEY）

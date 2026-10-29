@@ -2,6 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.32.0] - 2026-10-29
+
+Steam 定时任务改为「每日刷新已有报价」，长任务遇到 429 自动退避重试。
+
+### 变更
+
+- **定时任务拆分**：`sync steamall`（增量补全）改为后台「数据回填」负责；
+  定时任务变为 `steam-prices`：只刷新**已经有 Steam 报价**的游戏，默认**每天一次**
+  （`STEAM_PRICE_INTERVAL_MIN=1440`），首轮延迟 600 秒
+- 设置项 `sources.steam.intervalMin` → `sources.steam.priceIntervalMin`，
+  环境变量 `STEAM_INTERVAL_MIN` → `STEAM_PRICE_INTERVAL_MIN`（旧值不再读取，默认 1440）
+- `sync steamall` 跳过 1 天内已回填过的游戏；没有待补游戏时正常退出（不再报错）
+- 控制台同步记录的「steam-prices」显示为「Steam 价格刷新」
+
+### 修复
+
+- **429 长任务自动重试**：新增 `STEAM_429_RETRIES`（默认 1）；后台回填与定时价格任务设为
+  `Infinity`，冷却按 30 分钟 → 1 小时 → 2 小时…最多 6 小时递增后自动重试，
+  不会因一次 429 直接退出（手动同步仍是有限重试）
+- 回填说明文案更新：任务在服务器后台运行，关页面/关电脑不影响
+
+### 测试
+
+- `scheduler.test.js` / `settings.test.js` 随新任务名与新设置键更新
+
 ## [0.31.3] - 2026-10-29
 
 回填取价遵守 Steam appdetails 的限流。

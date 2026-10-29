@@ -188,7 +188,7 @@ docker compose -f compose.hub.yaml up -d
 | `SEED_ON_START` | `1` | 首次启动是否导入 `data/games.json` |
 | `IMG_DIR` | `data/images` | 封面图缓存目录（随 appdata 卷持久化） |
 
-数据源开关、间隔、API Key、代理、提醒、熔断等 **50 项业务设置** 都在数据库/页面里，见 [DEPLOY.md](DEPLOY.md#业务设置) 或控制台「系统设置」。
+数据源开关、间隔、API Key、代理、提醒、熔断等 **50 项业务设置** 都在数据库/页面里；Steam 价格默认每天刷新一次，可在控制台「系统设置」调整。见 [DEPLOY.md](DEPLOY.md#业务设置)。
 
 ## 旧 .env 部署升级
 

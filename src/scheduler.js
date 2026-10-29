@@ -27,18 +27,11 @@ const num = (value, fallback) => {
 export function jobsFromEnv(env = process.env) {
   return [
     {
-      name: 'steam',
-      // 元数据 + 说明 + 价格：并发抓取（默认 4 路），每路间隔控制总速率
-      args: [
-        'sync',
-        'steamall',
-        '--concurrency',
-        String(num(env.STEAM_CONCURRENCY, 4)),
-        '--sleep',
-        String(num(env.STEAM_SLEEP_SEC, 2)),
-      ],
-      intervalMin: num(env.STEAM_INTERVAL_MIN, 60),
-      initialDelaySec: num(env.STEAM_INITIAL_DELAY_SEC, 30),
+      name: 'steam-prices',
+      // 每日只刷新已经有 Steam 报价的游戏；初次导入/补详情由后台回填完成。
+      args: ['sync', 'steam-prices', '--limit', String(num(env.STEAM_PRICE_LIMIT, 200000))],
+      intervalMin: num(env.STEAM_PRICE_INTERVAL_MIN, 1440),
+      initialDelaySec: num(env.STEAM_INITIAL_DELAY_SEC, 600),
       enabled: env.STEAM_ENABLED !== '0',
     },
     {
@@ -271,7 +264,11 @@ export async function main() {
       logger.info('scheduler.job_start', { job: job.name, args: args.slice(1).join(' ') });
       const child = spawn(process.execPath, args, {
         cwd: process.cwd(),
-        env: process.env,
+        env: {
+          ...process.env,
+          // 价格刷新是无人值守任务：429 时按安全退避等待并重试，避免周期任务永久漏掉这一轮。
+          ...(job.name === 'steam-prices' ? { STEAM_429_RETRIES: 'Infinity' } : {}),
+        },
         stdio: 'inherit',
       });
       currentChild = child;
@@ -343,6 +340,15 @@ export async function main() {
       for (const job of due) {
         if (stopping) break;
         if (running.has(job.name)) continue;
+
+        // 后台手动回填/同步也写 sync_runs；让日更等它结束再执行，避免并行冲击 Steam。
+        if (job.name === 'steam-prices') {
+          const activeSync = await db.runningSyncRun(q).catch(() => null);
+          if (activeSync) {
+            logger.info('scheduler.job_deferred_busy', { job: job.name, runId: activeSync.id, mode: activeSync.mode });
+            continue;
+          }
+        }
 
         const state = health.get(job.name) ?? { failures: 0, openUntil: null };
         if (isCircuited(state, now)) {

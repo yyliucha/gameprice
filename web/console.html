@@ -215,7 +215,7 @@ table.runs .trunc{display:inline-block;max-width:560px;overflow:hidden;text-over
           </div>
           <div class="small muted" id="bfProgress" style="margin-top:6px"></div>
           <div class="logbox" id="bfBox" style="max-height:160px;margin-top:8px;display:none"></div>
-          <p class="muted small">与同步共用一个任务槽位（同一时间只跑一个）。遇到 429/403 会立即中止回填，进度保留；重跑会自动跳过已补的。全量约 2000 批，按 3 秒间隔约 5 小时。</p>
+          <p class="muted small">初始化补全只处理缺少简介或 Steam 报价的游戏；已有信息会跳过，已回填但暂时无价的项目每天最多再探一次。任务在服务器后台运行，关闭页面或电脑不影响；Steam 返回 429 时会暂停并逐步延长冷却后自动重试，403 会中止。首次回填完成后，系统按「系统设置 → 数据源与采集 → Steam 价格刷新间隔」默认每天更新已有 Steam 报价。服务重启会中断正在运行的回填，已写入进度会保留。</p>
         </div>
           </div>
         </details>
@@ -1475,7 +1475,7 @@ if ($('vSize')) $('vSize').onchange = function () { loadVisitors(1); };
 
 // ---- 同步：不跳页、按钮禁用、运行中显示实时输出，结束后恢复 ----
 let syncPollTimer = null;
-const MODE_LABELS = { catalog: '导入目录', steamall: '增量同步', backfill: '数据回填' };
+const MODE_LABELS = { catalog: '导入目录', steamall: '增量同步', 'steam-prices': 'Steam 价格刷新', backfill: '数据回填' };
 function modeLabel(mode) { return MODE_LABELS[mode] || String(mode || '—'); }
 function setSyncBusy(busy) {
   ['syncAll', 'syncCatalog', 'syncLimit', 'syncSleep', 'bfStart'].forEach(function (id) {
@@ -1524,11 +1524,11 @@ async function loadSyncSchedule() {
       el.textContent = '定时任务：未检测到调度器（手动同步仍可用；容器内由 src/scheduler.js 负责定时采集）';
       return;
     }
-    const steam = s.jobs.find(function (j) { return j.name === 'steam'; });
+    const steam = s.jobs.find(function (j) { return j.name === 'steam-prices'; });
     const next = steam && steam.nextRunAt ? new Date(steam.nextRunAt).toLocaleTimeString('zh-CN', { hour12: false }) : null;
     const runningNames = s.jobs.filter(function (j) { return j.running; }).map(function (j) { return j.name; });
     el.textContent = '定时任务运行中：' + s.jobs.map(function (j) { return j.name + ' 每 ' + j.intervalMin + ' 分钟'; }).join(' · ') +
-      (next ? ' · steam 下次 ' + next : '') +
+      (next ? ' · Steam 价格下次刷新 ' + next : '') +
       (runningNames.length ? ' · 正在执行：' + runningNames.join(',') : '');
   } catch (e) {
     el.textContent = '定时任务状态读取失败：' + e.message;
@@ -1660,7 +1660,7 @@ if ($('bfStart')) $('bfStart').onclick = async function () {
     sleep: Number(($('bfSleep') || {}).value || 3000),
     fallback: Number(($('bfFallback') || {}).value || 0),
   };
-  if (!confirm('开始回填？上限 ' + params.limit + ' 款，任务会持续较久（可在本页停止）。')) return;
+  if (!confirm('在服务器后台开始回填？关闭此页面或电脑不影响任务。上限 ' + params.limit + ' 款，可在本页停止。')) return;
   if ($('bfMsg')) $('bfMsg').textContent = '正在启动…';
   try {
     const d = await api('/api/admin/backfill', { method: 'POST', body: JSON.stringify(params) });

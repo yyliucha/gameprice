@@ -1,6 +1,6 @@
 {
   "name": "steamdeals",
-  "version": "0.31.3",
+  "version": "0.32.0",
   "private": true,
   "type": "module",
   "description": "以 Steam 为准的跨平台游戏比价：采集各授权渠道价格、留存价格历史、按需提醒。PostgreSQL + CLI + Web 前后端。",
@@ -58,8 +58,10 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.11",
+    "element-plus": "^2.14.7",
     "pg": "^8.23.1",
-    "undici": "^8.12.3"
+    "undici": "^8.12.3",
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@electric-sql/pglite-socket": "^0.2.14",

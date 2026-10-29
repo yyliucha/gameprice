@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs } from '../src/scheduler.js';
 
-test('默认任务表（含 gog / humble / discover / backup / alerts / images），各自间隔', () => {
+test('默认任务表（含 Steam 日更、gog / humble / discover / backup / alerts / images），各自间隔', () => {
   const jobs = jobsFromEnv({});
-  assert.deepEqual(jobs.map((j) => j.name), ['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'backup', 'logs', 'alerts', 'images']);
-  assert.equal(jobs[0].intervalMin, 60);
+  assert.deepEqual(jobs.map((j) => j.name), ['steam-prices', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'backup', 'logs', 'alerts', 'images']);
+  assert.equal(jobs[0].intervalMin, 1440, 'Steam 价格默认每天刷新');
   assert.equal(jobs[2].intervalMin, 1440);
   assert.equal(jobs[3].intervalMin, 720);
   assert.equal(jobs[4].intervalMin, 720);
@@ -17,8 +17,7 @@ test('默认任务表（含 gog / humble / discover / backup / alerts / images�
   assert.deepEqual(jobs[5].args, ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12']);
   assert.deepEqual(jobs[6].args, ['backup']);
   assert.deepEqual(jobs[9].args, ['images', 'pull', '--limit', '200', '--sleep', '300']);
-  // steam 任务带并发参数
-  assert.deepEqual(jobs[0].args, ['sync', 'steamall', '--concurrency', '4', '--sleep', '2']);
+  assert.deepEqual(jobs[0].args, ['sync', 'steam-prices', '--limit', '200000']);
 });
 
 test('配置了提醒通道才会启用价格报表推送任务', () => {
@@ -49,7 +48,7 @@ test('没配任何提醒通道时 alerts 只做只读检查，不标记已通知
 });
 
 test('环境变量能改间隔与首轮延迟', () => {
-  const jobs = jobsFromEnv({ STEAM_INTERVAL_MIN: '15', SONKWO_INITIAL_DELAY_SEC: '5' });
+  const jobs = jobsFromEnv({ STEAM_PRICE_INTERVAL_MIN: '15', SONKWO_INITIAL_DELAY_SEC: '5' });
   assert.equal(jobs[0].intervalMin, 15);
   assert.equal(jobs[1].initialDelaySec, 5);
 });
@@ -57,7 +56,7 @@ test('环境变量能改间隔与首轮延迟', () => {
 test('显式禁用或间隔为 0 的任务会被剔除', () => {
   const jobs = jobsFromEnv({
     ITAD_ENABLED: '0',
-    STEAM_INTERVAL_MIN: '0',
+    STEAM_PRICE_INTERVAL_MIN: '0',
     GOG_ENABLED: '0',
     HUMBLE_ENABLED: '0',
     DISCOVER_ENABLED: '0',
@@ -77,11 +76,11 @@ test('从未跑过的任务在 initialDelay 之后才算到点', () => {
   assert.equal(dueJobs(jobs, { nowMs: startedMs + 29_000, startedMs, lastRunMs }).length, 0);
   assert.deepEqual(
     dueJobs(jobs, { nowMs: startedMs + 31_000, startedMs, lastRunMs }).map((j) => j.name),
-    ['steam'],
+    ['steam-prices'],
   );
   assert.deepEqual(
     dueJobs(jobs, { nowMs: startedMs + 181_000, startedMs, lastRunMs }).map((j) => j.name),
-    ['steam', 'sonkwo'],
+    ['steam-prices', 'sonkwo'],
   );
 });
 
@@ -89,23 +88,23 @@ test('跑过的任务按间隔再次到点', () => {
   const jobs = jobsFromEnv({});
   const startedMs = 0;
   const steam = jobs[0];
-  const lastRunMs = new Map([['steam', 1_000_000]]);
+  const lastRunMs = new Map([['steam-prices', 1_000_000]]);
 
   assert.equal(dueJobs([steam], { nowMs: 1_000_000 + 59 * 60_000, startedMs, lastRunMs }).length, 0);
-  assert.equal(dueJobs([steam], { nowMs: 1_000_000 + 60 * 60_000, startedMs, lastRunMs }).length, 1);
+  assert.equal(dueJobs([steam], { nowMs: 1_000_000 + 1440 * 60_000, startedMs, lastRunMs }).length, 1);
 });
 
 test('唯一一个跑过的任务不影响其它任务的首次触发', () => {
   const jobs = jobsFromEnv({ SONKWO_INITIAL_DELAY_SEC: '60' });
   const startedMs = 0;
-  const lastRunMs = new Map([['steam', 500]]);
+  const lastRunMs = new Map([['steam-prices', 500]]);
   const due = dueJobs(jobs, { nowMs: 60_000, startedMs, lastRunMs });
   assert.deepEqual(due.map((j) => j.name), ['sonkwo']);
 });
 
 test('describeSchedule 能生成可读描述', () => {
   const text = describeSchedule(jobsFromEnv({}));
-  assert.match(text, /steam 每 60 分钟/);
+  assert.match(text, /steam-prices 每 1440 分钟/);
   assert.match(text, /itad 每 1440 分钟/);
 });
 

@@ -204,7 +204,13 @@ export function createApiServer({
     // SYNC_RUN_ID 让子进程复用这一条记录，避免重复建行
     const child = spawn(process.execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, SYNC_RUN_ID: String(run.id) },
+      env: {
+        ...process.env,
+        SYNC_RUN_ID: String(run.id),
+        // 后台回填是长任务：Steam 持续返回 429 时由 http.js 逐步延长冷却并自动重试，
+        // 让管理员点一次后可留在服务器上运行；手动同步仍使用有限重试。
+        ...(mode === 'backfill' ? { STEAM_429_RETRIES: 'Infinity' } : {}),
+      },
     });
     syncChild = child;
     syncRun = { id: run.id, mode, args: args.join(' '), startedAt: run.startedAt, params };

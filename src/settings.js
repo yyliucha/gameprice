@@ -55,14 +55,23 @@ export const SETTINGS = [
   def('sources.humble.enabled', 'HUMBLE_ENABLED', 'sources', 'Humble', 'bool', true),
   def('sources.discover.enabled', 'DISCOVER_ENABLED', 'sources', '杉果 SKU 自动发现', 'bool', false, { advanced: true }),
 
-  def('sources.steam.intervalMin', 'STEAM_INTERVAL_MIN', 'sources', 'Steam 间隔（分钟）', 'int', 60, { min: 0, max: 10080 }),
+  def('sources.steam.priceIntervalMin', 'STEAM_PRICE_INTERVAL_MIN', 'sources', 'Steam 价格刷新间隔（分钟）', 'int', 1440, {
+    min: 0,
+    max: 10080,
+    help: '定时刷新系统中已有 Steam 报价的游戏。建议 1440 分钟（每天一次）；间隔越短，请求越多，也更容易遇到 Steam 429。设为 0 可关闭。',
+  }),
   def('sources.sonkwo.intervalMin', 'SONKWO_INTERVAL_MIN', 'sources', '杉果间隔（分钟）', 'int', 60, { min: 0, max: 10080 }),
   def('sources.itad.intervalMin', 'ITAD_INTERVAL_MIN', 'sources', 'ITAD 间隔（分钟）', 'int', 1440, { min: 0, max: 10080 }),
   def('sources.gog.intervalMin', 'GOG_INTERVAL_MIN', 'sources', 'GOG 间隔（分钟）', 'int', 720, { min: 0, max: 10080 }),
   def('sources.humble.intervalMin', 'HUMBLE_INTERVAL_MIN', 'sources', 'Humble 间隔（分钟）', 'int', 720, { min: 0, max: 10080 }),
   def('sources.discover.intervalMin', 'DISCOVER_INTERVAL_MIN', 'sources', 'SKU 发现间隔（分钟）', 'int', 720, { min: 0, max: 10080, advanced: true }),
 
-  def('sources.steam.initialDelaySec', 'STEAM_INITIAL_DELAY_SEC', 'sources', 'Steam 首轮延迟（秒）', 'int', 30, { min: 0, max: 86400, advanced: true }),
+  def('sources.steam.initialDelaySec', 'STEAM_INITIAL_DELAY_SEC', 'sources', 'Steam 价格首轮延迟（秒）', 'int', 600, {
+    min: 0,
+    max: 86400,
+    advanced: true,
+    help: '应用启动并完成初始化后，等待多久开始第一次自动价格刷新；之后按 Steam 价格刷新间隔执行。',
+  }),
   def('sources.sonkwo.initialDelaySec', 'SONKWO_INITIAL_DELAY_SEC', 'sources', '杉果首轮延迟（秒）', 'int', 180, { min: 0, max: 86400, advanced: true }),
   def('sources.itad.initialDelaySec', 'ITAD_INITIAL_DELAY_SEC', 'sources', 'ITAD 首轮延迟（秒）', 'int', 300, { min: 0, max: 86400, advanced: true }),
   def('sources.gog.initialDelaySec', 'GOG_INITIAL_DELAY_SEC', 'sources', 'GOG 首轮延迟（秒）', 'int', 600, { min: 0, max: 86400, advanced: true }),

@@ -112,7 +112,7 @@ test('前后端合并成一个服务：app 跑 all，暴露 WEB_PORT', () => {
 
 test('.env.example 覆盖 compose 用到的可配置项', () => {
   const example = read('.env.example');
-  for (const key of ['COMPOSE_PROFILES', 'POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {
+  for (const key of ['COMPOSE_PROFILES', 'POSTGRES_PASSWORD', 'ITAD_API_KEY', 'STEAM_PRICE_INTERVAL_MIN', 'TZ', 'SEED_ON_START']) {
     assert.match(example, new RegExp(`^#?\\s*${key}=`, 'm'), `.env.example 缺少 ${key}`);
   }
 });

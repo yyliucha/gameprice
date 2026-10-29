@@ -356,7 +356,7 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 
 ### 业务设置（落库，页面维护）
 
-50 项业务配置 **不再需要改 `.env`**，全部存在 PostgreSQL：
+50 项业务配置 **不再需要改 `.env`**，全部存在 PostgreSQL。Steam 价格默认每天刷新一次，可在系统设置中调整刷新间隔：
 
 - 首次启动：`/setup` 初始化页
 - 之后：控制台 →「系统设置」

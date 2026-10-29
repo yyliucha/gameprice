@@ -59,7 +59,7 @@ docker compose up -d --build
 | 建表 | `bootstrap` → `migrate` | 8 张表 + 1 视图，`create table if not exists`，可重复执行 |
 | 平台字典 | `migrate` | steam / sonkwo / itad / gog / humble / steampy |
 | 首次导入 | `bootstrap` | 读 `data/games.json`，已导入则跳过（幂等） |
-| 定时采集 | `scheduler` | steam 60m、sonkwo 60m、gog/humble 720m、itad 1440m、alerts 360m |
+| 定时采集 | `scheduler` | Steam 报价默认 1440m、sonkwo 60m、gog/humble 720m、itad 1440m、alerts 360m |
 
 数据库端口**不发布到宿主机**，只在 compose 内网可达；默认 `trust` 认证，所以不需要密码。
 想启用密码：设 `POSTGRES_PASSWORD` + `POSTGRES_HOST_AUTH_METHOD=scram-sha-256`，并显式给出
@@ -301,7 +301,7 @@ docker compose run --rm app diagnose
 
 ### 业务设置
 
-50 项业务配置落库，不再需要 `.env`：
+50 项业务配置落库，不再需要 `.env`；Steam 价格默认每天刷新，可在系统设置中调整间隔：
 
 - 首次启动：`/setup`
 - 之后：控制台「系统设置」

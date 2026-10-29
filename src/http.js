@@ -174,11 +174,18 @@ export async function fetchText(url, opts = {}) {
       ? { dispatcher: null, via: 'direct', proxy: null }
       : dispatcherFor(hostOf(url));
   const doFetch = fetchImpl ?? undici.fetch;
+  const retryConfig = process.env.STEAM_429_RETRIES ?? '1';
+  const configuredSteam429Retries = Number(retryConfig);
+  const steam429RetriesMax = retryConfig === 'Infinity'
+    ? Infinity
+    : Number.isFinite(configuredSteam429Retries)
+      ? Math.max(0, configuredSteam429Retries)
+      : 1;
 
   let lastError;
   let attempt = 0;
   let retriesUsed = 0;
-  let steam429Retried = false;
+  let steam429Retries = 0;
   while (true) {
     attempt += 1;
     if (isSteamHost(hostOf(url)) && steamCooldownUntil > Date.now()) {
@@ -273,17 +280,20 @@ export async function fetchText(url, opts = {}) {
       });
 
       if (steam429) {
-        if (steam429Retried) break;
-        steam429Retried = true;
-        const delayMs = Math.max(STEAM_429_COOLDOWN_MS, retryAfterMs(err.retryAfter));
+        if (steam429Retries >= steam429RetriesMax) break;
+        steam429Retries += 1;
+        // 持续 429 时逐步拉长等待（30m、1h、2h…最多 6h），避免任务退出后需要人工重启。
+        const backoffMs = Math.min(6 * 60 * 60 * 1000, STEAM_429_COOLDOWN_MS * (2 ** (steam429Retries - 1)));
+        const delayMs = Math.max(backoffMs, retryAfterMs(err.retryAfter));
         steamCooldownUntil = Math.max(steamCooldownUntil, Date.now() + delayMs);
         logger?.warn('http.rate_limit_pause', {
           label,
           requestId,
           status: 429,
+          retry: steam429Retries,
           delayMs,
           retryAfter: err.retryAfter ?? null,
-          message: 'Steam 429：暂停请求，冷却后仅重试一次',
+          message: 'Steam 429：暂停请求，冷却后重试',
         });
         await sleep(delayMs);
         continue;
