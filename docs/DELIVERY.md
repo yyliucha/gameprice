@@ -171,18 +171,16 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ---
 
-### 当前状态（2026-10-30 更新，v1.4.6 已改完待构建）
+### 当前状态（2026-10-30 更新，v1.4.6 已构建）
 
 > 未完成事项的完整清单见 [TODO.md](TODO.md)。本节只记录版本与部署现状。
 
-- **v1.4.6（本次改动已全部完成，构建按所有者指令执行）**：
-  - 「同步与回填」页精简为一表 + 状态卡（去参数输入、去 steamall 入口）
-  - **时间字段时区设置化**：新增设置「时区」（默认 Asia/Shanghai），DB 会话时区 + 日志带偏移 ISO + 前端站点时区
-  - 侧栏版本徽标移到 header 右侧 + 侧栏底部布局修复
-  - 测试全绿（`npm test` + `test/api.test.js` + `frontend:build` + 凭据扫描）
-- **服务器现状：已部署 v1.4.5**；v1.4.6 构建双绿后，由部署人员按第 4 节更新（TCR tag 用 `1.4.6`）。
-- 工作区：干净；HEAD 以最新提交为准，已同步 origin main。
-- 部署时序（升级后自动）：+10min steam-prices → +1h catalog/heat → +2h rename（约 50 分钟）→ +3h backfill。
+- **v1.4.6 已构建**（tag `v1.4.6` → 提交 `ffb3a7b`；`docker-hub` 与 `docker-tcr` 双绿，2026-10-30 17:21 确认）：
+  「同步与回填」页精简、**时区设置化**（设置「时区」默认 Asia/Shanghai：DB 会话时区 + 日志带偏移 ISO + 前端站点时区）、
+  侧栏版本徽标修复。TCR 有 `1.4.6` / `latest` / `sha-ffb3a7b…`；Docker Hub 有 `1.4.6` / `1.4` / `latest`。
+- **服务器现状：已部署 v1.4.5**；升级到 v1.4.6 由部署人员按第 4 节执行（TCR tag 用 `1.4.6`）。
+  升级后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
-- 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"）——详见 [TODO.md C1](TODO.md#c-线上问题--需要探测)。
-- 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。
+- 工作区：干净；HEAD `ffb3a7b`，已同步 origin main。
+- 待探测（需服务器）：线上 heat 逐 appid 返回全 `success:false`（[TODO.md C1](TODO.md#c-线上问题--需要探测)）、
+  服务器 compose 真实文件名（C2）。
