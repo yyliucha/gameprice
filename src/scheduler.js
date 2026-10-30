@@ -236,7 +236,9 @@ export function writeStatusFile(jobs, { lastRunMs, health, running, tickMs = 600
           name: j.name,
           intervalMin: j.intervalMin,
           lastRunAt: last ? new Date(last).toISOString() : null,
-          nextRunAt: new Date((last ?? now) + j.intervalMin * 60_000).toISOString(),
+          // 从未跑过的任务，下一次是「首轮延迟」；跑过的按间隔。之前这里一律按间隔算，
+          // 导致首轮任务（如 rename 首轮 +7200s）在状态文件里显示成一周后。
+          nextRunAt: new Date((last ?? now) + (last == null ? j.initialDelaySec * 1000 : j.intervalMin * 60_000)).toISOString(),
           running: Boolean(running?.has?.(j.name)),
           failures: Number(h.failures ?? 0),
           openUntil: h.openUntil ? new Date(h.openUntil).toISOString() : null,

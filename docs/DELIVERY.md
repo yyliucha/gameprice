@@ -178,4 +178,6 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
   `release_date` filter 差异；诊断日志已加，等探测结果。
+- 已修未发（在 main，未打 tag）：状态文件 `scheduler-status.json` 的 `nextRunAt` 对从未跑过的任务按间隔显示
+  （首轮 rename 显示成一周后），已改为按 `initialDelaySec` 计算（含测试）。**下次发版随包带上即可，不影响任务实际触发时间。**
 - 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。

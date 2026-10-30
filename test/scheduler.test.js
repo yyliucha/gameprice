@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs } from '../src/scheduler.js';
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs, writeStatusFile } from '../src/scheduler.js';
 
 test('默认任务表（含 Steam 日更/热度/重写名字/增量回填、清理、gog / humble / discover / backup / alerts / images），各自间隔', () => {
   const jobs = jobsFromEnv({});
@@ -210,4 +213,24 @@ test('采集成功后自动重建曲线页：失败不触发、非采集任务�
   assert.equal(followUpArgs('sonkwo', 1, {}), null, '任务失败不该重建');
   assert.equal(followUpArgs('alerts', 0, {}), null, '提醒任务不重建');
   assert.equal(followUpArgs('sonkwo', 0, { CHART_ON_SYNC: '0' }), null, 'CHART_ON_SYNC=0 关闭');
+});
+
+test('状态文件：从未跑过的任务 nextRunAt 按首轮延迟计算，跑过的按间隔', () => {
+  const jobs = [{ name: 'rename', intervalMin: 10080, initialDelaySec: 7200 }];
+  const file = join(tmpdir(), `scheduler-status-${Date.now()}.json`);
+  try {
+    writeStatusFile(jobs, { lastRunMs: new Map(), health: new Map(), running: new Set(), file });
+    const p1 = JSON.parse(readFileSync(file, 'utf8'));
+    const now = Date.now();
+    const first = new Date(p1.jobs[0].nextRunAt).getTime();
+    assert.ok(Math.abs(first - (now + 7200_000)) < 60_000, '首轮应为 now + 7200s，而不是 now + 一周');
+
+    const last = now - 1000;
+    writeStatusFile(jobs, { lastRunMs: new Map([['rename', last]]), health: new Map(), running: new Set(), file });
+    const p2 = JSON.parse(readFileSync(file, 'utf8'));
+    const second = new Date(p2.jobs[0].nextRunAt).getTime();
+    assert.ok(Math.abs(second - (last + 10080 * 60_000)) < 60_000, '跑过的按间隔计算');
+  } finally {
+    rmSync(file, { force: true });
+  }
 });
