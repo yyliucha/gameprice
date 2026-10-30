@@ -98,10 +98,11 @@ ls compose*.*
 docker compose config --images   # 看当前实际用的镜像 tag
 ```
 
-用真实文件名替换 tag 并部署：
+用真实文件名替换 tag 并部署（TCR 的可用 tag：`latest`、`sha-<完整40位提交号>`、`<git tag 版本号>`——
+以 CI 实际推送为准，先 `docker manifest inspect ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:<tag>` 确认存在）：
 
 ```bash
-sed -i 's#tcb-100003189690-pljp/steamdeals:[^" ]*#tcb-100003189690-pljp/steamdeals:<新版本>#' <真实 compose 文件名>
+sed -i 's#tcb-100003189690-pljp/steamdeals:[^" ]*#tcb-100003189690-pljp/steamdeals:sha-<完整40位提交号>#' <真实 compose 文件名>
 docker compose pull app && docker compose up -d app
 docker exec steamdeals node -p "require('./package.json').version"   # 期望输出新版本
 ```
@@ -168,9 +169,12 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
   同步游戏补中文名（`importCatalogGames` 分流 + `upsertGameMeta`/`ensureGame` 机器英文名覆盖规则 + 新增 `rename` 命令）、
   GetItems `type` 数字枚举修复（app_type 落库）、`rename`/`catalog`/`backfill` 纳入调度器、heat 改每天自动播种、
   发布/升级流程与服务器边界写入文档。
-- 镜像：Docker Hub `s1065420329/steamdeals:1.4.3 / 1.4 / latest`；TCR `…/steamdeals:latest / 1.4.0 / sha-37baea6`
-  （TCR 版本号 tag 取 package.json；**本次未按 §3 步骤③ bump，镜像内 package.json 仍是 1.4.0**，所以
-  「部署后验证第 4 节」的 `node -p require('./package.json').version` 会输出 1.4.0——**下次发版务必先 `npm version`**）。
+- 镜像：Docker Hub `s1065420329/steamdeals:1.4.3 / 1.4 / latest`；TCR `…/steamdeals:latest / 1.4.0 / sha-37baea6f6035f43f10d51dd3b040be9eee70e15e`
+  （**v1.4.3 踩坑**：当时 TCR 版本号 tag 只取 package.json，而 package.json 没 bump（仍 1.4.0），所以 TCR
+  上**没有 1.4.3 这个 tag**，Docker Hub 才有。服务器更新请用 `sha-37baea6f6035f43f10d51dd3b040be9eee70e15e`
+  或 `latest`。工作流已修：打 tag 触发时版本 tag 取 git tag（去 v 前缀），下次发版（1.4.4+）TCR 上会有
+  与 git tag 同名的镜像 tag。镜像内 package.json 仍是 1.4.0，第 4 节的版本号验证会输出 1.4.0，
+  **下次发版务必先 `npm version`**）。
 - 工作区：干净；HEAD 为 docs 提交 `ee147eb`。
 - 待部署：服务器仍跑旧镜像，**更新由部署人员按第 4 节执行**（TCR tag 用 `latest` 或 `sha-37baea6` 均可）。
   部署后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。

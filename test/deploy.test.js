@@ -190,6 +190,10 @@ test('TCR 发布工作流：只推 amd64、带 PostgreSQL 镜像、用 Secrets �
   assert.ok(!/linux\/amd64,linux\/arm64/.test(wf), 'TCR 个人版不走多架构');
   assert.match(wf, /postgres:15-alpine/);
   assert.match(wf, /steamdeals:latest/);
+  // v1.4.3 踩坑：版本 tag 曾只取 package.json，导致 TCR 上没有与 git tag 同名的镜像 tag；
+  // 现在打 tag 触发时取 git tag 名（去 v 前缀），手动触发才回退 package.json
+  assert.match(wf, /GITHUB_REF_NAME#v/);
+  assert.match(wf, /GITHUB_REF_TYPE/);
 });
 
 test('发布工作流：多架构构建、Docker Hub 镜像名、先跑测试与冒烟', () => {

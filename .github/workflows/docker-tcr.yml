@@ -55,8 +55,16 @@ jobs:
           username: ${{ secrets.TCR_USERNAME }}
           password: ${{ secrets.TCR_PASSWORD }}
 
+      # 版本 tag 优先取 git tag（去掉 v 前缀，与 Docker Hub 的 semver 规则一致）；
+      # 手动 workflow_dispatch 时回退 package.json。注意：v1.4.3 踩过坑——
+      # 当时这里只读 package.json（未 bump，还是 1.4.0），导致 TCR 上没有 1.4.3 这个 tag。
       - id: version
-        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
 
       # TCR 个人版官方不支持多架构构建，这里只推 linux/amd64。
       # Docker Hub 继续推 amd64 + arm64。
