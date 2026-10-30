@@ -1915,11 +1915,13 @@ async function cmdHeat() {
     }
     batches += 1;
     try {
-      const qs = 'appids=' + appids.join(',') + '&filters=recommendations,release_date&cc=cn&l=schinese';
+      // 注意：批量（多 appid）时 Steam 对 filters 的白名单很窄——recommendations/release_date 会 400，
+      // 只有 price_overview 可用；所以热度回填**不带 filters**，全量响应里顺带把 app_type 也回填了。
+      const qs = 'appids=' + appids.join(',') + '&cc=cn&l=schinese';
       const data = await fetchJson('https://store.steampowered.com/api/appdetails?' + qs, {
         logger,
         label: 'steam.heat',
-        timeoutMs: 30000,
+        timeoutMs: 45000,
         retries: 1,
       });
       await withStore(async (store) => {
@@ -1941,6 +1943,7 @@ async function cmdHeat() {
             heat,
             heatReviews: total,
             releaseDate: rel ? rel.toISOString().slice(0, 10) : null,
+            appType: entry.data.type ? String(entry.data.type).toLowerCase() : null,
           });
           withHeat += 1;
           marked += 1;
@@ -1949,10 +1952,19 @@ async function cmdHeat() {
     } catch (err) {
       failed += appids.length;
       logger.warn('heat.batch_failed', { batch: batches, message: String(err.message).slice(0, 160) });
-      if (err.status === 403 || err.status === 429) {
-        logger.error('heat.aborted', { status: err.status, hint: '限流/风控，冷却后重跑可续（heat_at 为 null 的部分会继续）' });
-        throw new Error(`Steam 返回 HTTP ${err.status}（限流/风控），已中止；冷却后重跑可续`);
+      if (err.status && err.status >= 400 && err.status < 500) {
+        // 4xx：请求本身被拒（限流/风控/参数非法），重试下一批没有意义，立刻中止避免原地烧配额
+        logger.error('heat.aborted', {
+          status: err.status,
+          hint: err.status === 429 ? '限流，冷却后重跑可续' : '参数/风控问题，需要排查',
+        });
+        throw new Error(`Steam 返回 HTTP ${err.status}，已中止热度回填（避免原地重试烧配额）`);
       }
+      // 网络类错误：本批记 heat_at 跳过（下轮再试），游标继续前进，不做原地打转
+      await withStore(async (store) => {
+        await db.markHeatSkipped((sql, p) => store.query(sql, p), appids);
+      });
+      logger.warn('heat.batch_skipped', { batch: batches, appids: appids.length, hint: '网络失败，本批已标记待下轮重试' });
     }
     done += appids.length;
     const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);

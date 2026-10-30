@@ -1717,12 +1717,20 @@ export async function markBackfilled(q, appids = []) {
   return r.rowCount ?? 0;
 }
 
-/** 热度回填：无论拿没拿到评测都写 heat_at（续跑游标）；releaseDate 为空时不覆盖已有发行日期。 */
-export async function setGameHeat(q, { steamAppid, heat = null, heatReviews = 0, releaseDate = null }) {
+/** 热度回填：无论拿没拿到评测都写 heat_at（续跑游标）；releaseDate/appType 为空时不覆盖已有值。 */
+export async function setGameHeat(q, { steamAppid, heat = null, heatReviews = 0, releaseDate = null, appType = null }) {
   await q(
-    'update games set heat = $2, heat_reviews = $3, heat_at = now(), release_date = coalesce($4, release_date) where steam_appid = $1',
-    [steamAppid, heat, heatReviews, releaseDate],
+    'update games set heat = $2, heat_reviews = $3, heat_at = now(), release_date = coalesce($4, release_date), app_type = coalesce($5, app_type) where steam_appid = $1',
+    [steamAppid, heat, heatReviews, releaseDate, appType],
   );
+}
+
+/** 热度批次网络失败时：本批只记 heat_at（下轮再试），避免 heat_at is null 的游标原地打转。 */
+export async function markHeatSkipped(q, appids = []) {
+  const ids = [...new Set((appids ?? []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return 0;
+  const r = await q('update games set heat_at = now() where steam_appid = any($1::int[]) and heat_at is null', [ids]);
+  return r.rowCount ?? 0;
 }
 
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响展示，不影响采集与金额统计。 */

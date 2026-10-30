@@ -207,6 +207,13 @@
   用 `node src/cli.js proxy-check` 看 TCP / CONNECT / 实际请求三段即可区分。
 - 生产回填运行时每约 1.7 秒一次 appdetails（≈176 次/5 分钟），已接近 Steam 200 次/5 分钟上限；
   此时再发探测请求会排队超时。
+- **appdetails 批量时 filters 白名单很窄（2026-10-30 线上踩坑）**：30 个 appid 批量 +
+  `filters=recommendations,release_date` 返回 HTTP 400；单 appid 同参数是 200。
+  批量下只有 `filters=price_overview` 可用。热度回填因此改为**不带 filters** 的全量批量请求
+  （响应约 15KB/款），并顺带把 `app_type` 一起回填。
+- **搜索性能基准（2026-10-30 生产 EXPLAIN ANALYZE）**：`lower(name) like '%森林%'` 的 count 查询
+  `Execution Time: 114.87 ms`（并行全表扫 19.6 万行 × 3 workers）。未超过 150ms 阈值，
+  **暂不上 pg_trgm**；若访问量上来或边打边查放大频率后再测，超阈值再建索引。
 
 ## 批次 5：安全加固 + 体验修正（2026-10-30 排查，✅ 已完成于 v1.4.0）
 

@@ -2,6 +2,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.1] - 2026-10-30
+
+### 修复
+
+- **热度回填线上 400 空转**：批量 appids + `filters=recommendations,release_date` 被 Steam 拒绝
+  （批量时 filters 白名单只有 `price_overview` 类，单 appid 才接受 recommendations）；
+  改为**不带 filters** 的全量批量请求，并顺带把 `app_type` 一起回填
+- **失败批次不再原地打转**：网络类失败的本批写 `heat_at` 跳过（下轮调度再试），
+  游标继续前进；4xx（含 429/风控）立即中止任务，不再烧配额反复重试同一批
+
 ## [1.4.0] - 2026-10-30
 
 批次 5：安全加固 + 体验修正（排查结论见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
