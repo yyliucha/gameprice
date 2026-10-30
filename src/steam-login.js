@@ -2,6 +2,7 @@
 // 登录不需要 API Key；游戏库需要 STEAM_API_KEY，且账号的"游戏详情"必须公开。
 import { fetchText, fetchJson } from './http.js';
 import { randomBytes } from 'node:crypto';
+import { isPrivateAddress, matchesIpEntry } from './visitors.js';
 
 const OPENID_ENDPOINT = 'https://steamcommunity.com/openid/login';
 
@@ -47,8 +48,23 @@ export async function ensureSteamSchemaOnce(q) {
 }
 
 export function baseUrl(req) {
-  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost');
-  const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+  // 只信任可信反代传入的 X-Forwarded-*（防 Host/协议伪造影响 Steam 登录回调地址）
+  const raw = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  const trustedEntries = String(process.env.TRUSTED_PROXY_IPS ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  const trusted =
+    isPrivateAddress(raw) ||
+    (process.env.TRUST_PROXY === '1' && trustedEntries.some((entry) => matchesIpEntry(raw, entry)));
+  const host = trusted
+    ? String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost')
+    : String(req.headers.host ?? 'localhost');
+  const proto = trusted
+    ? String(req.headers['x-forwarded-proto'] ?? (req.socket?.encrypted ? 'https' : 'http')).split(',')[0].trim()
+    : req.socket?.encrypted
+      ? 'https'
+      : 'http';
   return proto + '://' + host;
 }
 

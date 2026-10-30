@@ -127,7 +127,7 @@
 | **亮暗色主题** | ✅ | 语义化颜色 token；默认跟随系统，顶栏/后台可切；登录用户跨设备同步（`user_prefs.theme`），设置页可回「跟随系统」 |
 | **移动端适配** | ✅ | 900/760/420 三档断点；后台游戏目录、访问记录在手机上改卡片式 |
 | **站点通知弹窗** | ✅ | 新公告自动弹窗（最多 5 条），关闭记已读，页面不放公告元素 |
-| **标记三态** | ✅ | 感兴趣 / 不感兴趣 / 已拥有 三个显式按钮，支持清除（游客存本地、登录存库） |
+| **标记三态** | ✅ | 感兴趣 / 不感兴趣 / 已拥有 三个显式按钮，支持清除（游客存本地、登录存库）；「全部」页签只显示**未标记**的游戏 |
 | **后台版本检查** | ✅ | 侧栏显示当前版本，有新版本提示链接，点击强制重查 |
 | **单款历史 CSV** | ⏸ | 前端入口已移除，接口默认 404（`HISTORY_CSV_ENABLED=1` 可临时打开） |
 | 多区服对比 | 🚧 | 列表可按区服切换；同屏多区对比未做展示 |
@@ -355,6 +355,7 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `logs` | 查日志（`--level` `--event` `--run` `--since`） |
 | `backfill` | 批量回填全量游戏的元数据/价格（后台「数据回填」卡片同款）：`--limit 200000 --batch 100 --sleep 3000 --fallback 10` |
 | `heat` | 热度回填：评测数 + 发行日期（appdetails recommendations）：`--limit 200000 --batch 30 --sleep 1700`，按 `heat_at is null` 自动续跑，约 3 小时全量 |
+| `prune` | 定期清理：访问记录/采集与任务记录/验证码（`--visitor-days 180 --run-days 90 --email-days 7`） |
 | `diagnose` | 环境/数据库/网络自检，报告落盘 `logs/diagnose-*.json` |
 | `probe` | 目标可达性探针，见下 |
 
@@ -407,7 +408,9 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `OUT_DIR` / `LOG_DIR` | `out` / `logs` | 静态页与日志目录 |
 | `IMG_DIR` | `data/images` | 封面图缓存目录（随 data 卷持久化） |
 | `STEAM_HEAT_INTERVAL_MIN` | `10080` | 热度任务间隔（分钟，每周） |
-| `STEAM_HEAT_LIMIT` | `5000` | 热度任务每轮上限（只刷「过期且已有报价」的条目） |
+| `STEAM_HEAT_LIMIT` | `20000` | 热度任务每轮上限（只刷「过期且已有报价」的条目） |
+| `PRUNE_INTERVAL_MIN` / `PRUNE_ENABLED` | `10080` / 开 | 定期清理任务间隔与开关 |
+| `VISITOR_GEO` | 开 | 置 `0` 不再把访客 IP 发给第三方归属地服务 |
 | `HISTORY_CSV_ENABLED` | 空 | 置 `1` 才开放 `/api/games/:appid/history.csv`（默认 404） |
 | `RUN_MODE` | `scheduler` | 容器入口模式；compose 用 `all` |
 
@@ -512,7 +515,11 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
   控制台可切换「正常访问 / 被拦截 / 全部」。
 - 封禁名单：`ip_blacklist`（IP，永久，只由管理员或审批写入）、`device_bans`（设备指纹，可设到期）；
   控制台「统计 / 黑名单 / 白名单」与「设备」页可一键解封。
-- **反代部署**才需要 `TRUST_PROXY=1`；内网代理会自动识别，公网代理还需通过 `TRUSTED_PROXY_IPS` 配置代理 IP/CIDR。只有来自可信代理的 `X-Real-IP` / `X-Forwarded-For` 才会用于客户端 IP 判断。
+- **反代部署**才需要 `TRUST_PROXY=1`；内网代理会自动识别，公网代理还需通过 `TRUSTED_PROXY_IPS` 配置代理 IP/CIDR。只有来自可信代理的 `X-Real-IP` / `X-Forwarded-For` 才会用于客户端 IP 判断；
+  Steam 登录回调地址同样只信任可信反代的 `X-Forwarded-Host/Proto`。
+- **CSP 以 Report-Only 观察中**：全站响应带 `Content-Security-Policy-Report-Only`（`default-src 'self'` + Element Plus 所需的 inline style），
+  跑稳后切换成强制。另已具备 `nosniff`、`X-Frame-Options: DENY`、`referrer-policy`、HTTPS 下 HSTS。
+- 访客归属地查询可关：`VISITOR_GEO=0`（隐私开关，关闭后访问记录只存 IP）。
 - 限流阈值可在 Compose 环境变量中用 `RATE_LIMIT_MAX`、`RATE_LIMIT_ASSET_MAX` 与 `RATE_LIMIT_WINDOW_SEC` 调整；默认值适合单实例，多个实例的请求计数仍各自独立。
 
 ## 测试

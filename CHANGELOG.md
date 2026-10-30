@@ -2,6 +2,38 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.0] - 2026-10-30
+
+批次 5：安全加固 + 体验修正（排查结论见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
+
+### 变更
+
+- **「全部」页签改为「未标记」口径**：排除已标 感兴趣 / 不感兴趣 的游戏（已拥有本就由
+  `owned=exclude` 排除）；`POST /api/games/search` 新增 `marks=unmarked`（登录用户按个人标记行判断，
+  游客按 `guestFlags.excludeIds`），旧行为 `marks=any` 不变
+- **首页工具栏响应式**：`≤1200px` 时搜索框独占一行、四个下拉两列排布（`min-width:118px`），
+  宽屏单行；不再出现控件被挤成 10px 间距
+- **热度周任务上限 5000 → 20000**（`STEAM_HEAT_LIMIT`）：10.6 万条有价游戏从 21 周轮一遍
+  缩短到约 5 周
+
+### 新增
+
+- `node src/cli.js prune`：定期清理 `visitor_logs`（180 天）/ `fetch_runs`、`sync_runs`（90 天）/
+  `email_codes`（7 天），调度器每周执行（`PRUNE_INTERVAL_MIN` / `PRUNE_ENABLED`）
+- `VISITOR_GEO=0`：不再把访客 IP 发给第三方归属地服务（隐私开关）
+
+### 安全
+
+- Steam 登录回调地址只信任可信反代：`TRUST_PROXY=1` 且来源在 `TRUSTED_PROXY_IPS` 时才采纳
+  `X-Forwarded-Host/Proto`，防 Host/协议伪造（新增 `test/steam-login.test.js` 3 项）
+- 全站响应带 `Content-Security-Policy-Report-Only`（观察阶段，`default-src 'self'` +
+  Element Plus 所需 inline style；跑稳后转强制）
+
+### 测试
+
+- `npm test` 44 文件全绿；`api.test.js` 新增「未标记」过滤 5 条断言（含游客 `excludeIds`）；
+  scheduler 测试覆盖 prune 任务与新热度上限
+
 ## [1.3.0] - 2026-10-30
 
 热度排序与发行时间筛选（计划 `docs/PLAN.md` 批次 4）。

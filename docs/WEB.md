@@ -117,6 +117,7 @@ POST /api/setup/complete
 | `sort` | `discount` / `price` / `name` | `discount` | 排序（热度 `heat` 永远是第一排序键，此参数只决定同热度内的次序） |
 | `region` | 区服代码 | `cn` | 区服 |
 | `released` | `all` / `30d` / `1y` / `3y` | `all` | 发行时间筛选（吃热度回填的 `release_date`） |
+| `marks` | `any` / `unmarked` | `any` | `unmarked` =「全部」页签口径：排除已标 感兴趣/不感兴趣 的游戏（已拥有由 `owned=exclude` 排除） |
 | `page` | ≥1 | 1 | 页码 |
 | `pageSize` | 5–100 | 20 | 每页条数 |
 | `compact` | `1` | 空 | 只返回列表卡片需要的字段（见下） |
@@ -131,11 +132,12 @@ POST /api/setup/complete
 `type` / `sort` / `q` / `interest` / `owned` / `released`），额外支持 **游客本地标记**：
 
 ```json
-{ "interest": "on", "guestFlags": { "interestedIds": [64], "uninterestedIds": [], "ownedIds": [] } }
+{ "interest": "on", "marks": "unmarked", "guestFlags": { "interestedIds": [64], "uninterestedIds": [], "ownedIds": [], "excludeIds": [64] } }
 ```
 
 - 未登录时浏览器把感兴趣的标记存在 localStorage，再把 id 列表带上来做服务端筛选；
-  `interestedIds` / `uninterestedIds` / `ownedIds` 各最多 5000 个、非数字会被丢弃。
+  `interestedIds` / `uninterestedIds` / `ownedIds` / `excludeIds` 各最多 5000 个、非数字会被丢弃。
+  `excludeIds` 用于 `marks=unmarked` 的「全部」页签（游客本地标记的并集）。
 - 登录后忽略 `guestFlags`，按数据库里的用户标记过滤。
 - 成功返回与 `compact=1` 的 GET 相同字段；服务端对游客查询走压缩查询（CTE 汇总价格），
   成功请求不写访问记录（避免刷新一次就把访问量刷十几条）。

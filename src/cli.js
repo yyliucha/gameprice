@@ -1844,6 +1844,21 @@ async function cmdBackfill() {
   }
 }
 
+// 定期清理：访问记录/采集与任务记录/验证码（默认由调度器每周跑一次）
+async function cmdPrune() {
+  const visitorDays = Math.max(1, Number(flag('visitor-days', '180')) || 180);
+  const runDays = Math.max(1, Number(flag('run-days', '90')) || 90);
+  const emailDays = Math.max(1, Number(flag('email-days', '7')) || 7);
+  const result = await withStore((store) =>
+    db.purgeOldRows((sql, p) => store.query(sql, p), { visitorDays, runDays, emailDays }),
+  );
+  console.log(
+    `清理完成：访问记录 ${result.visitorLogs} 条、采集记录 ${result.fetchRuns} 条、任务记录 ${result.syncRuns} 条、验证码 ${result.emailCodes} 条` +
+      `（保留：访问 ${visitorDays} 天 / 采集与任务 ${runDays} 天 / 验证码 ${emailDays} 天）`,
+  );
+  logger.info('maintenance.cleanup', { ...result, visitorDays, runDays, emailDays });
+}
+
 // 热度回填：appdetails 的 recommendations（评测数）+ release_date，给 games 落 heat。
 // 与价格回填共用 Steam 配额，靠后台任务槽位互斥（同一时刻只允许一个 Steam 重任务）。
 async function cmdHeat() {
@@ -2060,6 +2075,7 @@ const commands = {
   diagnose: cmdDiagnose,
   backfill: cmdBackfill,
   heat: cmdHeat,
+  prune: cmdPrune,
   'proxy-check': cmdProxyCheck,
   images: cmdImages,
   report: cmdReport,
@@ -2323,6 +2339,8 @@ async function main() {
                        --limit 200000 --batch 100 --sleep 3000 --fallback 10（回退数设 0 关闭单条回退）
   heat                 热度回填：评测数 + 发行日期（appdetails recommendations），落 heat 排序字段
                        --limit 200000 --batch 30 --sleep 1700（按 heat_at 为 null 自动续跑）
+  prune                定期清理：访问记录/采集与任务记录/验证码
+                       --visitor-days 180 --run-days 90 --email-days 7
 
 通用参数：--db <target> --level <trace|debug|info|warn|error> --log-dir <dir>
 环境变量：DATABASE_URL / ITAD_API_KEY / LOG_LEVEL / LOG_DIR

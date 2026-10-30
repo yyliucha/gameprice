@@ -456,6 +456,60 @@ test('个人标记：登录用户个人优先，未标记回退全局标记', as
   }
 });
 
+test('「未标记」过滤：marks=unmarked 排除已标 感兴趣/不感兴趣，清除后恢复', async () => {
+  const { store, srv, base } = await setup();
+  const search = (body, cookie) =>
+    fetch(`${base}/api/games/search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+      body: JSON.stringify(body),
+    });
+  const baseParams = { page: 1, pageSize: 20, region: 'cn', type: 'all', sort: 'discount', q: '', interest: 'all', owned: 'exclude' };
+  try {
+    const alice = await login(base, 'alice', 'alice123456');
+
+    // 未标记：unmarked 与 any 都能看到
+    const before = await (await search({ ...baseParams, marks: 'unmarked' }, alice.cookie)).json();
+    assert.equal(before.total, 1, '未标记时能看到');
+
+    // 标感兴趣 → unmarked 排除、any 保持
+    await fetch(`${base}/api/games/413150/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ interested: true }),
+    });
+    const unmarked = await (await search({ ...baseParams, marks: 'unmarked' }, alice.cookie)).json();
+    assert.equal(unmarked.total, 0, '已标感兴趣后 unmarked 排除');
+    const any = await (await search({ ...baseParams, marks: 'any' }, alice.cookie)).json();
+    assert.equal(any.total, 1, 'marks=any 保持旧行为');
+
+    // 不感兴趣同样被排除
+    await fetch(`${base}/api/games/413150/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ interested: false }),
+    });
+    const off = await (await search({ ...baseParams, marks: 'unmarked' }, alice.cookie)).json();
+    assert.equal(off.total, 0, '不感兴趣同样被排除');
+
+    // 清除 → 恢复可见
+    await fetch(`${base}/api/games/413150/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ interested: 'clear' }),
+    });
+    const after = await (await search({ ...baseParams, marks: 'unmarked' }, alice.cookie)).json();
+    assert.equal(after.total, 1, '清除后恢复可见');
+
+    // 游客：带 excludeIds 的 unmarked 也生效
+    const guest = await (await search({ ...baseParams, marks: 'unmarked', guestFlags: { interestedIds: [], uninterestedIds: [], ownedIds: [], excludeIds: [1] } }, '')).json();
+    assert.equal(guest.total, 0, '游客 excludeIds 生效');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('到价提醒：管理员增删查、appid 解析、普通用户 403、匿名 401', async () => {
   const { store, q, srv, base } = await setup();
   try {

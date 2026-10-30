@@ -685,6 +685,8 @@ export function createApiServer({
         const sort = oneOf('sort', ['discount', 'price', 'name'], 'discount');
         const typeFilter = oneOf('type', ['all', 'game', 'dlc'], 'all');
         const released = oneOf('released', ['all', '30d', '1y', '3y'], 'all');
+        // marks=unmarked：「全部」页签——排除用户已标 感兴趣/不感兴趣 的游戏（已拥有由 owned 参数排除）
+        const marks = oneOf('marks', ['any', 'unmarked'], 'any');
         const compact = guestSearchPost || url.searchParams.get('compact') === '1';
         const keyword = String(getInput('q') ?? '').slice(0, 80);
         const pageSize = Math.min(
@@ -700,6 +702,7 @@ export function createApiServer({
           interestedIds: normalizeIds(body?.guestFlags?.interestedIds),
           uninterestedIds: normalizeIds(body?.guestFlags?.uninterestedIds),
           ownedIds: normalizeIds(body?.guestFlags?.ownedIds),
+          excludeIds: normalizeIds(body?.guestFlags?.excludeIds),
         } : null;
         const result = await db.gameSearch(q, {
           region: String(getInput('region') ?? 'cn').slice(0, 12),
@@ -713,6 +716,7 @@ export function createApiServer({
           userId: user?.id ?? null,
           typeFilter,
           released,
+          marks,
           compact,
           guestFlags,
         });
@@ -2021,6 +2025,12 @@ function applySecurityHeaders(req, res) {
     res.setHeader('x-frame-options', 'DENY');
     res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
     res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
+    // CSP 先以 Report-Only 观察（Element Plus 需要 inline style），跑稳后再切换成强制
+    res.setHeader(
+      'content-security-policy-report-only',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+        "connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    );
     const proto = String(req.headers['x-forwarded-proto'] ?? '').toLowerCase();
     const https = proto === 'https' || Boolean(req.socket?.encrypted);
     if (https) res.setHeader('strict-transport-security', 'max-age=15552000; includeSubDomains');

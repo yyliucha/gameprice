@@ -861,7 +861,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
  */
 export async function gameSearch(
   q,
-  { region = 'cn', page = 1, pageSize = 20, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all', released = 'all', compact = false, guestFlags = null } = {},
+  { region = 'cn', page = 1, pageSize = 20, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all', released = 'all', marks = 'any', compact = false, guestFlags = null } = {},
 ) {
   const kw = String(keyword ?? '').trim();
   const size = Math.min(Math.max(Number(pageSize) || 20, 5), 100);
@@ -906,6 +906,15 @@ export async function gameSearch(
   }
   if (blocked === 'exclude') conds.push('g.blocked = false');
   if (blocked === 'only') conds.push('g.blocked = true');
+  // 「全部」页签排除已标记（unmarked）：登录用户按个人标记行判断（全局 games.interested 默认 true，不能用 coalesce）；
+  // 游客按前端合并的 id 列表排除；已拥有已由 owned='exclude' 覆盖。
+  if (marks === 'unmarked') {
+    if (userId) {
+      conds.push('uf.interested is null');
+    } else if (guestFlags?.excludeIds?.length) {
+      conds.push(`not (g.id = any(${bindFilter(guestFlags.excludeIds)}::bigint[]))`);
+    }
+  }
   // 类型筛选：game / dlc（app_type 入库时已统一小写）
   if (typeFilter === 'game' || typeFilter === 'dlc') conds.push(`lower(coalesce(g.app_type, '')) = '${typeFilter}'`);
   // 发行时间筛选（热度批次落库的 release_date）
@@ -1276,6 +1285,16 @@ export async function savePrefs(q, userId, prefs = {}) {
 
 export async function recordView(q, { userId = null, path, appid = null }) {
   await q('insert into page_views (user_id, path, appid) values ($1, $2, $3)', [userId, path, appid]);
+}
+
+/** 定期清理：访问记录/采集与任务记录/验证码（调度器周任务）。返回各表删除行数。 */
+export async function purgeOldRows(q, { visitorDays = 180, runDays = 90, emailDays = 7 } = {}) {
+  const del = async (sql, p) => (await q(sql, p)).rowCount ?? 0;
+  const visitorLogs = await del("delete from visitor_logs where created_at < now() - ($1 || ' days')::interval", [String(visitorDays)]);
+  const fetchRuns = await del("delete from fetch_runs where started_at < now() - ($1 || ' days')::interval", [String(runDays)]);
+  const syncRuns = await del("delete from sync_runs where started_at < now() - ($1 || ' days')::interval", [String(runDays)]);
+  const emailCodes = await del("delete from email_codes where created_at < now() - ($1 || ' days')::interval", [String(emailDays)]);
+  return { visitorLogs, fetchRuns, syncRuns, emailCodes };
 }
 
 /** 清理过期浏览记录（默认保留 90 天）。 */

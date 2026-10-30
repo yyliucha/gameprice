@@ -174,6 +174,8 @@ const PROVIDERS = [
 ];
 
 async function resolveRegion(ip) {
+  // 隐私开关：关闭后不再把访客 IP 发给第三方归属地服务，region 留空
+  if (process.env.VISITOR_GEO === '0') return null;
   for (const provider of PROVIDERS) {
     try {
       const region = await provider.fetch(ip);
