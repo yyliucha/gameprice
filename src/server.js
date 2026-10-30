@@ -1445,6 +1445,59 @@ export function createApiServer({
         });
       }
 
+      // ---- 管理员：重写名字（把目录导入留下的机器英文名换成中文，与同步/回填共用槽位）----
+      if (path === '/api/admin/rename' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const { normalizeBackfillParams, renameArgs } = await import('./backfill.js');
+        const params = normalizeBackfillParams(body);
+        // rename 默认间隔 1500ms（比回填轻），控制台未传时按 1500
+        if (body.sleep == null || body.sleep === '') params.sleep = 1500;
+        try {
+          const job = await startSteamJob({ mode: 'rename', args: renameArgs(params), params, by: user.username });
+          logger?.info('api.rename_started', { runId: job.runId, by: user.username, ...params });
+          return json(res, 202, { started: true, runId: job.runId, pid: job.pid, params });
+        } catch (err) {
+          if (err.code === 'BUSY') return json(res, 409, { error: err.message, run: err.run });
+          throw err;
+        }
+      }
+
+      if (path === '/api/admin/rename/stop' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        if (!syncChild) return json(res, 409, { error: '当前没有运行中的任务' });
+        const child = syncChild;
+        const runId = syncRun?.id ?? null;
+        syncStopRequested = true;
+        child.kill('SIGTERM');
+        const killTimer = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* 已退出 */
+          }
+        }, 10000);
+        killTimer.unref?.();
+        logger?.warn('api.rename_stop', { runId, pid: child.pid, by: user.username });
+        return json(res, 202, { stopping: true, runId, pid: child.pid });
+      }
+
+      if (path === '/api/admin/rename/status' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const { parseRenameProgress } = await import('./backfill.js');
+        const isRename = syncRun?.mode === 'rename';
+        const runs = await db.listSyncRuns(q, { limit: 10 }).catch(() => []);
+        return json(res, 200, {
+          running: Boolean(syncChild) && isRename,
+          busy: Boolean(syncChild),
+          mode: syncRun?.mode ?? null,
+          run: syncRun,
+          output: syncOutput.slice(-6000),
+          progress: isRename ? parseRenameProgress(syncOutput) : null,
+          last: runs.find((r) => r.mode === 'rename') ?? null,
+        });
+      }
+
       // ---- 管理员：邮箱（SMTP）配置与验证码发送记录 ----
       if (path === '/api/admin/smtp' && req.method === 'GET') {
         if (!requireAdmin()) return;

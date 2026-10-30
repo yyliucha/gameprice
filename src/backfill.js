@@ -39,8 +39,23 @@ export function backfillArgs(params) {
   ];
 }
 
+/** 子进程参数：node src/cli.js rename --limit … --batch … --sleep … --fallback … */
+export function renameArgs(params) {
+  return [
+    'src/cli.js',
+    'rename',
+    '--limit', String(params.limit),
+    '--batch', String(params.batch),
+    '--sleep', String(params.sleep),
+    '--fallback', String(params.fallback),
+  ];
+}
+
 // CLI 每批输出的一行：`  批次 3：本批 100 款，写入 100，回退 0，失败 0；累计 300/200000（660 款/分钟）`
 const BATCH_LINE = /批次\s+(\d+)：本批\s+(\d+)\s*款，写入\s+(\d+)，回退\s+(\d+)，失败\s+(\d+)；累计\s+(\d+)\/(\d+)（(\d+)\s*款\/分钟）/;
+
+// rename 的批次行多一个「带回中文名」字段：`批次 3：本批 100 款，写入 100，带回中文名 60，回退 0，失败 0；累计 300/200000（660 款/分钟）`
+const RENAME_LINE = /批次\s+(\d+)：本批\s+(\d+)\s*款，写入\s+(\d+)，带回中文名\s+(\d+)，回退\s+(\d+)，失败\s+(\d+)；累计\s+(\d+)\/(\d+)（(\d+)\s*款\/分钟）/;
 
 /** 从子进程输出尾巴里取最后一条批次进度；没有则返回 null。 */
 export function parseBackfillProgress(output) {
@@ -60,6 +75,29 @@ export function parseBackfillProgress(output) {
     done,
     limit,
     ratePerMin: Number(last[8]),
+    percent: limit > 0 ? Math.min(100, Math.round((done / limit) * 1000) / 10) : 0,
+  };
+}
+
+/** 从 rename 子进程输出尾巴里取最后一条批次进度；没有则返回 null。 */
+export function parseRenameProgress(output) {
+  const text = String(output ?? '');
+  const re = new RegExp(RENAME_LINE.source, 'g');
+  let last = null;
+  for (const m of text.matchAll(re)) last = m;
+  if (!last) return null;
+  const done = Number(last[7]);
+  const limit = Number(last[8]);
+  return {
+    batches: Number(last[1]),
+    batchSize: Number(last[2]),
+    written: Number(last[3]),
+    renamed: Number(last[4]),
+    fallback: Number(last[5]),
+    failed: Number(last[6]),
+    done,
+    limit,
+    ratePerMin: Number(last[9]),
     percent: limit > 0 ? Math.min(100, Math.round((done / limit) * 1000) / 10) : 0,
   };
 }

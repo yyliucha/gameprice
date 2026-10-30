@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   normalizeBackfillParams,
   backfillArgs,
+  renameArgs,
   parseBackfillProgress,
+  parseRenameProgress,
   missingPriceAppids,
   offerFromItem,
   mergePriceOffers,
@@ -44,6 +46,29 @@ test('进度解析：取最后一条批次行并算百分比', () => {
     done: 200, limit: 200000, ratePerMin: 640, percent: 0.1,
   });
   assert.equal(parseBackfillProgress('没有进度'), null);
+});
+
+test('重写名字：子进程参数与进度解析（批次行多「带回中文名」字段）', () => {
+  assert.deepEqual(renameArgs({ limit: 200000, batch: 100, sleep: 1500, fallback: 10 }), [
+    'src/cli.js', 'rename',
+    '--limit', '200000',
+    '--batch', '100',
+    '--sleep', '1500',
+    '--fallback', '10',
+  ]);
+
+  const output = [
+    '重写名字：每批 100 个、间隔 1500ms、上限 200000 款、单条回退 10 个/批',
+    '  批次 1：本批 100 款，写入 100，带回中文名 62，回退 0，失败 0；累计 100/200000（700 款/分钟）',
+    '  批次 2：本批 100 款，写入 98，带回中文名 55，回退 2，失败 0；累计 200/200000（720 款/分钟）',
+  ].join('\n');
+  assert.deepEqual(parseRenameProgress(output), {
+    batches: 2, batchSize: 100, written: 98, renamed: 55, fallback: 2, failed: 0,
+    done: 200, limit: 200000, ratePerMin: 720, percent: 0.1,
+  });
+  assert.equal(parseRenameProgress('没有进度'), null, '没有批次行时返回 null');
+  // rename 的行不应该被 backfill 解析器误吃（格式不同，字段错位会算出错误数字）
+  assert.equal(parseBackfillProgress(output), null);
 });
 
 test('缺价 appid：只挑没有 priceOverview 的，去重且忽略非法 appid', () => {

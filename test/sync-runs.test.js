@@ -77,6 +77,42 @@ test('回填接口：匿名 401，管理员空状态，未运行时停止返回 
   }
 });
 
+test('重写名字接口：匿名 401，管理员空状态，未运行时停止返回 409', async () => {
+  const store = await openStore('pglite:', {});
+  await db.migrate(store);
+  const q = (sql, p) => store.query(sql, p);
+  await db.createUser(q, { username: 'admin', password: 'admin123456', role: 'admin' });
+  const srv = await startApiServer({ query: q, port: 0, host: '127.0.0.1' });
+  const base = `http://127.0.0.1:${srv.port}`;
+  try {
+    assert.equal((await fetch(base + '/api/admin/rename/status')).status, 401, '匿名不能看重写名字状态');
+    assert.equal(
+      (await fetch(base + '/api/admin/rename', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status,
+      401,
+      '匿名不能启动重写名字',
+    );
+
+    const login = await fetch(base + '/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123456' }),
+    });
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
+
+    const st = await (await fetch(base + '/api/admin/rename/status', { headers: { cookie } })).json();
+    assert.equal(st.running, false);
+    assert.equal(st.busy, false);
+    assert.equal(st.progress, null);
+    assert.equal(st.last, null);
+
+    const stop = await fetch(base + '/api/admin/rename/stop', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(stop.status, 409, '没有任务在跑时停止应明确拒绝');
+  } finally {
+    await srv.close();
+    await store.close();
+  }
+});
+
 test('同步状态/记录接口：匿名 401，管理员 200，未运行 running=false', async () => {
   const store = await openStore('pglite:', {});
   await db.migrate(store);

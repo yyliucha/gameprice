@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.5] - 2026-10-30
+
+### 新增
+
+- **控制台「重写名字」卡片**（游戏管理 → 同步与回填）：可直接触发/停止 `rename`，
+  最多处理 / 每批 / 间隔可调，实时显示批次进度（已处理、带回中文名、失败）；
+  对应新接口 `POST /api/admin/rename`、`POST /api/admin/rename/stop`、
+  `GET /api/admin/rename/status`（管理员权限；与同步/回填/热度共用子进程槽位，忙时 409）
+- `src/backfill.js` 新增 `renameArgs` / `parseRenameProgress`（rename 批次行多「带回中文名」字段，独立解析）
+
+### 修复
+
+- 状态文件 `scheduler-status.json` 的 `nextRunAt`：从未跑过的任务按首轮延迟计算，
+  不再显示成"一个间隔之后"（此前 rename 首轮会显示成一周后，实际是 2 小时后）
+
 ## [1.4.4] - 2026-10-30
 
 ### 修复

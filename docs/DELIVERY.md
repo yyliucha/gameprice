@@ -136,6 +136,8 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 **仍需手工**：`/setup` 首次初始化（一次性）、`diagnose`、`proxy-check`（排查工具，出问题才用）。
 **不要再手工执行** `rename` / `heat` / `backfill` / `sync catalog`——调度器会自动跑（早期运维习惯中的手工
 `docker exec … heat --limit 200000` 等命令已被 v1.4.3 的调度任务取代）。
+急用时可在控制台「游戏管理 → 同步与回填 → 重写名字」立即触发（v1.4.5 起，带进度显示），
+不需要登服务器敲 CLI。
 
 ## 6. 排障速查（历次踩坑汇总）
 
@@ -163,21 +165,18 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ---
 
-### 当前状态（2026-10-30 更新，v1.4.4 已发布）
+### 当前状态（2026-10-30 更新，v1.4.5 已发布）
 
-- 已发布：**v1.4.4**（tag `v1.4.4` → 提交 `136a824`；`docker-hub` 与 `docker-tcr` 双绿，2026-10-30 确认）：
-  修复 TCR 版本 tag 取 package.json 的坑（改为打 tag 触发时取 git tag），并 `npm version 1.4.4`
-  对齐 package.json。**TCR 上现在有 `1.4.4` / `latest` / `sha-136a824ae228d7fc28a735a345faa6a1e7cf3c3a` 三个 tag**，
-  Docker Hub 有 `1.4.4` / `1.4` / `latest`。镜像内 package.json = 1.4.4，控制台版本号正确。
-- 上一个版本 v1.4.3（`37baea6`）含名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
-  其 TCR 镜像只有 latest / 1.4.0 / sha-37baea6f6035f43f10d51dd3b040be9eee70e15e（当时版本 tag 取 package.json 的坑，
-  已在 1.4.4 修复）。**服务器升级直接用 1.4.4**，不需要再用 v1.4.3。
-- 工作区：干净；HEAD `136a824`，已同步 origin。
-- 待部署：服务器仍跑旧镜像，**更新由部署人员按第 4 节执行**（tag 用 `1.4.4` 或 `latest` 或 `sha-136a824…`）。
+- 已发布：**v1.4.5**（tag `v1.4.5`）：控制台新增「重写名字」卡片（`/api/admin/rename` 三件套，
+  可立即触发/停止、看批次进度），`renameArgs`/`parseRenameProgress`，状态文件 `nextRunAt` 首轮显示修复。
+- 上一个版本 v1.4.4（`136a824`）：TCR 版本 tag 修复 + package.json 对齐；**TCR 有 `1.4.4` / `latest` / `sha-136a824…`**。
+  v1.4.3（`37baea6`）：名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
+  其 TCR 镜像只有 latest / 1.4.0 / sha-37baea6…（版本 tag 坑，已在 1.4.4 修复）。
+- 工作区：干净；HEAD `d8ed590`→ 以最新提交为准。
+- 待部署：服务器当前跑 v1.4.4（2026-10-30 已确认部署成功、14 个调度任务在跑、steam-prices 已执行）；
+  升级到 v1.4.5 由部署人员按第 4 节执行（tag 用 `1.4.5` 或 `latest` 或 `sha-<完整提交号>`）。
   部署后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
   `release_date` filter 差异；诊断日志已加，等探测结果。
-- 已修未发（在 main，未打 tag）：状态文件 `scheduler-status.json` 的 `nextRunAt` 对从未跑过的任务按间隔显示
-  （首轮 rename 显示成一周后），已改为按 `initialDelaySec` 计算（含测试）。**下次发版随包带上即可，不影响任务实际触发时间。**
 - 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。
