@@ -159,38 +159,42 @@
 
 ### 批次 4：热度与排序（含数据回填，工作量最大）
 
-- `games` 增加 `heat real`、`heat_reviews int`、`heat_at timestamptz` 与 `(heat desc)` 索引。
-- 热度来源：官方 `appreviews/<appid>?json=1&num_per_page=0&language=all` 的 `query_summary.total_reviews`；
-  批量播种可先用 SteamSpy `request=all` 分页（非官方，失败则退回慢刷）。
-- 同时补 `app_type`：用 `appdetails?appids=<100 个>&filters=basic` 批量回填，
-  196,927 条约 1,970 次请求，按 200 次/5 分钟约 50 分钟。
-- 排序接入 `heat desc nulls last`；「发行时间」筛选接入 `release_date`。
+**热度来源已实测确认（2026-10-30）**：`appdetails` 用 `filters=recommendations,release_date`
+（可再带 `price_overview`）一次请求同时返回评测数、发行日期、价格；单款 **273 字节**，30 个一批约 8KB。
+
+| 探测 | 结果 | 结论 |
+|---|---|---|
+| `appreviews/<appid>?json=1&num_per_page=0` | 200 但 `finalUrl` 被重定向到 `store.steampowered.com/`，返回 1MB HTML | 不可用 |
+| SteamSpy `api.php?request=appdetails` | HTTP 403 | 不可用 |
+| `filters=basic` | HTTP 400 | 非法过滤器，别用 |
+| `filters=recommendations` | 200，69 字节 | 可用 |
+| `filters=recommendations,release_date,price_overview` | 200，273 字节，三字段齐全 | **采用** |
+
+实现要点：
+
+- `games` 增加 `heat real`、`heat_reviews int`、`heat_at timestamptz`，复用已有 `release_date`，
+  加 `(heat desc)` 索引。
+- 新 CLI：`node src/cli.js heat --limit 200000 --batch 30 --sleep 1700`，按 `heat_at is null`
+  分批，可中断续跑。
+- 批量 30 / 间隔约 1.7 秒（≈176 次/5 分钟，贴着 200 上限留余量）：
+  196,927 ÷ 30 ≈ **6,565 次请求 ≈ 3 小时**。
+- **必须与价格回填互斥**：两者共用 Steam 配额，实测并行会互相拖成 `UND_ERR_CONNECT_TIMEOUT`；
+  heat 复用后台现有任务槽位，同一时刻只允许一个 Steam 重任务。
+- **放弃 `app_type` 回填**：`type` 只能从全量响应取（每款约 15KB，19.7 万条约 3GB 流量），
+  为这一个字段不值当；目录数按「含 DLC/软件」标注。
+- 排序接入 `heat desc nulls last`；「发行时间」筛选直接吃 `release_date`。
+
 - **验收**：首页第一页不再是清一色 95% 折扣老游戏；无热度数据的游戏排在末尾而不消失；
   随机抽 10 款游戏核对热度与 Steam 商店页评测数量级一致。
 
-## 开工前必须先探测的两件事
+## 探测记录（2026-10-30，供后续排查复用）
 
-容器里没有 `curl`，用项目自带的 HTTP 封装（会走 `STEAM_PROXY`）探测：
+- 容器内**没有 curl**，用 `node --input-type=module -e '...'` + `/app/src/http.js` 的
+  `fetchText`（自动按 `STEAM_PROXY` 走代理）。
+- bash 双引号里的 `!` 会触发历史展开（表现为 `!String: event not found`），脚本一律用单引号包裹。
+- 代理并发被占满时表现为 `UND_ERR_CONNECT_TIMEOUT`，**与批量大小无关**；
+  用 `node src/cli.js proxy-check` 看 TCP / CONNECT / 实际请求三段即可区分。
+- 生产回填运行时每约 1.7 秒一次 appdetails（≈176 次/5 分钟），已接近 Steam 200 次/5 分钟上限；
+  此时再发探测请求会排队超时。
 
-```bash
-# 1) 官方评测接口是否可达
-docker exec steamdeals node --input-type=module -e "
-import { fetchJson } from '/app/src/http.js';
-try {
-  const d = await fetchJson('https://store.steampowered.com/appreviews/730?json=1&num_per_page=0&language=all', { label: 'probe.reviews', timeoutMs: 20000 });
-  console.log('OK', JSON.stringify(d.query_summary));
-} catch (e) { console.log('FAIL', e.message); }
-"
-
-# 2) SteamSpy 是否可达（用于批量播种）
-docker exec steamdeals node --input-type=module -e "
-import { fetchJson } from '/app/src/http.js';
-try {
-  const d = await fetchJson('https://steamspy.com/api.php?request=appdetails&appid=730', { label: 'probe.spy', timeoutMs: 20000 });
-  console.log('OK', d.name, d.ccu, d.positive, d.negative);
-} catch (e) { console.log('FAIL', e.message); }
-"
-```
-
-两条都通 → 「SteamSpy 播种 + appreviews 常态更新」；只有第一条通 → 全量走 appreviews 慢刷。
 
