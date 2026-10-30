@@ -12,7 +12,7 @@
 - 仓库：`github.com/yyliucha/steamdeals`，主分支 `main`，本地 `F:\dsh\gameprice`（Windows）。
 - 技术栈：Node ≥22.5（ESM）+ PostgreSQL 15 + Vue 3/Vite/Element Plus（`frontend/`，产物 `frontend/dist` 不入库）+ Docker Compose。
 - 线上：生产库 19.6 万条目（有国区报价 10.6 万）；TCR 镜像 `ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:<版本>`，Docker Hub `s1065420329/steamdeals:<版本>`。
-- 版本历史：… 1.1.0 → 1.2.0 → 1.3.0 → 1.4.0 → 1.4.1 → 1.4.2 → 1.4.3（详见 CHANGELOG）。
+- 版本历史：… 1.1.0 → 1.2.0 → 1.3.0 → 1.4.0 → 1.4.1 → 1.4.2 → 1.4.3 → 1.4.4（详见 CHANGELOG）。
 
 ## 1. 开发环境与日常开发
 
@@ -163,20 +163,17 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ---
 
-### 当前状态（2026-10-30 更新，v1.4.3 已发布）
+### 当前状态（2026-10-30 更新，v1.4.4 已发布）
 
-- 已发布：**v1.4.3**（tag `v1.4.3` → 提交 `37baea6`；`docker-hub` 与 `docker-tcr` 双绿，2026-10-30 15:39 确认）：
-  同步游戏补中文名（`importCatalogGames` 分流 + `upsertGameMeta`/`ensureGame` 机器英文名覆盖规则 + 新增 `rename` 命令）、
-  GetItems `type` 数字枚举修复（app_type 落库）、`rename`/`catalog`/`backfill` 纳入调度器、heat 改每天自动播种、
-  发布/升级流程与服务器边界写入文档。
-- 镜像：Docker Hub `s1065420329/steamdeals:1.4.3 / 1.4 / latest`；TCR `…/steamdeals:latest / 1.4.0 / sha-37baea6f6035f43f10d51dd3b040be9eee70e15e`
-  （**v1.4.3 踩坑**：当时 TCR 版本号 tag 只取 package.json，而 package.json 没 bump（仍 1.4.0），所以 TCR
-  上**没有 1.4.3 这个 tag**，Docker Hub 才有。服务器更新请用 `sha-37baea6f6035f43f10d51dd3b040be9eee70e15e`
-  或 `latest`。工作流已修：打 tag 触发时版本 tag 取 git tag（去 v 前缀），下次发版（1.4.4+）TCR 上会有
-  与 git tag 同名的镜像 tag。镜像内 package.json 仍是 1.4.0，第 4 节的版本号验证会输出 1.4.0，
-  **下次发版务必先 `npm version`**）。
-- 工作区：干净；HEAD 为 docs 提交 `ee147eb`。
-- 待部署：服务器仍跑旧镜像，**更新由部署人员按第 4 节执行**（TCR tag 用 `latest` 或 `sha-37baea6` 均可）。
+- 已发布：**v1.4.4**（tag `v1.4.4` → 提交 `136a824`；`docker-hub` 与 `docker-tcr` 双绿，2026-10-30 确认）：
+  修复 TCR 版本 tag 取 package.json 的坑（改为打 tag 触发时取 git tag），并 `npm version 1.4.4`
+  对齐 package.json。**TCR 上现在有 `1.4.4` / `latest` / `sha-136a824ae228d7fc28a735a345faa6a1e7cf3c3a` 三个 tag**，
+  Docker Hub 有 `1.4.4` / `1.4` / `latest`。镜像内 package.json = 1.4.4，控制台版本号正确。
+- 上一个版本 v1.4.3（`37baea6`）含名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
+  其 TCR 镜像只有 latest / 1.4.0 / sha-37baea6f6035f43f10d51dd3b040be9eee70e15e（当时版本 tag 取 package.json 的坑，
+  已在 1.4.4 修复）。**服务器升级直接用 1.4.4**，不需要再用 v1.4.3。
+- 工作区：干净；HEAD `136a824`，已同步 origin。
+- 待部署：服务器仍跑旧镜像，**更新由部署人员按第 4 节执行**（tag 用 `1.4.4` 或 `latest` 或 `sha-136a824…`）。
   部署后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
