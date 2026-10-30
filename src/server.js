@@ -997,10 +997,18 @@ export function createApiServer({
         const offset = (page - 1) * pageSize;
         const platform = String(url.searchParams.get('platform') ?? '').trim();
         const sync = String(url.searchParams.get('sync') ?? '').trim();
+        // 报价筛选：priced=有任意平台报价，none=没有任何报价（控制台指标卡点击用）
+        const offersParam = String(url.searchParams.get('offers') ?? '').trim();
         const deletedParam = String(url.searchParams.get('deleted') ?? 'exclude');
         // 默认只看正常游戏；deleted=only 就是回收站，include 两边都看
         const deletedWhere =
           deletedParam === 'only' ? ' and g.deleted = true' : deletedParam === 'include' ? '' : ' and not g.deleted';
+        const offersWhere =
+          offersParam === 'priced'
+            ? ' and exists (select 1 from offers of1 where of1.game_id = g.id)'
+            : offersParam === 'none'
+              ? ' and not exists (select 1 from offers of2 where of2.game_id = g.id)'
+              : '';
         // 同步状态：pending=缺说明或无 Steam 价格；done=两者都有
         const syncWhere =
           sync === 'pending'
@@ -1016,7 +1024,7 @@ export function createApiServer({
         const baseWhere =
           "where ($1 = '' or lower(coalesce(g.name, '')) like lower('%' || $1 || '%') " +
           "or lower(coalesce(g.name_en, '')) like lower('%' || $1 || '%') or cast(g.steam_appid as text) = $1)" +
-          deletedWhere + syncWhere;
+          deletedWhere + syncWhere + offersWhere;
         const cnt = await q(
           'select count(*)::int as n from games g ' + baseWhere + platformCond(2),
           platform ? [kw, platform] : [kw],

@@ -4,6 +4,8 @@
 > [TODO.md](TODO.md)（所有未完成事项总览）和 [ROADMAP.md](ROADMAP.md)（决策与待办）。
 > 已知 UI 缺陷与修法见 [UI-FIXES.md](UI-FIXES.md)。发版前必读「对外描述同步」规则。
 >
+> **会话分工**：讨论方案用 DeepSeek-V4.1-Flash1017，开发实现用 DeepSeek-V4-Pro（见 CONTRIBUTING.md）。
+>
 > **最后更新：2026-10-30（v1.4.3 已发布：tag v1.4.3，docker-hub 与 docker-tcr 双绿，镜像已推送）。若你读到的时间晚于最近提交，先看 CHANGELOG 与 git log。**
 
 ---

@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowRight, Search } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
@@ -50,6 +50,8 @@ const groups=[
   {name:'系统',items:[{id:'settings',label:'系统设置',glyph:'⚙',description:'数据源、网络代理与提醒配置'},{id:'stats',label:'数据统计',glyph:'▥',description:'价格变化、缓存、备份与访问排行'},{id:'sync',label:'运行日志',glyph:'≋',description:'查看服务实时输出和同步记录'}]},
 ];
 const selected=ref(String(route.query.section||'games'));
+// URL 里的 section 变化（如指标卡「已删除」跳转回收站）时同步选中态
+watch(()=>route.query.section,(v)=>{if(v&&groups.some(g=>g.items.some(i=>i.id===v)))selected.value=v;});
 const selectedItem=computed(()=>groups.flatMap(g=>g.items.map(i=>({...i,group:g.name}))).find(i=>i.id===selected.value)||groups[0].items[0]);
 const visibleGroups=computed(()=>{const q=filter.value.trim().toLocaleLowerCase();return groups.map(g=>({...g,items:g.items.filter(i=>!q||`${i.label} ${i.description} ${g.name}`.toLocaleLowerCase().includes(q))})).filter(g=>g.items.length);});
 async function select(item){ selected.value=item.id; await router.replace({path:'/console',query:{section:item.id}}); }

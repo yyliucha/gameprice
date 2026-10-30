@@ -304,6 +304,12 @@ test('游戏同步统计与筛选：待同步数量、pending/done 过滤', asyn
     const done = await (await fetch(`${base}/api/admin/games?sync=done`, { headers: { cookie: admin.cookie } })).json();
     assert.equal(done.total, 1, '已同步的能筛出来');
 
+    // 报价筛选（指标卡「有报价」点击）：与 stats.withOffers 口径一致
+    const priced = await (await fetch(`${base}/api/admin/games?offers=priced`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(priced.total, 1, '有报价的能筛出来');
+    const none = await (await fetch(`${base}/api/admin/games?offers=none`, { headers: { cookie: admin.cookie } })).json();
+    assert.equal(none.total, 0);
+
     assert.equal((await fetch(statsUrl)).status, 401, '匿名不能看统计');
   } finally {
     await srv.close();
