@@ -172,8 +172,20 @@ POST /api/setup/complete
 - `GET /api/admin/blacklist` → 黑名单列表；`POST /api/admin/blacklist` → `{ ip, note }` 拉黑（支持 CIDR）；
   `DELETE /api/admin/blacklist/:ip` → 移出。增删后内存黑名单即时刷新
 - `GET /api/admin/version` → 当前版本 + 最新 release 检查（`?force=1` 绕过 6 小时缓存）
-- `POST /api/admin/heat` → 启动热度回填（`{ limit, batch, sleep }`，与同步/回填共用槽位，忙时 409）；
-  `POST /api/admin/heat/stop`、`GET /api/admin/heat/status` 同回填三件套
+
+**「同步与回填」页（v1.4.6 起精简为一表 + 状态卡）**：不再暴露任务参数输入，五个任务各一行
+（价格刷新 / 目录同步 / 增量回填 / 重写名字 / 热度回填），行内「立即运行」用默认参数触发；
+运行中的任务显示在下方状态卡，可点「停止」。`steamall` 已从控制台入口移除（功能由增量回填覆盖），
+其 CLI 与接口兼容保留。
+
+- `POST /api/admin/sync` → `{ mode }`，mode 取 `catalog` / `steam-prices` / `steamall`（默认 `steam-prices`）；
+  与其它任务共用子进程槽位，忙时 409
+- `POST /api/admin/backfill` → `{ limit, batch, sleep, fallback }`（均可省略，用默认值）；
+  `POST /api/admin/backfill/stop`、`GET /api/admin/backfill/status`
+- `POST /api/admin/rename` → 同上参数，启动"机器英文名 → 中文名"重写；`/stop`、`/status` 同三件套
+- `POST /api/admin/heat` → 启动热度回填（`{ limit, batch, sleep }`）；`/stop`、`/status` 同三件套
+- `GET /api/admin/sync/status` → 当前运行任务、输出尾巴、最近记录、调度器计划（`schedule.jobs` 里带
+  `lastRunAt` / `nextRunAt` / `failures` / `openUntil`，控制台的任务表直接读它）
 
 封面图走 `/img/steam/<appid>/<size>`：先查内存热缓存，再查本地文件（`data/images`），
 都没有才经代理取 CDN 并落盘；之后一直读本地文件，不再出网。

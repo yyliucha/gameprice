@@ -1292,10 +1292,13 @@ export function createApiServer({
 
       // 一键同步：把动作丢给子进程，避免 HTTP 请求挂几分钟。
       // 记录到 sync_runs（开始/结束/输出尾巴），前端轮询状态显示实时输出。
+      // 控制台只暴露 catalog / steam-prices（全量补元数据已由 /api/admin/backfill 承担，
+      // steamall 仍保留给 CLI 与老调用方，不再作为页面入口）。
       if (path === '/api/admin/sync' && req.method === 'POST') {
         if (!requireAdmin()) return;
         const body = await readBody(req);
-        const mode = body.mode === 'catalog' ? 'catalog' : 'steamall';
+        const MODES = new Set(['catalog', 'steam-prices', 'steamall']);
+        const mode = MODES.has(String(body.mode)) ? String(body.mode) : 'steam-prices';
         const args = ['src/cli.js', 'sync', mode];
         if (mode === 'steamall') {
           const limit = Math.min(Math.max(Number(body.limit ?? 200) || 200, 1), 2000);

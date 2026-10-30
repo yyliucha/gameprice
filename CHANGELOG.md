@@ -2,6 +2,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.6] - 2026-10-30
+
+### 变更
+
+- **「同步与回填」页精简为一表 + 状态卡**：去掉 6 个卡片、4 组参数输入框和「① 导入目录 / ② 增量同步」按钮；
+  五个任务（价格刷新 / 目录同步 / 增量回填 / 重写名字 / 热度回填）各一行，显示频率、上次/下次运行、
+  状态（空闲 / 运行中 / 失败 N 次 / 熔断至）与「立即运行」（默认参数，任务互斥）；
+  运行中的任务在下方状态卡显示实时输出，可「停止」
+- 控制台移除 `steamall`（增量同步）入口——功能已被 `backfill`（批量 GetItems）覆盖且快 3-4 倍；
+  CLI 与 `POST /api/admin/sync` 的 `steamall` 兼容保留
+- `POST /api/admin/sync` 的 `mode` 白名单扩为 `catalog` / `steam-prices` / `steamall`（缺省 `steam-prices`）
+- 文档：[docs/WEB.md](docs/WEB.md) 补充精简后页面与后台任务接口说明
+
 ## [1.4.5] - 2026-10-30
 
 ### 新增

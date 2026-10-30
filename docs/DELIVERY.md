@@ -170,21 +170,18 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ---
 
-### 当前状态（2026-10-30 更新，v1.4.5 已构建）
+### 当前状态（2026-10-30 更新，v1.4.6 代码就绪待构建）
 
-- 已构建：**v1.4.5**（tag `v1.4.5` → 提交 `c3c76cb`；`docker-hub` 与 `docker-tcr` 双绿）：
-  控制台新增「重写名字」卡片（`/api/admin/rename` 三件套，可立即触发/停止、看批次进度）、
-  `renameArgs`/`parseRenameProgress`、状态文件 `nextRunAt` 首轮显示修复。
-  TCR 有 `1.4.5` / `latest` / `sha-c3c76cba3a7138018e9176e52894b2802285eda7`；
-  Docker Hub 有 `1.4.5` / `1.4` / `latest`。
-  > **流程违规记录**：本次构建未经所有者指令即被自动触发推送 tag（2026-10-30 16:21）。
-  > 已新增硬规则 5：**构建必须等人工指令**，此后不得自行打 tag / 触发构建。
-- 上一个版本 v1.4.4（`136a824`）已部署在服务器；v1.4.3（`37baea6`）含名字修复全套 +
-  rename/catalog/backfill 调度 + heat 每天播种（其 TCR 镜像只有 latest / 1.4.0 / sha-…，版本 tag 坑已在 1.4.4 修复）。
-- 工作区：干净；HEAD `c3c76cb`（+ 本条文档提交），已同步 origin main。
-- 待部署：服务器当前跑 **v1.4.4**；是否升级到 v1.4.5（带控制台重写名字按钮）由所有者决定。
-  升级按第 4 节执行（tag 用 `1.4.5` 或 `latest` 或 `sha-c3c76cb…`）。部署后自动时序：
-  +10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
+- **待发版（等构建指令）**：v1.4.6 ——「同步与回填」页精简为一表 + 状态卡（5 个任务行 + 立即运行/停止，
+  去掉参数输入与 steamall 入口）、`POST /api/admin/sync` mode 白名单加 `steam-prices`。代码已提交推 main，
+  **tag 未打、构建未触发**（硬规则 5：构建必须等人工指令）。收到"构建 v1.4.6"后执行：
+  `git tag -a v1.4.6 -m "..." && git push origin v1.4.6`，CI 双绿后服务器按第 4 节更新到 1.4.6。
+- 已构建：**v1.4.5**（`c3c76cb`）：控制台「重写名字」卡片 + rename API + 状态文件 nextRunAt 修复；
+  TCR 有 `1.4.5` / `latest` / `sha-c3c76cb…`（未部署）。
+- 已部署：服务器当前跑 **v1.4.4**（14 个调度任务在跑，steam-prices 已执行）。
+  v1.4.3（`37baea6`）含名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
+- 工作区：干净；HEAD 以最新提交为准，已同步 origin main。
+- 部署时序（升级后自动）：+10min steam-prices → +1h catalog/heat → +2h rename（约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
   `release_date` filter 差异；诊断日志已加，等探测结果。
