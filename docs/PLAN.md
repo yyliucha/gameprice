@@ -255,3 +255,86 @@ Vue 后台**只剩**「系统设置」里的 `版本 x.y.z` 静态文字，没�
 2. 批次 2 暗色（改动面大但与 1 无冲突）→ 合并进 `1.2.0`；
 3. 批次 3 移动端 → 合并或 `1.2.1`；
 4. 批次 4 热度 → 建表 + 3 小时回填 → `1.3.0`。
+
+---
+
+# 批次 5：安全加固 + 体验修正（2026-10-30 排查 + 用户反馈）
+
+状态：**待实现**（用户已确认要，等切换模型执行）。目标版本建议 `1.4.0`
+（5.2 改变了「全部」页签的语义，按小版本处理；若只想先发布局修复可拆 `1.3.1`）。
+
+## 5.1 首页工具栏布局（`frontend/src/styles/main.css`）
+
+现状：`.toolbar` 是单行 flex——搜索框 `flex:1 1 300px; max-width:460px`，四个下拉各 `width:142px`，
+再加刷新按钮。1.3.0 新增「全部发行」后，在 1100–1300px 宽度下六个控件被压在同一行，间距只剩 10px，
+看起来「堆到一起」。
+
+改法（只动 CSS，不改结构）：
+
+```css
+.toolbar{ /* 保持 flex-wrap:wrap，gap 10 → 12 */ }
+.toolbar .search{flex:1 1 280px;max-width:420px}
+.toolbar .el-select{flex:0 0 auto;width:132px}
+@media(max-width:1200px){
+  .toolbar{gap:10px}
+  .toolbar .search{flex:1 1 100%;max-width:none}
+  .toolbar .el-select{flex:1 1 calc(50% - 5px);width:auto;min-width:118px}
+}
+@media(max-width:760px){ /* 保留现有：搜索整行、下拉 flex 1 1 45% */ }
+@media(max-width:420px){ /* 保留现有：下拉整行 */ }
+```
+
+验收：1440 / 1280 / 1100 / 900 / 760 / 390 六档宽度下——无控件被压到 118px 以下、无横向滚动、
+控件间距不小于 10px，刷新按钮不换行到孤行。
+
+## 5.2 「全部」页签改为「未标记」过滤
+
+用户原话：「全部查询 过滤掉 已拥有/感兴趣/不感兴趣」。**按此实现为：切到「全部」时排除已标记的游戏**
+（标记各自在对应页签展示）。若原意相反（全部应包含所有游戏、不过滤），删掉 `marks` 参数即可，后端不动。
+
+实现：
+
+- 服务端 `POST /api/games/search`（与 `GET /api/games`）新增 `marks` 参数：`any`（默认，旧行为）| `unmarked`。
+- `src/store/pg.js` 的 `gameSearch` 增加 `marks`：
+  - 登录用户：`uf.interested is null`（**不能用 `coalesce(uf.interested, g.interested)`**，
+    因为 `games.interested` 默认是 true，会把所有游戏都排掉）；
+  - 游客：前端把三类标记 id 合并成 `guestFlags.excludeIds`，服务端 `not (g.id = any($n::bigint[]))`；
+  - 「已拥有」已由 `owned: 'exclude'` 覆盖，不需要重复条件。
+- 前端 `Home.vue`：`activeTab === 'all'` 时 params 带 `marks: 'unmarked'`；
+  游客请求里 `guestFlags.excludeIds` = 三个 id 列表的并集。
+- 缓存 key 加入 `marks`，避免与其它页签串结果。
+- 文案：页签仍叫「全部」；若实现时觉得歧义大，可改为「未标记」（纯文案改动）。
+- 验收：给一款游戏打「感兴趣」→ 切「全部」列表里不再出现，切「感兴趣」能看到；
+  游客本地标记同样生效；空标记用户看到的列表与改动前一致。
+
+## 5.3 安全加固（来自排查，低风险项）
+
+1. `x-forwarded-host` 未过信任门（`src/steam-login.js:50`）：改为复用 `visitors.clientIp` 的
+   `TRUST_PROXY` / `TRUSTED_PROXY_IPS` 判定，或直接用 `req.headers.host` 拼 `return_to`。
+2. 加 CSP 响应头（`src/server.js` 的统一响应头处）：先上
+   `Content-Security-Policy-Report-Only` 观察一轮，再切正式；注意 Element Plus 需要 inline style，
+   `style-src 'self' 'unsafe-inline'`，脚本用 `script-src 'self'`。
+3. 访客归属地的第三方查询（`src/visitors.js` 调 `ip-api.com`）加开关：
+   `VISITOR_GEO=0` 时不查、`region` 留空。
+
+## 5.4 数据与性能优化（来自排查）
+
+1. **搜索索引（最高收益）**：生产库先 `EXPLAIN ANALYZE` 一条典型模糊搜索；
+   单次 >150ms 再加
+   `create extension if not exists pg_trgm;` +
+   `create index ... on games using gin (lower(coalesce(name,'')) gin_trgm_ops)`，
+   并确认参数化 LIKE 能命中索引；同时观察 count 查询是否成为瓶颈。
+2. **定期清理**（`src/scheduler.js` 加周任务 + `src/store/pg.js` 加 SQL）：
+   `visitor_logs` 保留 180 天、`fetch_runs`/`sync_runs` 保留 90 天、`email_codes` 保留 7 天；
+   任务写 `maintenance.cleanup` 日志并带删除行数。
+3. **热度刷新覆盖**：`STEAM_HEAT_LIMIT` 默认 5000 → 20000（或按 `heat_at` 最旧优先选择），
+   否则 10.6 万条有报价游戏要 21 周才轮一遍。
+4. **图片缓存上限（可选）**：`data/images` 超过设定体积（如 2GB）按最旧访问删除；
+   `images stats` 已有统计，加一个 `images prune --keep-gb 2` 即可。
+
+## 批次 5 验收
+
+- `npm run frontend:build`、`npm test`（含新增 marks 过滤与清理任务的测试）全绿；
+- 六档宽度截图/断言无横向溢出、无控件过窄；
+- 「全部」过滤行为符合 5.2 描述（登录 + 游客两种）；
+- CSP 上线前先 Report-Only 跑一轮，浏览器控制台无大面积违规再切正式。
