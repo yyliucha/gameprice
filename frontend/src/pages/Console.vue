@@ -2,7 +2,7 @@
   <div class="admin-shell">
     <aside class="admin-sidebar">
       <a href="/" class="admin-brand"><span class="brand-mark">S</span><span>SteamDeals<small>管理控制台</small></span></a>
-      <div class="admin-search"><el-input v-model="filter" placeholder="搜索管理功能" clearable><template #prefix><el-icon><Search /></el-icon></template></el-input></div>
+      <div class="admin-search"><el-input v-model="filter" placeholder="搜索管理功能" clearable @keyup.enter="onFilterEnter"><template #prefix><el-icon><Search /></el-icon></template></el-input></div>
       <nav class="admin-nav">
         <template v-for="group in visibleGroups" :key="group.name">
           <div class="nav-heading">{{ group.name }}</div>
@@ -10,7 +10,14 @@
         </template>
         <el-empty v-if="!visibleGroups.length" :image-size="44" description="没有匹配的功能" />
       </nav>
-      <div class="admin-bottom"><el-tag v-if="user" type="success" effect="plain">{{ user.display_name || user.username }}</el-tag><el-button text @click="router.push('/')">返回网站 ↗</el-button></div>
+      <div class="admin-bottom"><el-tag v-if="user" type="success" effect="plain">{{ user.display_name || user.username }}</el-tag><el-button text @click="router.push('/')">返回网站 ↗</el-button>
+        <div class="admin-version" :title="versionTitle" @click="loadVersion(true)">
+          <span v-if="versionLoading" class="version-text">版本 检查中…</span>
+          <span v-else-if="verInfo.error && !verInfo.current" class="version-text">版本检查失败（悬停查看原因）</span>
+          <span v-else class="version-text">版本 v{{ verInfo.current || '—' }}</span>
+          <a v-if="verInfo.updateAvailable && verInfo.latest" :href="verInfo.url || '#'" target="_blank" rel="noopener" class="version-update" @click.stop>↑ 新版 v{{ String(verInfo.latest).replace(/^v/i, '') }} 可用</a>
+        </div>
+      </div>
     </aside>
     <main class="admin-content">
       <header class="admin-header"><div><div class="admin-crumb">管理中心 <span>/</span> {{ selectedItem?.group }}</div><h1>{{ selectedItem?.label }}</h1><p>{{ selectedItem?.description }}</p></div></header>
@@ -40,5 +47,35 @@ const selected=ref(String(route.query.section||'games'));
 const selectedItem=computed(()=>groups.flatMap(g=>g.items.map(i=>({...i,group:g.name}))).find(i=>i.id===selected.value)||groups[0].items[0]);
 const visibleGroups=computed(()=>{const q=filter.value.trim().toLocaleLowerCase();return groups.map(g=>({...g,items:g.items.filter(i=>!q||`${i.label} ${i.description} ${g.name}`.toLocaleLowerCase().includes(q))})).filter(g=>g.items.length);});
 async function select(item){ selected.value=item.id; await router.replace({path:'/console',query:{section:item.id}}); }
-onMounted(async()=>{try{const valid=groups.some(g=>g.items.some(i=>i.id===selected.value));if(!valid)selected.value='games';const res=await fetch('/api/me',{credentials:'same-origin'});const data=await res.json();user.value=data.user||null;if(user.value?.role!=='admin'){ElMessage.warning('此页面需要管理员账号登录');router.replace('/');}}catch{ElMessage.error('无法验证管理员身份');router.replace('/');}});
+// 侧栏搜索按 Enter：直接打开第一个匹配的功能
+function onFilterEnter(){const first=visibleGroups.value[0]?.items[0];if(first){filter.value='';select(first);}else if(filter.value.trim()){ElMessage.warning('没有匹配的功能');}}
+
+// 版本检查：进入控制台自动查一次（走服务端缓存），点击带 force=1 重新检查
+const verInfo=ref({current:null,latest:null,updateAvailable:false,url:null,checkedAt:null,error:null});
+const versionLoading=ref(false);
+const versionTitle=computed(()=>{
+  if(versionLoading.value)return '正在检查新版本…';
+  if(verInfo.value.error)return '版本检查失败：'+verInfo.value.error;
+  if(verInfo.value.checkedAt)return '上次检查：'+new Date(verInfo.value.checkedAt).toLocaleString()+'（点击重新检查）';
+  return '点击检查新版本';
+});
+async function loadVersion(force){
+  versionLoading.value=true;
+  try{
+    const res=await fetch('/api/admin/version'+(force?'?force=1':''),{credentials:'same-origin'});
+    const d=await res.json();
+    if(!res.ok)throw new Error(d.error||`HTTP ${res.status}`);
+    verInfo.value=d;
+  }catch(e){verInfo.value={...verInfo.value,error:e.message};}
+  finally{versionLoading.value=false;}
+}
+
+onMounted(async()=>{try{const valid=groups.some(g=>g.items.some(i=>i.id===selected.value));if(!valid)selected.value='games';const res=await fetch('/api/me',{credentials:'same-origin'});const data=await res.json();user.value=data.user||null;if(user.value?.role!=='admin'){ElMessage.warning('此页面需要管理员账号登录');router.replace('/');return;}}catch{ElMessage.error('无法验证管理员身份');router.replace('/');return;}loadVersion(false);});
 </script>
+
+<style scoped>
+.admin-version{margin-top:9px;padding-top:9px;border-top:1px solid #eef0f5;cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left}
+.version-text{font-size:11px;color:#8a94a6}
+.version-update{font-size:11px;color:#d97706;text-decoration:none;font-weight:600}
+.version-update:hover{text-decoration:underline}
+</style>
