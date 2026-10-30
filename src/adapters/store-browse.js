@@ -40,15 +40,34 @@ const stripHtml = (raw) =>
     .trim()
     .slice(0, 4000);
 
+/**
+ * 真实 GetItems 的 `type` 是数字枚举 EStoreAppType（Game=0、Demo=1、Mod=2、
+ * Movie=3、DLC=4、Guide=5、Software=6、Video=7、Series=8、Episode=9、Hardware=10、
+ * Music=11、Beta=12、Tool=13、Advertising=14），不是字符串。
+ * 旧实现按字符串判断，而普通游戏的 0 又是 falsy，导致 app_type 永远写不进库
+ * （生产 19.6 万行里只有 1,180 行有 app_type，全部来自 appdetails 的其它路径）。
+ */
+const NUMERIC_APP_TYPE = {
+  0: 'game', 1: 'demo', 2: 'mod', 3: 'movie', 4: 'dlc', 5: 'guide', 6: 'software',
+  7: 'video', 8: 'series', 9: 'episode', 10: 'hardware', 11: 'music', 12: 'beta',
+  13: 'tool', 14: 'advertising',
+};
+
+/** 归一化 app_type：数字按枚举表，字符串沿用旧语义（'dlc'→dlc，其余→game），未知留空。 */
+export function normalizeItemType(rawType) {
+  if (rawType == null) return null;
+  if (typeof rawType === 'number' && Number.isFinite(rawType)) return NUMERIC_APP_TYPE[rawType] ?? null;
+  const s = String(rawType).trim().toLowerCase();
+  if (!s) return null;
+  return s === 'dlc' || s === 'demo' || s === 'game' ? s : 'game';
+}
+
 /** GetItems 的 store_item → 与 appdetails 一致的 items 结构。 */
 export function mapStoreItem(item) {
   if (!item || !item.appid) return null;
   const basic = item.basic_info ?? {};
   // 正常在 best_purchase_option；include_all_purchase_options 时可能在 purchase_options 数组里
   const price = item.best_purchase_option ?? (Array.isArray(item.purchase_options) ? item.purchase_options[0] : null) ?? null;
-  const isDlc = String(item.type ?? '').toLowerCase() === 'dlc';
-  // 价格字段的真实名字是 final_price_in_cents / original_price_in_cents / discount_pct；
-  // protobuf int64 在 JSON 里是字符串（"11900"），数字/字符串/旧 {amount} 形态都要认。
   const centsOf = (...values) => {
     for (const v of values) {
       if (v == null) continue;
@@ -64,7 +83,7 @@ export function mapStoreItem(item) {
     steamAppid: Number(item.appid),
     nameEn: null,
     nameZh: item.name ?? null,
-    appType: isDlc ? 'dlc' : item.type ? 'game' : null,
+    appType: normalizeItemType(item.type),
     isFree: item.is_free === true ? true : final == null ? null : final === 0,
     headerImage: null,
     releaseDate: null,

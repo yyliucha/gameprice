@@ -93,7 +93,7 @@ export function offerFromItem(item) {
     platformCode: 'steam',
     platformProductId: String(appid),
     steamAppid: appid,
-    title: item.nameZh ?? String(appid),
+    title: item.nameZh ?? item.nameEn ?? String(appid),
     productType: 'official_direct',
     region: 'cn',
     currency: p.currency ?? 'CNY',

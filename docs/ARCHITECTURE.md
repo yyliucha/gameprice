@@ -329,13 +329,23 @@ GOG 的 catalog 接口接受 `countryCode` + `currencyCode`，是目前唯一能
 `--backend auto`（默认）先探官方（5 秒超时、不重试），不通就回落镜像，并把实际用的后端记进
 `steam.meta.done`。这样同一份代码在"能访问 Steam 的服务器"和"不能访问的开发机"上都能用。
 
-### 名字为什么"只补空缺"
+### 名字为什么"只补空缺"（外加一条机器英文名例外）
 
 第一版是"元数据权威，覆盖旧值"，实测立刻踩坑：730 的 `sc_schinese` 还是旧的
 「反恐精英：全球攻势」，一导入就把人工维护的「反恐精英 2」改掉了。
 
-现在 `upsertGameMeta` 对 `name` / `name_en` 用 `coalesce(games.name, excluded.name)`
-——**只填空缺，不覆盖**；类型/封面/发行日期/is_free 仍以元数据为准（这些没人手工维护）。
+现在的规则是**只填空缺、只保护人工值**：
+
+- `name` 为空 → 用元数据补上；
+- `name` 是**机器英文名**（`name_en` 为空且不含中文）→ 允许被中文名覆盖，
+  被替换的英文名挪进 `name_en`。这条例外是为目录导入的历史遗留开的：
+  `GetAppList` 没有语言参数，英文基础名一度占死了 `name` 槽位（生产 19.6 万行
+  仅 1.14 万有中文名）；
+- 其余（中文名、或 `name_en` 已有人工值）→ 不覆盖。
+
+目录导入（`importCatalogGames`）从源头配合：含中文的基础名写 `name`，否则写
+`name_en`，不再产生新的"英文占位"行。存量用 `node src/cli.js rename` 重写。
+类型/封面/发行日期/is_free 仍以元数据为准（这些没人手工维护）。
 `is_free` 用 `case when $5 is null then games.is_free else $5 end`，因为镜像给不了这个字段，
 传 null 不能把它改成 false。
 

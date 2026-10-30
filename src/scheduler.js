@@ -27,6 +27,15 @@ const num = (value, fallback) => {
 export function jobsFromEnv(env = process.env) {
   return [
     {
+      name: 'catalog',
+      // 每周同步一次 Steam 全量目录（幂等：已存在的 appid 跳过）——新游戏自动进库，
+      // 不需要人去控制台点「导入目录」。需要 STEAM_API_KEY，没配时该任务不出现。
+      args: ['sync', 'catalog'],
+      intervalMin: num(env.STEAM_CATALOG_INTERVAL_MIN, 10080),
+      initialDelaySec: num(env.STEAM_CATALOG_INITIAL_DELAY_SEC, 3600),
+      enabled: env.STEAM_ENABLED !== '0' && String(env.STEAM_API_KEY ?? '').trim().length > 10,
+    },
+    {
       name: 'steam-prices',
       // 每日只刷新已经有 Steam 报价的游戏；初次导入/补详情由后台回填完成。
       args: ['sync', 'steam-prices', '--limit', String(num(env.STEAM_PRICE_LIMIT, 200000))],
@@ -36,12 +45,31 @@ export function jobsFromEnv(env = process.env) {
     },
     {
       name: 'heat',
-      // 每周刷新热度（评测数 + 发行日期）；首跑全量播种（heat_at 为 null），之后只刷有报价的过期条目。
-      // appdetails 批量只接受 price_overview，热度必须逐 appid 请求（约 1.7s/款）。
-      // 与 steam-prices / 回填共用 Steam 配额：调度器串行跑任务，不会并行抢限流。
+      // 每天跑热度（评测数 + 发行日期）：**首轮自动全量播种**（heat_at 为 null 的都会被选中），
+      // 之后只刷"过期 7 天且有报价"的条目。appdetails 批量只接受 price_overview，
+      // 热度必须逐 appid 请求（约 1.7s/款）；每天 20000 款 ≈ 9.4 小时，
+      // 19.6 万款约 10 天播完，**无需手工执行任何命令**。
       args: ['heat', '--limit', String(num(env.STEAM_HEAT_LIMIT, 20000)), '--sleep', '1700'],
-      intervalMin: num(env.STEAM_HEAT_INTERVAL_MIN, 10080),
-      initialDelaySec: 86400,
+      intervalMin: num(env.STEAM_HEAT_INTERVAL_MIN, 1440),
+      initialDelaySec: num(env.STEAM_HEAT_INITIAL_DELAY_SEC, 3600),
+      enabled: env.STEAM_ENABLED !== '0',
+    },
+    {
+      name: 'rename',
+      // 每周重写一次名字：目录导入留下的机器英文名补成中文（英文挪进 name_en），
+      // 顺带覆盖"后来才补了简中"的游戏。选择条件自带收敛，没名字可改时秒退。
+      args: ['rename', '--limit', String(num(env.STEAM_RENAME_LIMIT, 200000)), '--batch', '100', '--sleep', '1500'],
+      intervalMin: num(env.STEAM_RENAME_INTERVAL_MIN, 10080),
+      initialDelaySec: num(env.STEAM_RENAME_INITIAL_DELAY_SEC, 7200),
+      enabled: env.STEAM_ENABLED !== '0',
+    },
+    {
+      name: 'backfill',
+      // 每周增量回填：给目录里新进的游戏补元数据/说明/价格（GetItems + appdetails 回退）。
+      // 选择条件自带收敛（有说明+报价的跳过），没活时秒退；与其它 Steam 任务串行不抢限流。
+      args: ['backfill', '--limit', String(num(env.STEAM_BACKFILL_LIMIT, 20000)), '--batch', '100', '--sleep', '3000'],
+      intervalMin: num(env.STEAM_BACKFILL_INTERVAL_MIN, 10080),
+      initialDelaySec: num(env.STEAM_BACKFILL_INITIAL_DELAY_SEC, 10800),
       enabled: env.STEAM_ENABLED !== '0',
     },
     {
@@ -156,8 +184,11 @@ export function isCircuited(state, nowMs) {
   return Boolean(state?.openUntil && nowMs < state.openUntil);
 }
 
-// 采集类任务成功后需要刷新静态页的，列在这里
-const SYNC_LIKE = new Set(['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover']);
+// 采集类任务成功后需要刷新静态页的，列在这里（backfill 会写新报价，也要重建）
+const SYNC_LIKE = new Set(['steam', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'rename', 'backfill']);
+
+// Steam 重任务：与后台手动同步/回填/热度共用配额与槽位，有手动任务在跑时让路
+const STEAM_HEAVY = new Set(['steam-prices', 'rename', 'backfill', 'heat', 'catalog']);
 
 /**
  * 任务成功后的后续动作。
@@ -359,8 +390,8 @@ export async function main() {
         if (stopping) break;
         if (running.has(job.name)) continue;
 
-        // 后台手动回填/同步也写 sync_runs；让日更等它结束再执行，避免并行冲击 Steam。
-        if (job.name === 'steam-prices') {
+        // 后台手动回填/同步也写 sync_runs；让 Steam 重任务等它结束再执行，避免并行冲击 Steam。
+        if (STEAM_HEAVY.has(job.name)) {
           const activeSync = await db.runningSyncRun(q).catch(() => null);
           if (activeSync) {
             logger.info('scheduler.job_deferred_busy', { job: job.name, runId: activeSync.id, mode: activeSync.mode });

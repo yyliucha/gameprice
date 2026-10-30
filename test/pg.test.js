@@ -218,6 +218,88 @@ test('没有 appid 的游戏：再次采集时能补上英文名（杉果 sku_en
   }
 });
 
+test('ensureGame：价格同步带回中文名时覆盖机器英文名，并把英文挪进 name_en', async () => {
+  const store = await freshStore();
+  try {
+    const qq = q(store);
+    // 目录导入的遗留形态：英文名占着 name，name_en 为空
+    await qq("insert into games (steam_appid, name) values (2358720, 'Black Myth: Wukong')");
+
+    await ingestOffers(store, {
+      platform: steamPlatform,
+      offers: [{ ...offer(2358720, 19800), title: '黑神话：悟空' }],
+    });
+
+    const row = (await qq('select name, name_en from games where steam_appid = 2358720')).rows[0];
+    assert.equal(row.name, '黑神话：悟空');
+    assert.equal(row.name_en, 'Black Myth: Wukong', '被替换的英文名必须保留到 name_en');
+  } finally {
+    await store.close();
+  }
+});
+
+test('ensureGame：人工维护的中文名（带 name_en）不被价格同步覆盖', async () => {
+  const store = await freshStore();
+  try {
+    const qq = q(store);
+    await qq("insert into games (steam_appid, name, name_en) values (730, '反恐精英 2', 'Counter-Strike 2')");
+
+    await ingestOffers(store, {
+      platform: steamPlatform,
+      offers: [{ ...offer(730, 0), title: '反恐精英：全球攻势' }],
+    });
+
+    const row = (await qq('select name, name_en from games where steam_appid = 730')).rows[0];
+    assert.equal(row.name, '反恐精英 2', '人工维护的名字必须保留');
+    assert.equal(row.name_en, 'Counter-Strike 2');
+  } finally {
+    await store.close();
+  }
+});
+
+test('ensureGame：name 与 name_en 相同的机器行，中文名来了仍可覆盖', async () => {
+  const store = await freshStore();
+  try {
+    const qq = q(store);
+    // 新版目录导入 + 一次回填后的形态：无简中游戏两端都是英文
+    await qq("insert into games (steam_appid, name, name_en) values (275850, 'No Man''s Sky', 'No Man''s Sky')");
+
+    await ingestOffers(store, {
+      platform: steamPlatform,
+      offers: [{ ...offer(275850, 15800), title: '无人深空' }],
+    });
+
+    const row = (await qq('select name, name_en from games where steam_appid = 275850')).rows[0];
+    assert.equal(row.name, '无人深空');
+    assert.equal(row.name_en, "No Man's Sky");
+  } finally {
+    await store.close();
+  }
+});
+
+test('目录导入：英文名进 name_en、中文名进 name、空名留空', async () => {
+  const store = await freshStore();
+  try {
+    const qq = q(store);
+    const inserted = await db.importCatalogGames(qq, [
+      { appid: 2358720, name: 'Black Myth: Wukong' },
+      { appid: 400, name: '传送门' },
+      { appid: 570, name: '' },
+    ]);
+    assert.equal(inserted, 3);
+    const rows = (await qq('select steam_appid, name, name_en from games order by steam_appid')).rows;
+    assert.deepEqual(rows[0], { steam_appid: 400, name: '传送门', name_en: null });
+    assert.deepEqual(rows[1], { steam_appid: 570, name: null, name_en: null });
+    assert.deepEqual(rows[2], { steam_appid: 2358720, name: null, name_en: 'Black Myth: Wukong' });
+
+    // 幂等：重复导入不新建行
+    const again = await db.importCatalogGames(qq, [{ appid: 2358720, name: 'Black Myth: Wukong' }]);
+    assert.equal(again, 0);
+  } finally {
+    await store.close();
+  }
+});
+
 test('兴趣开关：不感兴趣只改标记，报价与统计照常', async () => {
   const store = await freshStore();
   try {

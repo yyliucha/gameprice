@@ -357,17 +357,52 @@ export async function upsertPlatform(q, { code, name, kind }) {
   );
 }
 
+/**
+ * 全量目录导入：`IStoreService/GetAppList` 没有语言参数，返回的是基础名
+ * （绝大多数英文）。直接把英文写进 `name` 会占死中文名槽位（后面所有补名字的
+ * 写入都只补空缺），所以按内容分流：含中文的写 `name`（国产游戏基础名本来就是
+ * 中文），否则写 `name_en`，`name` 留空等回填用 schinese 本地化名补上。
+ */
+export async function importCatalogGames(q, apps = []) {
+  const pairs = (apps ?? []).filter((a) => Number.isFinite(Number(a?.appid)) && Number(a.appid) > 0);
+  const ids = pairs.map((a) => Number(a.appid));
+  const names = pairs.map((a) => String(a.name ?? '').trim());
+  if (!ids.length) return 0;
+  const r = await q(
+    `insert into games (steam_appid, name, name_en)
+     select x.appid,
+            case when x.name ~ '[一-龥]' then x.name else null end,
+            case when x.name ~ '[一-龥]' then null else nullif(x.name, '') end
+       from unnest($1::int[], $2::text[]) as x(appid, name)
+      where not exists (select 1 from games g where g.steam_appid = x.appid)`,
+    [ids, names],
+  );
+  return r.rowCount ?? 0;
+}
+
 export async function ensureGame(q, { steamAppid = null, name = null, nameEn = null, meta = null }) {
   if (steamAppid != null) {
     const found = await q('select id, name, name_en from games where steam_appid = $1', [steamAppid]);
     if (found.rows.length) {
       const row = found.rows[0];
-      const patchName = name && !row.name;
-      const patchNameEn = nameEn && !row.name_en;
-      if (patchName || patchNameEn) {
+      // 名字策略（与 upsertGameMeta 一致）：只补空缺，唯一例外是"机器英文名"——
+      // 目录导入（GetAppList 无本地化）把英文名写进了 name（旧版）或 name_en（新版），
+      // 表现为 name 不含中文、name_en 为空或与 name 相同。这种情况允许用新拿到的
+      // 中文名覆盖，并把被替换的英文名挪进 name_en。
+      const empty = (v) => v == null || String(v).trim() === '';
+      const hasZh = (v) => /[\u4e00-\u9fa5]/.test(String(v ?? ''));
+      const machineEnglish =
+        (empty(row.name_en) || row.name_en === row.name) && !empty(row.name) && !hasZh(row.name);
+      const patchName = name && (empty(row.name) || (machineEnglish && hasZh(name)));
+      const patchNameEn = nameEn && empty(row.name_en);
+      const moveNameEn =
+        patchName && machineEnglish && empty(row.name_en) && !/^appid:\d+$/.test(String(row.name))
+          ? row.name
+          : null;
+      if (patchName || patchNameEn || moveNameEn) {
         await q(
           `update games set name = coalesce($1, name), name_en = coalesce($2, name_en), updated_at = now() where id = $3`,
-          [patchName ? name : null, patchNameEn ? nameEn : null, row.id],
+          [patchName ? name : null, moveNameEn ?? (patchNameEn ? nameEn : null), row.id],
         );
       } else {
         await q('update games set updated_at = now() where id = $1', [row.id]);
@@ -505,7 +540,7 @@ export async function priceChanges(q, { hours = 24, sinceMs = null, limit = 10 }
        order by s.offer_id, s.captured_at desc, s.id desc
     )
     select g.id as game_id, g.steam_appid,
-           coalesce(g.name, 'appid:' || g.steam_appid) as name,
+           coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
            p.code as platform, p.name as platform_name,
            l.prev_price_cents as was, l.price_cents as now_price,
            l.captured_at, (l.prev_price_cents - l.price_cents) as drop_cents
@@ -613,7 +648,7 @@ export async function priceChangeRows(q, { hours = 24, sinceMs = null, limit = 5
           and s.prev_price_cents <> s.price_cents
         order by s.offer_id, s.captured_at desc, s.id desc
      )
-     select g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+     select g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
             p.code as platform, p.name as platform_name,
             l.prev_price_cents as was, l.price_cents as now_price,
             l.captured_at
@@ -656,7 +691,7 @@ const OFFICIAL_KINDS = "('official', 'authorized_reseller')";
 
 export async function lowestOffers(q, { region = 'cn', limit = 50 } = {}) {
   const r = await q(
-    `select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+    `select g.id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
             g.name_en,
             o.platform_code, p.name as platform_name,
             o.price_cents, o.original_cents, o.discount_pct, o.buy_url, o.last_seen_at,
@@ -748,7 +783,7 @@ export async function serverVersion(q) {
  */
 const GAME_SELECT = `select g.id,
             g.steam_appid,
-            coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
             g.name_en,
             g.app_type,
             g.interested,
@@ -968,7 +1003,7 @@ export async function gameSearch(
       where d.region = $1
       group by d.game_id
     )
-    select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+    select g.id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
       g.name_en, g.app_type, g.heat, g.release_date,
       ${userId ? 'uf.interested' : 'null::boolean'} as interested,
       ${userId ? 'uf.interested' : 'null::boolean'} as user_interested,
@@ -1084,7 +1119,7 @@ export async function deleteWatch(q, { gameId, region = 'cn' }) {
 export async function listWatches(q, { region = 'cn' } = {}) {
   const r = await q(
     `select w.id, w.target_cents, w.note, w.created_at, w.last_notified_cents, w.last_notified_at,
-            g.id as game_id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name
+            g.id as game_id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name
        from watchlist w
        join games g on g.id = w.game_id
       where w.region = $1
@@ -1098,7 +1133,7 @@ export async function listWatches(q, { region = 'cn' } = {}) {
 export async function watchCandidates(q, { region = 'cn' } = {}) {
   const r = await q(
     `select w.id as watch_id, w.target_cents, w.note, w.last_notified_cents, w.last_notified_at,
-            g.id as game_id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+            g.id as game_id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name,
             g.name_en,
             (select min(o.price_cents) from offers o
                join platforms p on p.code = o.platform_code
@@ -1665,9 +1700,15 @@ export async function markStaleSyncRuns(q) {
 /**
  * 写入/更新游戏元数据。
  *
- * 名字策略：**只补空缺，不覆盖已有值**。元数据里的本地化名可能是过期的
- * （实测 730 的 sc_schinese 还是"反恐精英：全球攻势"），覆盖会把人肉维护的
- * 正确名字改坏。其余字段（类型/封面/发行日期/is_free）以元数据为准。
+ * 名字策略：**只补空缺，唯一例外是"机器英文名"**。
+ * 目录导入（GetAppList 无本地化）把英文名写进了 name（旧版）或 name_en（新版），
+ * 此后回填拿到的中文名一直被 `coalesce` 挡在外面。所以：
+ *   - name 为空 → 补上；
+ *   - name 是机器英文名（name 不含中文，且 name_en 为空或与 name 相同）→
+ *     允许被中文名覆盖，并把被替换的英文名挪进 name_en；
+ *   - 其余（人工维护的中文名、或 name_en 与 name 不同的人工英文名）→ 不覆盖，
+ *     避免 730 的 sc_schinese 旧名把「反恐精英 2」改坏。
+ * 其余字段（类型/封面/发行日期/is_free）仍以元数据为准。
  */
 export async function upsertGameMeta(q, item) {
   // 类型统一小写：老数据里有 PICS 镜像的 'Game'/'DLC' 大小写混用，前端按小写匹配
@@ -1677,8 +1718,23 @@ export async function upsertGameMeta(q, item) {
                         developers, publishers, genres, tags, description)
      values ($1, $2, $3, $4, coalesce($5, false), $6, $7, $8, $9, $10, $11, $12)
      on conflict (steam_appid) do update set
-       name = coalesce(games.name, excluded.name),
-       name_en = coalesce(games.name_en, excluded.name_en),
+       name = case
+         when excluded.name is null then games.name
+         when games.name is null or games.name = '' then excluded.name
+         when (games.name_en is null or games.name_en = games.name)
+              and games.name !~ '[一-龥]' then excluded.name
+         else games.name
+       end,
+       name_en = case
+         when excluded.name_en is not null and excluded.name_en <> ''
+              and (games.name_en is null or games.name_en = '') then excluded.name_en
+         when (games.name_en is null or games.name_en = '' or games.name_en = games.name)
+              and games.name !~ '[一-龥]'
+              and games.name !~ '^appid:[0-9]+$'
+              and excluded.name is not null and excluded.name ~ '[一-龥]'
+              then games.name
+         else games.name_en
+       end,
        app_type = coalesce(excluded.app_type, games.app_type),
        is_free = case when $5::boolean is null then games.is_free else $5::boolean end,
        header_image = coalesce(excluded.header_image, games.header_image),
@@ -1850,7 +1906,7 @@ export async function adminGameStats(q) {
 /** 已删除（回收站）的游戏列表，按删除时间倒序。 */
 export async function listDeletedGames(q, { limit = 200 } = {}) {
   const r = await q(
-    `select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, g.name_en,
+    `select g.id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name, g.name_en,
             g.app_type, g.deleted_at,
             coalesce(array_agg(distinct p.name) filter (where p.name is not null), '{}') as platform_names,
             (select count(*)::int from offers o where o.game_id = g.id) as offer_count

@@ -2,26 +2,74 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { jobsFromEnv, dueJobs, describeSchedule, forwardedArgs, recordJobResult, isCircuited, CIRCUIT, followUpArgs } from '../src/scheduler.js';
 
-test('默认任务表（含 Steam 日更、每周热度与清理、gog / humble / discover / backup / alerts / images），各自间隔', () => {
+test('默认任务表（含 Steam 日更/热度/重写名字/增量回填、清理、gog / humble / discover / backup / alerts / images），各自间隔', () => {
   const jobs = jobsFromEnv({});
-  assert.deepEqual(jobs.map((j) => j.name), ['steam-prices', 'heat', 'prune', 'sonkwo', 'itad', 'gog', 'humble', 'discover', 'backup', 'logs', 'alerts', 'images']);
-  assert.equal(jobs[0].intervalMin, 1440, 'Steam 价格默认每天刷新');
-  assert.equal(jobs[1].intervalMin, 10080, '热度默认每周刷新');
-  assert.equal(jobs[2].intervalMin, 10080, '清理默认每周一次');
-  assert.equal(jobs[4].intervalMin, 1440);
-  assert.equal(jobs[5].intervalMin, 720);
-  assert.equal(jobs[6].intervalMin, 720);
-  assert.equal(jobs[7].intervalMin, 720);
-  assert.equal(jobs[8].intervalMin, 1440, '备份每天一次');
-  assert.equal(jobs[9].intervalMin, 7 * 1440, '日志每 7 天清理一次');
-  assert.equal(jobs[10].intervalMin, 360);
-  assert.equal(jobs[11].intervalMin, 240, '封面图补缓存默认每 4 小时');
-  assert.deepEqual(jobs[7].args, ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12']);
-  assert.deepEqual(jobs[8].args, ['backup']);
-  assert.deepEqual(jobs[11].args, ['images', 'pull', '--limit', '200', '--sleep', '300']);
-  assert.deepEqual(jobs[0].args, ['sync', 'steam-prices', '--limit', '200000']);
-  assert.deepEqual(jobs[1].args, ['heat', '--limit', '20000', '--sleep', '1700']);
-  assert.deepEqual(jobs[2].args, ['prune']);
+  assert.deepEqual(jobs.map((j) => j.name), [
+    'steam-prices', 'heat', 'rename', 'backfill', 'prune', 'sonkwo', 'itad', 'gog', 'humble',
+    'discover', 'backup', 'logs', 'alerts', 'images',
+  ]);
+  const interval = (name) => jobs.find((j) => j.name === name).intervalMin;
+  assert.equal(interval('steam-prices'), 1440, 'Steam 价格默认每天刷新');
+  assert.equal(interval('heat'), 1440, '热度默认每天刷新（首轮自动播种，之后刷过期条目）');
+  assert.equal(interval('rename'), 10080, '重写名字默认每周一次');
+  assert.equal(interval('backfill'), 10080, '增量回填默认每周一次');
+  assert.equal(interval('prune'), 10080, '清理默认每周一次');
+  assert.equal(interval('itad'), 1440);
+  assert.equal(interval('gog'), 720);
+  assert.equal(interval('humble'), 720);
+  assert.equal(interval('discover'), 720);
+  assert.equal(interval('backup'), 1440, '备份每天一次');
+  assert.equal(interval('logs'), 7 * 1440, '日志每 7 天清理一次');
+  assert.equal(interval('alerts'), 360);
+  assert.equal(interval('images'), 240, '封面图补缓存默认每 4 小时');
+  const args = (name) => jobs.find((j) => j.name === name).args;
+  assert.deepEqual(args('discover'), ['discover', 'sonkwo', '--ahead', '60', '--max-misses', '12']);
+  assert.deepEqual(args('backup'), ['backup']);
+  assert.deepEqual(args('images'), ['images', 'pull', '--limit', '200', '--sleep', '300']);
+  assert.deepEqual(args('steam-prices'), ['sync', 'steam-prices', '--limit', '200000']);
+  assert.deepEqual(args('heat'), ['heat', '--limit', '20000', '--sleep', '1700']);
+  assert.deepEqual(args('rename'), ['rename', '--limit', '200000', '--batch', '100', '--sleep', '1500']);
+  assert.deepEqual(args('backfill'), ['backfill', '--limit', '20000', '--batch', '100', '--sleep', '3000']);
+  assert.deepEqual(args('prune'), ['prune']);
+});
+
+test('目录同步任务：有 STEAM_API_KEY 才出现，参数可覆盖，STEAM_ENABLED=0 一并关闭', () => {
+  const key = '0123456789ABCDEF';
+  const withKey = jobsFromEnv({ STEAM_API_KEY: key }).find((j) => j.name === 'catalog');
+  assert.ok(withKey, '配了 key 应有目录同步任务');
+  assert.deepEqual(withKey.args, ['sync', 'catalog']);
+  assert.equal(withKey.intervalMin, 10080);
+  assert.equal(withKey.initialDelaySec, 3600);
+
+  assert.ok(!jobsFromEnv({}).some((j) => j.name === 'catalog'), '没有 key 不该出现目录同步任务');
+  assert.ok(
+    !jobsFromEnv({ STEAM_API_KEY: key, STEAM_ENABLED: '0' }).some((j) => j.name === 'catalog'),
+    'STEAM_ENABLED=0 时关闭',
+  );
+
+  const custom = jobsFromEnv({
+    STEAM_API_KEY: key,
+    STEAM_CATALOG_INTERVAL_MIN: '60',
+    STEAM_CATALOG_INITIAL_DELAY_SEC: '30',
+  }).find((j) => j.name === 'catalog');
+  assert.equal(custom.intervalMin, 60);
+  assert.equal(custom.initialDelaySec, 30);
+});
+
+test('重写名字任务：参数与间隔可用环境变量覆盖，STEAM_ENABLED=0 一并关闭', () => {
+  const custom = jobsFromEnv({
+    STEAM_RENAME_LIMIT: '5000',
+    STEAM_RENAME_INTERVAL_MIN: '60',
+    STEAM_RENAME_INITIAL_DELAY_SEC: '30',
+  }).find((j) => j.name === 'rename');
+  assert.deepEqual(custom.args, ['rename', '--limit', '5000', '--batch', '100', '--sleep', '1500']);
+  assert.equal(custom.intervalMin, 60);
+  assert.equal(custom.initialDelaySec, 30);
+
+  const off = jobsFromEnv({ STEAM_ENABLED: '0' });
+  assert.ok(!off.some((j) => j.name === 'rename'), 'STEAM_ENABLED=0 时应关闭');
+  assert.ok(!off.some((j) => j.name === 'steam-prices'));
+  assert.ok(!off.some((j) => j.name === 'heat'));
 });
 
 test('配置了提醒通道才会启用价格报表推送任务', () => {
@@ -53,8 +101,8 @@ test('没配任何提醒通道时 alerts 只做只读检查，不标记已通知
 
 test('环境变量能改间隔与首轮延迟', () => {
   const jobs = jobsFromEnv({ STEAM_PRICE_INTERVAL_MIN: '15', SONKWO_INITIAL_DELAY_SEC: '5' });
-  assert.equal(jobs[0].intervalMin, 15);
-  assert.equal(jobs[3].initialDelaySec, 5);
+  assert.equal(jobs.find((j) => j.name === 'steam-prices').intervalMin, 15);
+  assert.equal(jobs.find((j) => j.name === 'sonkwo').initialDelaySec, 5);
 });
 
 test('显式禁用或间隔为 0 的任务会被剔除', () => {
@@ -68,7 +116,7 @@ test('显式禁用或间隔为 0 的任务会被剔除', () => {
     LOGS_PRUNE_ENABLED: '0',
     IMAGES_ENABLED: '0',
   });
-  assert.deepEqual(jobs.map((j) => j.name), ['heat', 'prune', 'sonkwo', 'alerts']);
+  assert.deepEqual(jobs.map((j) => j.name), ['heat', 'rename', 'backfill', 'prune', 'sonkwo', 'alerts']);
 });
 
 test('从未跑过的任务在 initialDelay 之后才算到点', () => {
@@ -156,6 +204,8 @@ test('采集成功后自动重建曲线页：失败不触发、非采集任务�
   assert.deepEqual(followUpArgs('sonkwo', 0, {}), ['chart']);
   assert.deepEqual(followUpArgs('gog', 0, {}), ['chart']);
   assert.deepEqual(followUpArgs('discover', 0, {}), ['chart']);
+  assert.deepEqual(followUpArgs('rename', 0, {}), ['chart'], '重写名字后也要重建页面');
+  assert.deepEqual(followUpArgs('backfill', 0, {}), ['chart'], '增量回填写入报价后也要重建页面');
 
   assert.equal(followUpArgs('sonkwo', 1, {}), null, '任务失败不该重建');
   assert.equal(followUpArgs('alerts', 0, {}), null, '提醒任务不重建');

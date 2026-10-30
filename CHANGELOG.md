@@ -2,6 +2,39 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.3] - 2026-10-30
+
+### 修复
+
+- **同步游戏没有中文名**（生产 19.6 万行里仅 1.14 万有中文名）：目录导入
+  （`IStoreService/GetAppList` 无语言参数）把英文基础名写进了 `name`，而回填的
+  名字写入是"只补空缺"（`coalesce(games.name, …)`），中文名拿到后被静默丢弃。
+  修复分三层：
+  1. `importCatalogGames`：目录导入按内容分流——含中文的写 `name`，否则写 `name_en`，
+     `name` 留空等回填补 schinese 本地化名
+  2. `upsertGameMeta` / `ensureGame`：允许用中文名覆盖"机器英文名"
+     （`name_en` 为空且 `name` 不含中文），并把被替换的英文名挪进 `name_en`；
+     人工维护的名字（中文名、或 `name_en` 已有人工值）仍然不被覆盖
+  3. 新增 CLI `node src/cli.js rename`：存量修复，挑"name 为空或仍是机器英文名"的行
+     用 GetItems 重取覆盖（`--limit 200000 --batch 100 --sleep 1500`，无简中的行保持英文）；
+     **已纳入调度器**：每周自动跑一轮（`STEAM_RENAME_LIMIT / STEAM_RENAME_INTERVAL_MIN` 可调，
+     与后台手动同步/回填互斥，跑完自动重建静态页），无需每次人工执行
+- **调度器补齐"纯系统跑"的两块人工缺口**（目标：部署后不需要人去服务器执行任何命令）：
+  1. 新增 `catalog` 任务：每周同步 Steam 全量目录（幂等），新游戏自动进库，需要 `STEAM_API_KEY`，
+     可调 `STEAM_CATALOG_INTERVAL_MIN / STEAM_CATALOG_INITIAL_DELAY_SEC`
+  2. 新增 `backfill` 任务：每周增量回填元数据/说明/价格（`STEAM_BACKFILL_LIMIT` 默认 20000），
+     有说明+报价的游戏自动跳过、没活秒退
+  3. Steam 重任务（价格/热度/改名/回填/目录）统一与后台手动任务互斥，避免并行冲击限流；
+     backfill 写报价后自动重建静态页
+- 贡献指南新增硬规则 3：新命令/新数据任务必须同步进自动调度，人工命令不得成为上线必经步骤
+  （见 [CONTRIBUTING.md](CONTRIBUTING.md#三条硬规则)）
+- **回填不写 `app_type`**：真实 GetItems 的 `type` 是数字枚举（Game=0、DLC=4、…），
+  旧实现按字符串判断且 0 是 falsy，导致 `app_type` 永远为空（生产仅 1,180 行有值，
+  全部来自 appdetails 路径）；`mapStoreItem` 改为按 EStoreAppType 枚举表映射
+- 展示兜底：`name` 为空时前台/报表回退显示 `name_en`
+  （`coalesce(nullif(g.name,''), nullif(g.name_en,''), 'appid:'||appid)`）
+- `sync itad` 检索名回退：`name` 为空时用 `name_en`（英文名更适合 ITAD 搜索）
+
 ## [1.4.2] - 2026-10-30
 
 ### 修复

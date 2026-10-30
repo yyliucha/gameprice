@@ -75,6 +75,23 @@ test('GetItems 报价 → RawOffer，字段对齐 syncPrices 输出', () => {
   assert.equal(offerFromItem({ steamAppid: 1 }), null);
 });
 
+test('报价标题兜底：nameZh 为空时用 nameEn，避免 appid 数字写进名字', () => {
+  const withEn = offerFromItem({
+    steamAppid: 892970,
+    nameZh: null,
+    nameEn: 'Valheim',
+    priceOverview: { final: 7000, initial: 7000, discountPercent: 0, currency: 'CNY' },
+  });
+  assert.equal(withEn.title, 'Valheim');
+  const neither = offerFromItem({
+    steamAppid: 892970,
+    nameZh: null,
+    nameEn: null,
+    priceOverview: { final: 7000, initial: 7000, discountPercent: 0, currency: 'CNY' },
+  });
+  assert.equal(neither.title, '892970');
+});
+
 test('合并报价：GetItems 自带 + appdetails 回退，同一 appid 不重复写', () => {
   const items = [
     { steamAppid: 730, nameZh: 'CS2', priceOverview: { final: 0, initial: 0, discountPercent: 0 } },

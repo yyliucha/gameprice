@@ -1017,7 +1017,7 @@ export function createApiServer({
           platform ? [kw, platform] : [kw],
         );
         const rows = await q(
-          'select g.id, g.steam_appid, coalesce(g.name, \'appid:\' || g.steam_appid) as name, g.name_en, g.app_type, g.blocked, g.deleted, g.deleted_at, g.updated_at, ' +
+          'select g.id, g.steam_appid, coalesce(nullif(g.name, \'\'), nullif(g.name_en, \'\'), \'appid:\' || g.steam_appid) as name, g.name_en, g.app_type, g.blocked, g.deleted, g.deleted_at, g.updated_at, ' +
           '(g.description is not null and g.description <> \'\') as has_desc, ' +
           '(select count(*) from offers o where o.game_id = g.id) as offer_count, ' +
           '(select min(o.price_cents) from offers o where o.game_id = g.id and o.platform_code = \'steam\' and o.in_stock) as steam_price, ' +
@@ -1696,7 +1696,7 @@ export function createApiServer({
         const map = new Map();
         if (appids.length || ids.length) {
           const rows = await q(
-            "select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name, " +
+            "select g.id, g.steam_appid, coalesce(nullif(g.name, ''), nullif(g.name_en, ''), 'appid:' || g.steam_appid) as name, " +
             "(select min(o.price_cents) from offers o where o.game_id = g.id and o.in_stock) as low " +
             "from games g where g.steam_appid = any($1::int[]) or g.id = any($2::int[])",
             [appids, ids],

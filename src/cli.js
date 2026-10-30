@@ -358,7 +358,9 @@ async function cmdSyncSteamPrices() {
  */
 /**
  * 导入 Steam 全量应用目录（一次请求，20 万条）。
- * 只写 appid 与名称，价格/说明交给 sync steamall 慢慢补。
+ * 只写 appid 与名称：GetAppList 没有语言参数，基础名绝大多数是英文，
+ * 所以含中文的写 name、否则写 name_en（name 留空等回填补 schinese 本地化名），
+ * 避免英文名占死中文名槽位。价格/说明交给 sync steamall 慢慢补。
  */
 async function cmdImportSteamCatalog() {
   const { fetchAppList } = await import('./adapters/steam-catalog.js');
@@ -384,15 +386,7 @@ async function cmdImportSteamCatalog() {
     const q = (sql, p) => store.query(sql, p);
     for (let i = 0; i < apps.length; i += 500) {
       const batch = apps.slice(i, i + 500);
-      const ids = batch.map((a) => a.appid);
-      const names = batch.map((a) => a.name || ('appid:' + a.appid));
-      const r = await q(
-        "insert into games (steam_appid, name) " +
-          "select x.appid, x.name from unnest($1::int[], $2::text[]) as x(appid, name) " +
-          "where not exists (select 1 from games g where g.steam_appid = x.appid)",
-        [ids, names],
-      );
-      inserted += r.rowCount ?? 0;
+      inserted += await db.importCatalogGames(q, batch);
       if ((i / 500) % 20 === 0) {
         const msg = "已处理 " + (i + batch.length) + " / " + apps.length + "，新增 " + inserted;
         console.log("  " + msg);
@@ -483,7 +477,7 @@ async function cmdSyncSteamAll() {
           platformCode: 'steam',
           platformProductId: String(item.steamAppid),
           steamAppid: item.steamAppid,
-          title: item.nameZh ?? String(item.steamAppid),
+          title: item.nameZh ?? item.nameEn ?? String(item.steamAppid),
           productType: 'official_direct',
           region: 'cn',
           currency: item.priceOverview.currency ?? 'CNY',
@@ -617,7 +611,11 @@ async function cmdSyncItad() {
   }
   const limit = Number(flag('limit', 50));
   const games = await withStore(async (store) => {
-    const r = await store.query('select steam_appid, name from games where name is not null order by id limit $1', [limit]);
+    const r = await store.query(
+      "select steam_appid, coalesce(nullif(name, ''), name_en) as name from games " +
+        "where (name is not null and name <> '') or (name_en is not null and name_en <> '') order by id limit $1",
+      [limit],
+    );
     return r.rows;
   });
   if (!games.length) throw new Error('库里没有带名字的游戏，先跑 seed');
@@ -1844,6 +1842,115 @@ async function cmdBackfill() {
   }
 }
 
+/**
+ * 重写名字（存量修复）：早期目录导入把英文名写进了 name、回填又只补空缺，
+ * 导致十几万行名字停在英文。这个命令挑「name 为空或仍是机器英文名」的行，
+ * 用 GetItems（schinese）重取：有官方简中的覆盖成中文（英文名挪进 name_en），
+ * 没有简中的保持英文。选择条件自带收敛——修好的行不再被选中；backfill_at 一天
+ * 冷却防止同一批行在本次运行内反复重选。
+ */
+async function cmdRename() {
+  const batch = Math.max(1, Math.min(Number(flag('batch', '100')) || 100, 100));
+  const sleepMs = Math.max(0, Number(flag('sleep', '1500')) || 0);
+  const limit = Math.max(1, Math.min(Number(flag('limit', '200000')) || 200000, 200000));
+  // 单条回退上限：没有 STEAM_API_KEY 时逐 appid 走 appdetails；大跑时设 0 完全关掉
+  const fallbackMax = Math.max(0, Math.min(Number(flag('fallback', '10')) || 0, 100));
+  const { fetchStoreItems } = await import('./adapters/store-browse.js');
+  const key = String(process.env.STEAM_API_KEY ?? '').trim();
+  const startedMs = Date.now();
+  let done = 0;
+  let stored = 0;
+  let renamed = 0;
+  let fallback = 0;
+  let failed = 0;
+  let batches = 0;
+
+  const abort = (message, extra = {}) => {
+    logger.error('rename.aborted', { message, ...extra });
+    throw new Error(message);
+  };
+
+  console.log(`重写名字：每批 ${batch} 个、间隔 ${sleepMs}ms、上限 ${limit} 款、单条回退 ${fallbackMax} 个/批${key ? '' : '（未配置 STEAM_API_KEY，将全部走单条接口）'}`);
+
+  while (done < limit) {
+    const size = Math.min(batch, limit - done);
+    const rows = await withStore((store) =>
+      store.query(
+        'select g.steam_appid from games g where g.steam_appid is not null and not g.deleted ' +
+          "and (g.name is null or g.name = '' " +
+          "     or ((g.name_en is null or g.name_en = '') and g.name !~ '[一-龥]')) " +
+          "and (g.backfill_at is null or g.backfill_at < now() - interval '1 day') " +
+          'order by g.id limit $1',
+        [size],
+      ),
+    );
+    const appids = rows.rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
+    if (!appids.length) {
+      console.log('没有需要重写名字的游戏了');
+      break;
+    }
+    batches += 1;
+
+    let items = [];
+    let missed = [];
+    if (key) {
+      try {
+        const r = await fetchStoreItems(appids, { key, logger, throwOnFatal: true });
+        items = r.items;
+        missed = r.failed;
+      } catch (err) {
+        if (err.status === 405) {
+          abort('批量接口返回 405（POST 被拒）：当前镜像过旧，GetItems 需要 GET + input_json，升级后再跑', { status: 405 });
+        }
+        if (err.status === 403 || err.status === 429) {
+          abort(`Steam 返回 HTTP ${err.status}（限流/风控），已立即中止避免 IP 被封；等 30-60 分钟后把 --sleep 调大再试`, { status: err.status });
+        }
+        logger.warn('rename.batch_failed', { message: String(err.message).slice(0, 160) });
+        missed = appids;
+      }
+    } else {
+      missed = appids;
+    }
+
+    if (fallbackMax > 0) {
+      for (const appid of missed.slice(0, fallbackMax)) {
+        try {
+          const one = await fetchMetadata([appid], { backend: 'official', logger });
+          if (one.items?.length) items.push(...one.items);
+          fallback += 1;
+        } catch (err) {
+          if (err.status === 403 || err.status === 429) {
+            abort(`单条回退遇到 HTTP ${err.status}（限流），已立即中止重写名字`, { status: err.status, appid });
+          }
+          failed += 1;
+          logger.warn('rename.item_failed', { appid, message: String(err.message).slice(0, 160) });
+        }
+        await sleep(400);
+      }
+    }
+    failed += Math.max(0, missed.length - fallbackMax);
+
+    await withStore(async (store) => {
+      const q = (sql, p) => store.query(sql, p);
+      for (const item of items) {
+        await db.upsertGameMeta(q, item);
+        stored += 1;
+        if (item.nameZh && /[\u4e00-\u9fa5]/.test(String(item.nameZh))) renamed += 1;
+      }
+      // 无论有没有拿到元数据都记一笔：没有简中的行一天内不再重复请求
+      await db.markBackfilled(q, appids);
+    });
+
+    done += appids.length;
+    const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);
+    console.log(`  批次 ${batches}：本批 ${appids.length} 款，写入 ${items.length}，带回中文名 ${renamed}，回退 ${fallback}，失败 ${failed}；累计 ${done}/${limit}（${rate} 款/分钟）`);
+    if (sleepMs) await sleep(sleepMs);
+  }
+
+  logger.info('rename.done', { done, stored, renamed, fallback, failed, batches, elapsedMs: Date.now() - startedMs });
+  console.log(`完成：处理 ${done} 款，写入元数据 ${stored} 条（其中带回中文名 ${renamed} 款），单条回退 ${fallback}，失败 ${failed}`);
+}
+
 // 定期清理：访问记录/采集与任务记录/验证码（默认由调度器每周跑一次）
 async function cmdPrune() {
   const visitorDays = Math.max(1, Number(flag('visitor-days', '180')) || 180);
@@ -1866,7 +1973,7 @@ async function cmdHeat() {
   const sleepMs = Math.max(0, Number(flag('sleep', '1700')) || 0);
   const limit = Math.max(1, Math.min(Number(flag('limit', '200000')) || 200000, 200000));
   const startedMs = Date.now();
-  let done = 0, withHeat = 0, marked = 0, failed = 0, batches = 0;
+  let done = 0, withHeat = 0, marked = 0, failed = 0, batches = 0, invalidLogged = 0;
 
   // 热度公式：对数化累计评测数 + 新作加权（1 年衰减到一半）
   const heatScore = (totalReviews, releaseDate) => {
@@ -1929,7 +2036,11 @@ async function cmdHeat() {
         await withStore(async (store) => {
           const q = (sql, p) => store.query(sql, p);
           if (!ok) {
-            // 下架/无效 appid：只记 heat_at，避免每次都被选中
+            // 下架/无效 appid：只记 heat_at，避免每次都被选中；前 5 条打原始形状，便于排查接口变化
+            if (invalidLogged < 5) {
+              invalidLogged += 1;
+              logger.warn('heat.entry_invalid', { appid, shape: JSON.stringify(entry ?? data ?? null).slice(0, 200) });
+            }
             await db.setGameHeat(q, { steamAppid: appid });
             return;
           }
@@ -2087,6 +2198,7 @@ const commands = {
   logs: cmdLogs,
   diagnose: cmdDiagnose,
   backfill: cmdBackfill,
+  rename: cmdRename,
   heat: cmdHeat,
   prune: cmdPrune,
   'proxy-check': cmdProxyCheck,
@@ -2350,6 +2462,8 @@ async function main() {
   proxy-check          代理专项排查：TCP → CONNECT → 经代理访问 Steam
   backfill             批量回填全量游戏的元数据/价格（GetItems，一次最多 100 个 appid）
                        --limit 200000 --batch 100 --sleep 3000 --fallback 10（回退数设 0 关闭单条回退）
+  rename               存量修复：把目录导入留下的英文名换成中文名（GetItems schinese）
+                       --limit 200000 --batch 100 --sleep 1500 --fallback 10（无简中的行保持英文）
   heat                 热度回填：评测数 + 发行日期（逐 appid 请求，约 1.7s/款）
                        --limit 200000 --sleep 1700（按 heat_at 为 null 自动续跑；全量约 90 小时，可分多周跑）
   prune                定期清理：访问记录/采集与任务记录/验证码

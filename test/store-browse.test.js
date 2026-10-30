@@ -57,6 +57,16 @@ test('字段映射：DLC 与无价格', () => {
   assert.equal(mapStoreItem(null), null);
 });
 
+test('字段映射：真实 GetItems 的 type 是数字枚举（0=game、4=dlc、6=software）', () => {
+  assert.equal(mapStoreItem({ appid: 1, name: 'G', type: 0, basic_info: {} }).appType, 'game', '普通游戏 type=0 必须映射成 game');
+  assert.equal(mapStoreItem({ appid: 2, name: 'D', type: 4, basic_info: {} }).appType, 'dlc');
+  assert.equal(mapStoreItem({ appid: 3, name: 'S', type: 6, basic_info: {} }).appType, 'software');
+  assert.equal(mapStoreItem({ appid: 4, name: 'X', type: 99, basic_info: {} }).appType, null, '未知枚举值不瞎猜');
+  assert.equal(mapStoreItem({ appid: 5, name: 'X', basic_info: {} }).appType, null, '没有 type 留空');
+  // 字符串形态（旧测试契约）保持不变
+  assert.equal(mapStoreItem({ appid: 6, name: 'A', type: 'app', basic_info: {} }).appType, 'game');
+});
+
 test('字段映射：真实 GetItems 字段 final_price_in_cents / discount_pct', () => {
   const item = mapStoreItem({
     appid: 271590,
