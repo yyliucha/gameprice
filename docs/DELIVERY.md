@@ -1,7 +1,8 @@
 # 开发到交付全流程（会话交接文档）
 
-> 本文是**新会话的接线手册**：接手项目先读这里，再读 [PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md)（架构与代码落点）
-> 和 [ROADMAP.md](ROADMAP.md)（决策与待办）。已知 UI 缺陷与修法见 [UI-FIXES.md](UI-FIXES.md)。发版前必读「对外描述同步」规则。
+> 本文是**新会话的接线手册**：接手项目先读这里，再读 [PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md)（架构与代码落点）、
+> [TODO.md](TODO.md)（所有未完成事项总览）和 [ROADMAP.md](ROADMAP.md)（决策与待办）。
+> 已知 UI 缺陷与修法见 [UI-FIXES.md](UI-FIXES.md)。发版前必读「对外描述同步」规则。
 >
 > **最后更新：2026-10-30（v1.4.3 已发布：tag v1.4.3，docker-hub 与 docker-tcr 双绿，镜像已推送）。若你读到的时间晚于最近提交，先看 CHANGELOG 与 git log。**
 
@@ -172,19 +173,19 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ### 当前状态（2026-10-30 更新，v1.4.6 代码就绪待构建）
 
+> 未完成事项的完整清单见 [TODO.md](TODO.md)。本节只记录版本与部署现状。
+
 - **待发版（等构建指令）**：v1.4.6 ——「同步与回填」页精简为一表 + 状态卡（5 个任务行 + 立即运行/停止，
   去掉参数输入与 steamall 入口）、`POST /api/admin/sync` mode 白名单加 `steam-prices`。代码已提交推 main，
   **tag 未打、构建未触发**（硬规则 5：构建必须等人工指令）。收到"构建 v1.4.6"后执行：
   `git tag -a v1.4.6 -m "..." && git push origin v1.4.6`，CI 双绿后服务器按第 4 节更新到 1.4.6。
-- 已构建：**v1.4.5**（`c3c76cb`）：控制台「重写名字」卡片 + rename API + 状态文件 nextRunAt 修复；
-  TCR 有 `1.4.5` / `latest` / `sha-c3c76cb…`（未部署）。
-- 已部署：服务器当前跑 **v1.4.4**（14 个调度任务在跑，steam-prices 已执行）。
-  v1.4.3（`37baea6`）含名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
+- 已构建：v1.4.5（`c3c76cb`）：控制台「重写名字」卡片 + rename API + 状态文件 nextRunAt 修复；
+  TCR 有 `1.4.5` / `latest` / `sha-c3c76cb…`。
+- **服务器现状：已部署 v1.4.5**（控制台侧栏显示 `版本 v1.4.5`），14 个调度任务在跑（含 rename/catalog/backfill）。
 - 工作区：干净；HEAD 以最新提交为准，已同步 origin main。
 - 部署时序（升级后自动）：+10min steam-prices → +1h catalog/heat → +2h rename（约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
-- 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
-  `release_date` filter 差异；诊断日志已加，等探测结果。
-- 待修 UI：后台侧栏「版本 vX」徽标被挤出侧栏底部（v1.4.5 实测）——定位、根因与两套修法见
-  [docs/UI-FIXES.md](UI-FIXES.md#1-后台侧栏版本检测被挤出侧栏底部v145-实测)。
+- 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"）——详见 [TODO.md C1](TODO.md#c-线上问题--需要探测)。
+- 待修 UI：后台侧栏「版本 vX」徽标被挤出侧栏底部——见 [UI-FIXES.md 第 1 条](UI-FIXES.md#1-后台侧栏版本检测被挤出侧栏底部v145-实测)。
+- 已提出未实现：**时间字段时区设置化**——需求与勘察结论见 [TODO.md B1](TODO.md#b1-时间字段时区设置化2026-10-30-提出未动代码)。
 - 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。
