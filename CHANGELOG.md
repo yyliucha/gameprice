@@ -2,6 +2,32 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.0] - 2026-10-30
+
+热度排序与发行时间筛选（计划 `docs/PLAN.md` 批次 4）。
+
+### 新增
+
+- `games` 新增 `heat / heat_reviews / heat_at` 列与 `(heat desc)` 索引；
+  热度公式 = `log10(1 + 评测数) * 0.7 + 新作加权 * 0.3`（发行满 1 年衰减到一半）
+- 新命令 `node src/cli.js heat --limit 200000 --batch 30 --sleep 1700`：
+  用 `appdetails?filters=recommendations,release_date` 批量回填评测数与发行日期
+  （30 个/批、约 1.7 秒间隔，全量约 3 小时）；按 `heat_at is null` 自动续跑，
+  成功与否都记 `heat_at` 防止同一批反复选中
+- 后台「游戏管理 → 同步与回填」新增热度回填卡片（开始/停止/最近输出），
+  接口 `POST /api/admin/heat`、`/api/admin/heat/stop`、`GET /api/admin/heat/status`
+- 调度器每周跑一次 `heat`（`STEAM_HEAT_INTERVAL_MIN` 默认 10080 分钟，首轮延迟 1 天，
+  每周限量 5000 款，只刷新「heat_at 过期且已有报价」的条目）
+
+### 变更
+
+- **列表排序**：`heat desc nulls last` 是第一排序键（用户选的折扣/价格/名称作次序），
+  没有热度数据的游戏排在最后而不是消失
+- 前台新增「发行时间」筛选：不限 / 近 30 天 / 近 1 年 / 近 3 年
+- 热度任务与同步/回填共用子进程槽位（同一时刻只允许一个 Steam 重任务），
+  并享受 `STEAM_429_RETRIES=Infinity` 的长任务退避
+- 全程一次都没拿到数据时热度任务按失败退出（避免空跑被记成成功）
+
 ## [1.2.0] - 2026-10-30
 
 前台交互修复、亮暗色主题与移动端适配（计划见 `docs/PLAN.md` 批次 1–3）。

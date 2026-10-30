@@ -221,7 +221,7 @@ export function createApiServer({
         SYNC_RUN_ID: String(run.id),
         // 后台回填是长任务：Steam 持续返回 429 时由 http.js 逐步延长冷却并自动重试，
         // 让管理员点一次后可留在服务器上运行；手动同步仍使用有限重试。
-        ...(mode === 'backfill' ? { STEAM_429_RETRIES: 'Infinity' } : {}),
+        ...(mode === 'backfill' || mode === 'heat' ? { STEAM_429_RETRIES: 'Infinity' } : {}),
       },
     });
     syncChild = child;
@@ -684,6 +684,7 @@ export function createApiServer({
         const blockedParam = oneOf('blocked', ['exclude', 'only', 'include'], 'exclude');
         const sort = oneOf('sort', ['discount', 'price', 'name'], 'discount');
         const typeFilter = oneOf('type', ['all', 'game', 'dlc'], 'all');
+        const released = oneOf('released', ['all', '30d', '1y', '3y'], 'all');
         const compact = guestSearchPost || url.searchParams.get('compact') === '1';
         const keyword = String(getInput('q') ?? '').slice(0, 80);
         const pageSize = Math.min(
@@ -711,6 +712,7 @@ export function createApiServer({
           blocked: blockedParam,
           userId: user?.id ?? null,
           typeFilter,
+          released,
           compact,
           guestFlags,
         });
@@ -1380,6 +1382,62 @@ export function createApiServer({
           output: syncOutput.slice(-6000),
           progress: isBackfill ? parseBackfillProgress(syncOutput) : null,
           last: runs.find((r) => r.mode === 'backfill') ?? null,
+        });
+      }
+
+      // ---- 管理员：热度回填（与同步/回填共用子进程槽位，天然互斥）----
+      if (path === '/api/admin/heat' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        const body = await readBody(req);
+        const pickNum = (v, def, min, max) => Math.max(min, Math.min(Number(v ?? def) || def, max));
+        const params = {
+          limit: pickNum(body.limit, 200000, 1, 200000),
+          batch: pickNum(body.batch, 30, 1, 100),
+          sleep: pickNum(body.sleep, 1700, 0, 60000),
+        };
+        try {
+          const job = await startSteamJob({
+            mode: 'heat',
+            args: ['heat', '--limit', String(params.limit), '--batch', String(params.batch), '--sleep', String(params.sleep)],
+            params,
+            by: user.username,
+          });
+          logger?.info('api.heat_started', { runId: job.runId, by: user.username, ...params });
+          return json(res, 202, { started: true, runId: job.runId, pid: job.pid, params });
+        } catch (err) {
+          if (err.code === 'BUSY') return json(res, 409, { error: err.message, run: err.run });
+          throw err;
+        }
+      }
+
+      if (path === '/api/admin/heat/stop' && req.method === 'POST') {
+        if (!requireAdmin()) return;
+        if (!syncChild) return json(res, 409, { error: '当前没有运行中的任务' });
+        const child = syncChild;
+        const runId = syncRun?.id ?? null;
+        syncStopRequested = true;
+        child.kill('SIGTERM');
+        const killTimer = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* 已退出 */
+          }
+        }, 10000);
+        killTimer.unref?.();
+        logger?.warn('api.heat_stop', { runId, pid: child.pid, by: user.username });
+        return json(res, 202, { stopping: true, runId, pid: child.pid });
+      }
+
+      if (path === '/api/admin/heat/status' && req.method === 'GET') {
+        if (!requireAdmin()) return;
+        const isHeat = syncRun?.mode === 'heat';
+        return json(res, 200, {
+          running: Boolean(syncChild) && isHeat,
+          busy: Boolean(syncChild),
+          mode: syncRun?.mode ?? null,
+          run: syncRun,
+          output: syncOutput.slice(-6000),
         });
       }
 

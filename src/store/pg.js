@@ -318,6 +318,11 @@ const ALTERS = [
   'alter table games add column if not exists deleted_at timestamptz',
   // 回填标记：处理过的游戏（哪怕没拿到报价）也记一笔，避免同一批无报价游戏被每批反复选中
   'alter table games add column if not exists backfill_at timestamptz',
+  // 热度（0.x 排序用）：heat=对数化评测数+新作加权；heat_reviews=Steam 评测总数；heat_at=写入时间
+  'alter table games add column if not exists heat real',
+  'alter table games add column if not exists heat_reviews integer',
+  'alter table games add column if not exists heat_at timestamptz',
+  'create index if not exists idx_games_heat on games (heat desc)',
   // 价格快照记录前价，报表直接算涨跌（老数据为 null，报表只看新数据）
   'alter table price_snapshots add column if not exists prev_price_cents integer',
 ];
@@ -856,7 +861,7 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
  */
 export async function gameSearch(
   q,
-  { region = 'cn', page = 1, pageSize = 20, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all', compact = false, guestFlags = null } = {},
+  { region = 'cn', page = 1, pageSize = 20, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all', released = 'all', compact = false, guestFlags = null } = {},
 ) {
   const kw = String(keyword ?? '').trim();
   const size = Math.min(Math.max(Number(pageSize) || 20, 5), 100);
@@ -903,6 +908,10 @@ export async function gameSearch(
   if (blocked === 'only') conds.push('g.blocked = true');
   // 类型筛选：game / dlc（app_type 入库时已统一小写）
   if (typeFilter === 'game' || typeFilter === 'dlc') conds.push(`lower(coalesce(g.app_type, '')) = '${typeFilter}'`);
+  // 发行时间筛选（热度批次落库的 release_date）
+  if (released === '30d') conds.push("g.release_date >= current_date - interval '30 days'");
+  else if (released === '1y') conds.push("g.release_date >= current_date - interval '1 year'");
+  else if (released === '3y') conds.push("g.release_date >= current_date - interval '3 years'");
   const where = 'where ' + conds.join(' and ');
 
   const priceExpr = `(select min(o.price_cents) from offers o
@@ -925,8 +934,8 @@ export async function gameSearch(
     )).rows[0]?.n ?? 0,
   );
   const extra = userId
-    ? `, ${col('interested')} as eff_interested, ${col('owned')} as eff_owned`
-    : '';
+    ? `, ${col('interested')} as eff_interested, ${col('owned')} as eff_owned, g.heat, g.release_date`
+    : ', g.heat, g.release_date';
   const compactQuery = `
     with price_rollup as (
       select o.game_id,
@@ -951,7 +960,7 @@ export async function gameSearch(
       group by d.game_id
     )
     select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
-      g.name_en, g.app_type,
+      g.name_en, g.app_type, g.heat, g.release_date,
       ${userId ? 'uf.interested' : 'null::boolean'} as interested,
       ${userId ? 'uf.interested' : 'null::boolean'} as user_interested,
       ${userId ? 'coalesce(uf.owned, g.owned)' : 'false'} as owned,
@@ -962,13 +971,13 @@ export async function gameSearch(
     left join price_rollup pr on pr.game_id = g.id
     left join daily_rollup dr on dr.game_id = g.id
     ${where}
-    order by ${sort === 'name' ? 'name asc' : sort === 'price' ? 'pr.current_low asc nulls last, name asc' : 'pr.discount desc nulls last, pr.current_low asc nulls last, name asc'}, g.id asc
+    order by g.heat desc nulls last, ${sort === 'name' ? 'name asc' : sort === 'price' ? 'pr.current_low asc nulls last, name asc' : 'pr.discount desc nulls last, pr.current_low asc nulls last, name asc'}, g.id asc
     limit __LIST_LIMIT__ offset __LIST_OFFSET__`;
   const limitIndex = filterParams.length + 1;
   const rows = (await q(
     compact
       ? compactQuery.replace('__LIST_LIMIT__', `$${limitIndex}`).replace('__LIST_OFFSET__', `$${limitIndex + 1}`)
-      : `${GAME_SELECT}${extra} from games g ${userJoin(3)} ${where} order by ${order} limit $${limitIndex} offset $${limitIndex + 1}`,
+      : `${GAME_SELECT}${extra} from games g ${userJoin(3)} ${where} order by g.heat desc nulls last, ${order} limit $${limitIndex} offset $${limitIndex + 1}`,
     [...filterParams, size, offset],
   )).rows;
   if (userId && !compact) {
@@ -1687,6 +1696,14 @@ export async function markBackfilled(q, appids = []) {
   if (!ids.length) return 0;
   const r = await q('update games set backfill_at = now() where steam_appid = any($1::int[])', [ids]);
   return r.rowCount ?? 0;
+}
+
+/** 热度回填：无论拿没拿到评测都写 heat_at（续跑游标）；releaseDate 为空时不覆盖已有发行日期。 */
+export async function setGameHeat(q, { steamAppid, heat = null, heatReviews = 0, releaseDate = null }) {
+  await q(
+    'update games set heat = $2, heat_reviews = $3, heat_at = now(), release_date = coalesce($4, release_date) where steam_appid = $1',
+    [steamAppid, heat, heatReviews, releaseDate],
+  );
 }
 
 /** 标记感兴趣 / 不感兴趣。不感兴趣只影响展示，不影响采集与金额统计。 */

@@ -1844,6 +1844,114 @@ async function cmdBackfill() {
   }
 }
 
+// 热度回填：appdetails 的 recommendations（评测数）+ release_date，给 games 落 heat。
+// 与价格回填共用 Steam 配额，靠后台任务槽位互斥（同一时刻只允许一个 Steam 重任务）。
+async function cmdHeat() {
+  const batch = Math.max(1, Math.min(Number(flag('batch', '30')) || 30, 100));
+  const sleepMs = Math.max(0, Number(flag('sleep', '1700')) || 0);
+  const limit = Math.max(1, Math.min(Number(flag('limit', '200000')) || 200000, 200000));
+  const startedMs = Date.now();
+  let done = 0, withHeat = 0, marked = 0, failed = 0, batches = 0;
+
+  // 热度公式：对数化累计评测数 + 新作加权（1 年衰减到一半）
+  const heatScore = (totalReviews, releaseDate) => {
+    const reviews = Number(totalReviews) || 0;
+    let recency = 0;
+    if (releaseDate) {
+      const days = Math.max(0, (Date.now() - releaseDate.getTime()) / 86400000);
+      recency = 1 / (1 + days / 365);
+    }
+    return Math.log10(1 + reviews) * 0.7 + recency * 0.3;
+  };
+
+  // Steam 本地化日期："2020 年 12 月 9 日" / "9 Dec, 2020" / 兜底只取年份
+  const parseRelease = (raw) => {
+    const s = String(raw ?? '').trim();
+    if (!s) return null;
+    const zh = s.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/);
+    if (zh) return new Date(Date.UTC(Number(zh[1]), Number(zh[2]) - 1, Number(zh[3])));
+    const en = s.match(/(\d{1,2})\s*([A-Za-z]{3,9})[a-z]*\.?,?\s*(\d{4})/);
+    if (en) {
+      const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+      const m = months[en[2].slice(0, 3).toLowerCase()];
+      if (m !== undefined) return new Date(Date.UTC(Number(en[3]), m, Number(en[1])));
+    }
+    const y = s.match(/(\d{4})/);
+    if (y) return new Date(Date.UTC(Number(y[1]), 0, 1));
+    return null;
+  };
+
+  console.log(`热度回填：每批 ${batch} 个、间隔 ${sleepMs}ms、上限 ${limit} 款（按 heat_at 为 null / 过期 7 天续跑）`);
+  while (done < limit) {
+    const size = Math.min(batch, limit - done);
+    const rows = await withStore((store) =>
+      store.query(
+        'select g.id, g.steam_appid from games g where g.steam_appid is not null and not g.deleted ' +
+          'and (g.heat_at is null or (g.heat_at < now() - interval \'7 days\' ' +
+          'and exists (select 1 from offers o where o.game_id = g.id))) ' +
+          'order by g.heat_at asc nulls first, g.id limit $1',
+        [size],
+      ),
+    );
+    const appids = rows.rows.map((r) => Number(r.steam_appid)).filter((n) => Number.isFinite(n) && n > 0);
+    if (!appids.length) {
+      console.log('没有需要回填热度的游戏了');
+      break;
+    }
+    batches += 1;
+    try {
+      const qs = 'appids=' + appids.join(',') + '&filters=recommendations,release_date&cc=cn&l=schinese';
+      const data = await fetchJson('https://store.steampowered.com/api/appdetails?' + qs, {
+        logger,
+        label: 'steam.heat',
+        timeoutMs: 30000,
+        retries: 1,
+      });
+      await withStore(async (store) => {
+        const q = (sql, p) => store.query(sql, p);
+        for (const appid of appids) {
+          const entry = data?.[String(appid)];
+          const ok = Boolean(entry && entry.success === true && entry.data);
+          if (!ok) {
+            // 下架/无效 appid：只记 heat_at，避免每次都被选中
+            await db.setGameHeat(q, { steamAppid: appid });
+            marked += 1;
+            continue;
+          }
+          const total = Number(entry.data.recommendations?.total ?? 0);
+          const rel = parseRelease(entry.data.release_date?.date);
+          const heat = heatScore(total, rel);
+          await db.setGameHeat(q, {
+            steamAppid: appid,
+            heat,
+            heatReviews: total,
+            releaseDate: rel ? rel.toISOString().slice(0, 10) : null,
+          });
+          withHeat += 1;
+          marked += 1;
+        }
+      });
+    } catch (err) {
+      failed += appids.length;
+      logger.warn('heat.batch_failed', { batch: batches, message: String(err.message).slice(0, 160) });
+      if (err.status === 403 || err.status === 429) {
+        logger.error('heat.aborted', { status: err.status, hint: '限流/风控，冷却后重跑可续（heat_at 为 null 的部分会继续）' });
+        throw new Error(`Steam 返回 HTTP ${err.status}（限流/风控），已中止；冷却后重跑可续`);
+      }
+    }
+    done += appids.length;
+    const rate = Math.round((done / Math.max(1, Date.now() - startedMs)) * 60000);
+    console.log(`  批次 ${batches}：本批 ${appids.length} 款，写入热度 ${withHeat}，失败 ${failed}；累计 ${done}/${limit}（${rate} 款/分钟）`);
+    if (sleepMs) await sleep(sleepMs);
+  }
+  logger.info('heat.done', { done, withHeat, marked, failed, batches, elapsedMs: Date.now() - startedMs });
+  console.log(`完成：处理 ${done} 款，写入热度 ${withHeat} 条，无效跳过 ${marked - withHeat}，失败 ${failed}`);
+  if (withHeat === 0 && failed > 0) {
+    // 全程没拿到任何数据：任务槽位应标记失败，而不是静默"成功"
+    throw new Error(`热度回填全程失败（${failed} 个请求未拿到数据）：检查代理/限流后重跑`);
+  }
+}
+
 async function cmdReport() {
   const sub = String(args[1] ?? 'price');
   if (sub !== 'price') {
@@ -1951,6 +2059,7 @@ const commands = {
   logs: cmdLogs,
   diagnose: cmdDiagnose,
   backfill: cmdBackfill,
+  heat: cmdHeat,
   'proxy-check': cmdProxyCheck,
   images: cmdImages,
   report: cmdReport,
@@ -2212,6 +2321,8 @@ async function main() {
   proxy-check          代理专项排查：TCP → CONNECT → 经代理访问 Steam
   backfill             批量回填全量游戏的元数据/价格（GetItems，一次最多 100 个 appid）
                        --limit 200000 --batch 100 --sleep 3000 --fallback 10（回退数设 0 关闭单条回退）
+  heat                 热度回填：评测数 + 发行日期（appdetails recommendations），落 heat 排序字段
+                       --limit 200000 --batch 30 --sleep 1700（按 heat_at 为 null 自动续跑）
 
 通用参数：--db <target> --level <trace|debug|info|warn|error> --log-dir <dir>
 环境变量：DATABASE_URL / ITAD_API_KEY / LOG_LEVEL / LOG_DIR

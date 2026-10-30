@@ -35,6 +35,15 @@ export function jobsFromEnv(env = process.env) {
       enabled: env.STEAM_ENABLED !== '0',
     },
     {
+      name: 'heat',
+      // 每周刷新热度（评测数 + 发行日期）；首跑全量播种（heat_at 为 null），之后只刷有报价的过期条目。
+      // 与 steam-prices / 回填共用 Steam 配额：调度器串行跑任务，不会并行抢限流。
+      args: ['heat', '--limit', String(num(env.STEAM_HEAT_LIMIT, 5000)), '--batch', '30', '--sleep', '1700'],
+      intervalMin: num(env.STEAM_HEAT_INTERVAL_MIN, 10080),
+      initialDelaySec: 86400,
+      enabled: env.STEAM_ENABLED !== '0',
+    },
+    {
       name: 'sonkwo',
       args: ['sync', 'sonkwo'],
       intervalMin: num(env.SONKWO_INTERVAL_MIN, 60),
