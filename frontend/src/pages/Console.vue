@@ -20,7 +20,7 @@
       </div>
     </aside>
     <main class="admin-content">
-      <header class="admin-header"><div><div class="admin-crumb">管理中心 <span>/</span> {{ selectedItem?.group }}</div><h1>{{ selectedItem?.label }}</h1><p>{{ selectedItem?.description }}</p></div></header>
+      <header class="admin-header"><div><div class="admin-crumb">管理中心 <span>/</span> {{ selectedItem?.group }}</div><h1>{{ selectedItem?.label }}</h1><p>{{ selectedItem?.description }}</p></div><el-button text class="theme-btn" :title="themeMode === 'dark' ? '切换亮色' : '切换暗色'" @click="toggleTheme">{{ themeMode === 'dark' ? '🌞' : '🌙' }}</el-button></header>
       <AdminModules v-if="nativeSections.includes(selected)" :section="selected" />
       <AdminExtras v-else :section="selected" />
     </main>
@@ -34,8 +34,18 @@ import { ArrowRight, Search } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import AdminModules from './AdminModules.vue';
 import AdminExtras from './AdminExtras.vue';
+import { useTheme } from '../composables/useTheme.js';
 
 const router=useRouter(), route=useRoute(), filter=ref(''), user=ref(null);
+const theme = useTheme();
+const themeMode = theme.mode;
+function toggleTheme(){
+  const m = themeMode.value === 'dark' ? 'light' : 'dark';
+  theme.set(m);
+  if (user.value) {
+    fetch('/api/prefs', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: m }) }).catch(() => {});
+  }
+}
 const nativeSections=['games','visitors','announcements','settings','stats'];
 const groups=[
   {name:'内容运营',items:[{id:'games',label:'游戏管理',glyph:'▦',description:'维护游戏目录、采集计划与数据回填'},{id:'recycle',label:'回收站',glyph:'▤',description:'查看并恢复已删除的游戏'},{id:'announcements',label:'站点通知',glyph:'▱',description:'发布和管理网站公告'}]},
@@ -70,12 +80,13 @@ async function loadVersion(force){
   finally{versionLoading.value=false;}
 }
 
-onMounted(async()=>{try{const valid=groups.some(g=>g.items.some(i=>i.id===selected.value));if(!valid)selected.value='games';const res=await fetch('/api/me',{credentials:'same-origin'});const data=await res.json();user.value=data.user||null;if(user.value?.role!=='admin'){ElMessage.warning('此页面需要管理员账号登录');router.replace('/');return;}}catch{ElMessage.error('无法验证管理员身份');router.replace('/');return;}loadVersion(false);});
+onMounted(async()=>{try{const valid=groups.some(g=>g.items.some(i=>i.id===selected.value));if(!valid)selected.value='games';const res=await fetch('/api/me',{credentials:'same-origin'});const data=await res.json();user.value=data.user||null;if(user.value?.role!=='admin'){ElMessage.warning('此页面需要管理员账号登录');router.replace('/');return;}const st=data.prefs?.theme;if(st==='light'||st==='dark'){if(theme.storedMode()!==st)theme.set(st);}else if(theme.storedMode()){fetch('/api/prefs',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({theme:theme.storedMode()})}).catch(()=>{});}}catch{ElMessage.error('无法验证管理员身份');router.replace('/');return;}loadVersion(false);});
 </script>
 
 <style scoped>
-.admin-version{margin-top:9px;padding-top:9px;border-top:1px solid #eef0f5;cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left}
-.version-text{font-size:11px;color:#8a94a6}
-.version-update{font-size:11px;color:#d97706;text-decoration:none;font-weight:600}
+.theme-btn{font-size:17px}
+.admin-version{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left}
+.version-text{font-size:11px;color:var(--fg-muted)}
+.version-update{font-size:11px;color:var(--warn);text-decoration:none;font-weight:600}
 .version-update:hover{text-decoration:underline}
 </style>

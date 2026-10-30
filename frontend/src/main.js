@@ -17,6 +17,7 @@ import 'element-plus/es/components/switch/style/css';
 import 'element-plus/es/components/tag/style/css';
 import App from './App.vue';
 import router from './router/index.js';
+import 'element-plus/theme-chalk/dark/css-vars.css';
 import './styles/main.css';
 
 const app = createApp(App);

@@ -3,7 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>SteamDeals</title>
+    <script>
+      // 首屏防闪烁：在 CSS/JS 加载前按「显式选择 → 系统偏好」决定暗色 class
+      (function () {
+        try {
+          var t = localStorage.getItem('steamdeals.theme.v1');
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          if (t === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) { /* 忽略 */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

@@ -311,6 +311,8 @@ const ALTERS = [
   'alter table games add column if not exists genres text[]',
   'alter table games add column if not exists tags text[]',
   'alter table user_prefs add column if not exists tab text not null default \'all\'',
+  // 主题偏好：'light' | 'dark' | null（null = 跟随系统）
+  'alter table user_prefs add column if not exists theme text',
   // 逻辑删除：不真删数据，只打标记；前台与后台默认列表都排除，回收站里能看到并恢复
   'alter table games add column if not exists deleted boolean not null default false',
   'alter table games add column if not exists deleted_at timestamptz',
@@ -1234,24 +1236,31 @@ export function normalizePrefs(prefs = {}) {
 }
 
 export async function getPrefs(q, userId) {
-  const r = await q('select hide_uninterested, only_discount, sort, tab from user_prefs where user_id = $1', [userId]);
+  const r = await q('select hide_uninterested, only_discount, sort, tab, theme from user_prefs where user_id = $1', [userId]);
   const row = r.rows[0];
-  if (!row) return { hide_uninterested: false, only_discount: false, sort: 'discount', tab: 'all' };
+  if (!row) return { hide_uninterested: false, only_discount: false, sort: 'discount', tab: 'all', theme: null };
   const { tab, sort } = normalizePrefs({ tab: row.tab, sort: row.sort });
-  return { hide_uninterested: row.hide_uninterested === true, only_discount: row.only_discount === true, sort, tab };
+  return { hide_uninterested: row.hide_uninterested === true, only_discount: row.only_discount === true, sort, tab, theme: row.theme ?? null };
 }
 
 export async function savePrefs(q, userId, prefs = {}) {
-  const { tab, sort } = normalizePrefs(prefs);
+  // 缺省字段沿用现值，避免「只改主题」把页签/排序重置成默认
+  const existing = await getPrefs(q, userId);
+  const tab = prefs.tab === undefined ? existing.tab : normalizePrefs(prefs).tab;
+  const sort = prefs.sort === undefined ? existing.sort : normalizePrefs(prefs).sort;
+  const onlyDiscount = prefs.only_discount === undefined ? existing.only_discount : Boolean(prefs.only_discount);
+  // theme：'light'/'dark' 显式选择；null 显式回到「跟随系统」；缺省保持
+  const theme = prefs.theme === 'light' || prefs.theme === 'dark' ? prefs.theme : prefs.theme === null ? null : existing.theme;
   await q(
-    `insert into user_prefs (user_id, hide_uninterested, only_discount, sort, tab) values ($1, $2, $3, $4, $5)
+    `insert into user_prefs (user_id, hide_uninterested, only_discount, sort, tab, theme) values ($1, $2, $3, $4, $5, $6)
      on conflict (user_id) do update set
        hide_uninterested = excluded.hide_uninterested,
        only_discount = excluded.only_discount,
        sort = excluded.sort,
-       tab = excluded.tab`,
+       tab = excluded.tab,
+       theme = excluded.theme`,
     // hide_uninterested 是旧字段：tab=on 等价于"隐藏不感兴趣"，保留兼容老客户端
-    [userId, tab === 'on', Boolean(prefs.only_discount), sort, tab],
+    [userId, tab === 'on', onlyDiscount, sort, tab, theme],
   );
   return getPrefs(q, userId);
 }
