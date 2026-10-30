@@ -2,6 +2,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.4] - 2026-10-30
+
+### 修复
+
+- **TCR 镜像缺版本 tag（v1.4.3 部署报 not found）**：`docker-tcr` 工作流的版本号 tag
+  原来只取 `package.json`（当时仍为 1.4.0，历史发布未按规范 bump），导致腾讯云 TCR 上
+  没有 `1.4.3` 这个镜像 tag，服务器 `docker compose up` 拉取失败。修复：
+  1. 工作流改为**打 tag 触发时取 git tag**（去 `v` 前缀），手动触发才回退 `package.json`；
+  2. 本次补 `npm version 1.4.4`，镜像内版本号与控制台显示、镜像 tag 重新对齐
+- 发布与升级流程、服务器操作边界固化进文档：[docs/DEPLOY.md](docs/DEPLOY.md)、
+  [docs/DELIVERY.md](docs/DELIVERY.md)、[CONTRIBUTING.md](CONTRIBUTING.md)（硬规则 4：
+  服务器操作由部署人员执行，仓库不保存服务器凭据）
+
 ## [1.4.3] - 2026-10-30
 
 ### 修复
