@@ -68,3 +68,119 @@
   确认 `cc=cn` 与 `cc=hk` 的返回差异被正确落库。
 - 前端隐藏开关要做"开/关"两种状态的回归，并确认后台不受影响。
 - 部署后核对 `GET /api/games` 返回的标记字段与数量。
+
+---
+
+# 待执行清单（2026-10-30 确认）
+
+以下需求由用户在 2026-10-30 逐条确认，**代码尚未实现**。实现后请在每项后面补状态和验证结果。
+
+## 生产数据基线（2026-10-30 01:25 UTC 实测）
+
+| 指标 | 数值 |
+|---|---|
+| `games` 总行数 | 196,927 |
+| 其中已删除 / 已禁用 | 0 / 0 |
+| `app_type = 'game'` | 1,180（绝大多数为空：195,747） |
+| 国区有日价格 | 106,232 |
+| 任意区有日价格 | 106,232（说明目前只有国区数据） |
+| 有当前在售报价 | 106,232 |
+| `offers` / `price_snapshots` / `daily_prices` | 106,246 / 106,253 / 107,326 |
+
+**结论**：目录 19.7 万、能上架 10.6 万，缺口 9.07 万；且 `app_type` 基本没回填，
+所以「10.6 万」不是游戏数，而是「有国区报价的条目数」，「19.7 万」则是包含 DLC/软件/原声的应用数。
+
+## 已确认的决策
+
+1. **数量口径**：首页大数字改用目录数，筛选结果数放到「找到 X 款」那一行；目录/有报价两个数都展示。
+2. **排序**：新增热度，**热度作主序**（`order by heat desc nulls last`），用户选的排序作为次序。
+3. **新作筛选**：需要，做成「发行时间」筛选（不限 / 近 30 天 / 近 1 年 / 近 3 年）。
+4. **CSV 导出**：前端入口删除；后端 `/api/games/:appid/history.csv` 保留但拦截，不返回实际内容。
+5. **移动端**：前后台都适配，目标是「好用」而不是「能打开」。
+6. **亮暗色**：前台顶栏 + 后台头部各有一个切换，状态共用。
+7. **亮暗色选项**：界面只给「亮色 / 暗色」两个按钮；设置页额外保留「跟随系统」入口。
+8. **亮暗色默认**：默认跟随系统；用户显式选择后固定。
+9. **主题偏好存储**：写入服务端（跨设备）；未登录时 localStorage 兜底。
+10. **公共页**：`/banned`、`/appeal`、`/setup` 一起支持暗色。
+11. **站点通知**：改成弹窗，页面内不再放公告元素。
+12. **前台详情弹窗**：修 850px 固定宽度导致的移动端溢出；报价行不再用 1fr 拉出大空隙；一页数据时不显示分页。
+
+## 待确认（实现前必须拍板）
+
+| # | 问题 | 建议默认 |
+|---|---|---|
+| A | 目录数是否排除已删除/禁用？是否注明含 DLC？ | 排除 deleted/blocked，页面小字注明「含 DLC/软件」 |
+| B | 热度刷新频率 | 播种一次 + 每周增量（限「有报价 + 近 90 天有访问或被标记」） |
+| C | 用户选「价格优先」时热度是否仍压在前面 | 热度只作同档位的次序，否则价格排序会失效 |
+| D | 新作筛选是否按上面四档 | 按四档做 |
+| E | CSV 拦截返回什么 | 一律 404 + 空 body（403 会暴露接口存在），管理员暂不放行 |
+| F | 通知弹窗触发规则 | 仅当有比「已读 id」更新的公告时弹；最多 5 条可滚动；关闭即记已读；不提供「永不再提示」 |
+| G | 登录后主题以谁为准 | 服务端有值用服务端，为空则沿用本地并写回 |
+| H | 切换按钮样式 | 顶栏右侧图标按钮，后台头部右上同位置 |
+| I | 后台表格手机端是否可改卡片式 | 可以，按行折叠成卡片 |
+| J | 发版节奏 | `1.2.0`（前端交互与暗色）+ `1.3.0`（热度与排序） |
+
+## 执行批次
+
+### 批次 1：前端交互修复（纯前端，可独立发布）
+
+- 详情弹窗宽度改 `min(850px, 92vw)`，移动端全屏；报价行改固定比例栅格或两行布局。
+- `PaginationBar` 在 `total <= pageSize` 时不显示；报价/历史列表的重复分页条收敛。
+- Element Plus 配置中文 locale（顺带修掉 `Total / Go to / 20 per page / Select`）。
+- 首页通知区去掉分页，改为弹窗（决策 11）。
+- 删除详情弹窗底部 CSV 导出入口；后端接口按 E 项处理。
+- 不感兴趣改为显式三态（感兴趣 / 不感兴趣 / 清除）。
+- **验收**：桌面 1440 与手机 390 两种宽度下，弹窗、分页、通知、标记都正常；`npm run frontend:build` 通过。
+
+### 批次 2：亮暗色主题
+
+- 在 `main.css` 建立语义化颜色 token（约 20 个），替换现有 263 处硬编码 hex。
+- `<html class="dark">` + Element Plus `dark/css-vars.css`；`index.html` 内联脚本防首屏闪烁。
+- 状态：localStorage + 服务端偏好（决策 9）；未选择时跟随系统并监听 `prefers-color-scheme`。
+- 前后台切换按钮共用状态（决策 6/7）；`/banned`、`/appeal`、`/setup` 一起支持（决策 10）。
+- **验收**：两套主题下 6 个页面 + 后台 10 个模块无「白底白字」；强制刷新无闪白；切换后其他设备登录能同步。
+
+### 批次 3：移动端适配
+
+- 断点补到 900 / 600 两档；工具栏改 2×2 网格，下拉不再被压成「中…」。
+- 卡片 ≤420px 一列；字号与触控目标（≥40px）放大。
+- 后台表格手机端改卡片式或固定表头横滚；筛选区折叠。
+- **验收**：390×844 与 768×1024 下无横向溢出，后台各模块可完成一次完整操作（建用户 / 封 IP / 改设置）。
+
+### 批次 4：热度与排序（含数据回填，工作量最大）
+
+- `games` 增加 `heat real`、`heat_reviews int`、`heat_at timestamptz` 与 `(heat desc)` 索引。
+- 热度来源：官方 `appreviews/<appid>?json=1&num_per_page=0&language=all` 的 `query_summary.total_reviews`；
+  批量播种可先用 SteamSpy `request=all` 分页（非官方，失败则退回慢刷）。
+- 同时补 `app_type`：用 `appdetails?appids=<100 个>&filters=basic` 批量回填，
+  196,927 条约 1,970 次请求，按 200 次/5 分钟约 50 分钟。
+- 排序接入 `heat desc nulls last`；「发行时间」筛选接入 `release_date`。
+- **验收**：首页第一页不再是清一色 95% 折扣老游戏；无热度数据的游戏排在末尾而不消失；
+  随机抽 10 款游戏核对热度与 Steam 商店页评测数量级一致。
+
+## 开工前必须先探测的两件事
+
+容器里没有 `curl`，用项目自带的 HTTP 封装（会走 `STEAM_PROXY`）探测：
+
+```bash
+# 1) 官方评测接口是否可达
+docker exec steamdeals node --input-type=module -e "
+import { fetchJson } from '/app/src/http.js';
+try {
+  const d = await fetchJson('https://store.steampowered.com/appreviews/730?json=1&num_per_page=0&language=all', { label: 'probe.reviews', timeoutMs: 20000 });
+  console.log('OK', JSON.stringify(d.query_summary));
+} catch (e) { console.log('FAIL', e.message); }
+"
+
+# 2) SteamSpy 是否可达（用于批量播种）
+docker exec steamdeals node --input-type=module -e "
+import { fetchJson } from '/app/src/http.js';
+try {
+  const d = await fetchJson('https://steamspy.com/api.php?request=appdetails&appid=730', { label: 'probe.spy', timeoutMs: 20000 });
+  console.log('OK', d.name, d.ccu, d.positive, d.negative);
+} catch (e) { console.log('FAIL', e.message); }
+"
+```
+
+两条都通 → 「SteamSpy 播种 + appreviews 常态更新」；只有第一条通 → 全量走 appreviews 慢刷。
+
