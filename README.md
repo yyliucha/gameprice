@@ -104,7 +104,7 @@
 | ITAD 官方 API | ⚠️ | 按商店拆成独立平台，需自备免费 key；未用真 key 跑过 |
 | 价格历史与史低 | ✅ | 变化才写快照，按天聚合，终端画轨迹 |
 | 官方渠道结构约束 | ✅ | `v_lowest_official` 视图 + 查询层过滤 + 回归断言 |
-| 定时采集 | ✅ | 每平台独立子进程，默认每小时 / 每天 |
+| 定时采集 | ✅ | 每平台独立子进程：Steam 价格每天、热度每周、其余按各自间隔 |
 | 结构化日志 | ✅ | JSONL + `runId` 串联 + 密钥脱敏 + 轮转 |
 | 自检 `diagnose` | ✅ | 环境 / 数据库 / 网络逐项检查，报告落盘 |
 | 凭据扫描 | ✅ | `npm run scan`，公开仓库前自检 |
@@ -120,7 +120,17 @@
 | GOG 采集 | ✅ | 官方 catalog 接口，CNY 价格，只接受精确标题匹配 |
 | Humble 采集 | ⚠️ | slug 探测 + JSON-LD，名称必须完全一致；探测不到就跳过 |
 | Fanatical | ⏸ | SPA + Algolia key 被 Cloudflare 拦，没有可靠路径 |
-| 多区服对比 | 🚧 | 模型已支持，未做展示 |
+| **热度排序** | ✅ | `heat` 命令回填 Steam 评测数 + 发行日期，列表默认按热度主序，用户排序作次序；无热度数据排最后 |
+| **发行时间筛选** | ✅ | 前台「不限 / 近 30 天 / 近 1 年 / 近 3 年」 |
+| **目录统计口径** | ✅ | 首页显示「收录条目（含 DLC/软件）+ 有报价数」，`/api/games/count` 排除已删除/禁用 |
+| **搜索边打边查** | ✅ | 300ms 防抖 + 中文输入法合成期不查 + 最短长度 + 请求取消 + 30 秒缓存 + 搜索词同步 URL |
+| **亮暗色主题** | ✅ | 语义化颜色 token；默认跟随系统，顶栏/后台可切；登录用户跨设备同步（`user_prefs.theme`），设置页可回「跟随系统」 |
+| **移动端适配** | ✅ | 900/760/420 三档断点；后台游戏目录、访问记录在手机上改卡片式 |
+| **站点通知弹窗** | ✅ | 新公告自动弹窗（最多 5 条），关闭记已读，页面不放公告元素 |
+| **标记三态** | ✅ | 感兴趣 / 不感兴趣 / 已拥有 三个显式按钮，支持清除（游客存本地、登录存库） |
+| **后台版本检查** | ✅ | 侧栏显示当前版本，有新版本提示链接，点击强制重查 |
+| **单款历史 CSV** | ⏸ | 前端入口已移除，接口默认 404（`HISTORY_CSV_ENABLED=1` 可临时打开） |
+| 多区服对比 | 🚧 | 列表可按区服切换；同屏多区对比未做展示 |
 
 ## 设计原则
 
@@ -343,6 +353,8 @@ node src/cli.js chart --db pglite:./data/demo-pgdata --out out
 | `ping` | 健康检查，数据库可用则静默退出 0 |
 | `seed` | 从 `data/games.json` 导入游戏 |
 | `logs` | 查日志（`--level` `--event` `--run` `--since`） |
+| `backfill` | 批量回填全量游戏的元数据/价格（后台「数据回填」卡片同款）：`--limit 200000 --batch 100 --sleep 3000 --fallback 10` |
+| `heat` | 热度回填：评测数 + 发行日期（appdetails recommendations）：`--limit 200000 --batch 30 --sleep 1700`，按 `heat_at is null` 自动续跑，约 3 小时全量 |
 | `diagnose` | 环境/数据库/网络自检，报告落盘 `logs/diagnose-*.json` |
 | `probe` | 目标可达性探针，见下 |
 
@@ -394,12 +406,15 @@ node src/probe.js --target steam --rounds 24 --interval 3600   # 跑 24 小时�
 | `SEED_ON_START` | `1` | 首次启动是否自动导入游戏 |
 | `OUT_DIR` / `LOG_DIR` | `out` / `logs` | 静态页与日志目录 |
 | `IMG_DIR` | `data/images` | 封面图缓存目录（随 data 卷持久化） |
+| `STEAM_HEAT_INTERVAL_MIN` | `10080` | 热度任务间隔（分钟，每周） |
+| `STEAM_HEAT_LIMIT` | `5000` | 热度任务每轮上限（只刷「过期且已有报价」的条目） |
+| `HISTORY_CSV_ENABLED` | 空 | 置 `1` 才开放 `/api/games/:appid/history.csv`（默认 404） |
 | `RUN_MODE` | `scheduler` | 容器入口模式；compose 用 `all` |
 
 ## 数据模型
 
 ```
-games              游戏身份，以 steam_appid 为锚点
+games              游戏身份，以 steam_appid 为锚点；含 heat/heat_reviews/heat_at（热度排序）与 release_date（发行筛选）
 game_aliases       平台商品 → 游戏 的映射（跨平台对齐的落点，保留匹配方式与置信度）
 offers             当前报价：game × platform × 渠道类型 × 区服 唯一
 price_snapshots    历史快照，只追加；raw_hash 相同不写
@@ -407,10 +422,13 @@ daily_prices       按天最低价聚合，画曲线只读这张
 fetch_runs         每次采集的成功/失败/跳过，先看这里再怀疑代码
 platforms          平台字典（official / authorized_reseller / c2c）
 watchlist          关注列表：目标价 / 上次通知价（同价位不重复打扰）
+users/sessions/user_prefs/user_game_flags   账号、会话、偏好（含主题）与个人标记
+announcements/email_codes/smtp_settings     站点通知、邮箱验证码与 SMTP
+visitor_logs/page_views/ip_*/device_*/abuse_reviews/sync_runs   访问记录、安全与后台任务
 v_lowest_official  主榜视图：只统计官方渠道的最低到手价
 ```
 
-> 目前**共 8 张表 + 1 个视图**。`platforms` 里预置了 `itad` / `fanatical` / `humble` / `gog` / `steampy` 的 code，但**只有 `steam` / `sonkwo` / `itad` 有适配器**——预留 code 不等于已支持，见[数据源](#数据源)。
+> 目前**共 26 张表 + 1 个视图**。`platforms` 里预置了 `itad` / `fanatical` / `humble` / `gog` / `steampy` 的 code，但**只有 `steam` / `sonkwo` / `itad` / `gog` / `humble` 有适配器**——预留 code 不等于已支持，见[数据源](#数据源)。
 
 三个关键设计：
 
@@ -483,11 +501,13 @@ node src/cli.js logs --run run-20261026025454-nu81  # 单次命令全轨迹
 - **限流响应**：429 + `Retry-After`，封禁期间提示还需等待多久；API/脚本收到纯文本。
 - **设备指纹**：前台页面加载时上报平台/语言/时区/屏幕/CPU/内存/WebGL/Canvas 等，服务端只存 sha256 指纹；
   控制台「访问记录 → 设备」可查看最近设备、按指纹封禁。封禁按指纹生效，换 IP 也会命中。
-- **封禁提示页**：被 IP/设备封禁的浏览器请求返回 Vue 封禁页（403），可提交邮件申诉；封禁期间仅放行该页所需的构建 JS/CSS。
-  简中/繁中/英/日/韩/俄/西/法/德，带申诉编号与 `mailto:` 申诉入口（没装邮件客户端时点击会复制申诉内容并显示邮箱）；API/脚本仍收到纯文本。
+- **封禁提示页**：被 IP/设备封禁的浏览器请求返回 Vue 封禁页（403），带「申请解封」按钮跳转 `/appeal` 申诉页
+  （填写说明后生成申诉邮件）；封禁期间仅放行该页所需的构建 JS/CSS。
+  简中/繁中/英/日/韩/俄/西/法/德，带申诉编号；没装邮件客户端时点击会复制申诉内容并显示邮箱；API/脚本仍收到纯文本。
   页面里的站点名与申诉邮箱来自 `SITE_NAME` / `APPEAL_EMAIL`；每次返回提示页会记 `ban.page` 日志（含申诉编号），
   收到申诉邮件后按编号在 `logs/app-*.jsonl` 里能查到对应的 IP / 到期时间 / 原因。
-- **站点通知**：控制台「站点通知」可写标题/正文/级别/启停/生效时间，前台顶部横幅展示，关闭后本机不再提示。
+- **站点通知**：控制台「站点通知」可写标题/正文/级别/启停/生效时间；前台不再放横幅，
+  只有「比已读 id 更新」的公告会弹窗展示（最多 5 条），关闭即记已读（本地存储）。
 - **被拦截的请求**按 IP 每分钟采样一条写入访问记录，带 `blocked` 标记，不计入访问量；
   控制台可切换「正常访问 / 被拦截 / 全部」。
 - 封禁名单：`ip_blacklist`（IP，永久，只由管理员或审批写入）、`device_bans`（设备指纹，可设到期）；
@@ -539,29 +559,33 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **300 项**断言。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **343 项**断言（主链 `npm test`；另有 32 项在链外的 `email-auth` / `api` / `cli-dispatch` 三个文件，改相关代码时单独跑）。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
 ## 已知限制
 
-1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`，12 秒超时）。代码完整、单测覆盖，但没有在真实网络跑通过。需要给采集机配出口，或改用 ITAD 的 Steam 价。
+1. **Steam 官方接口在国内网络不可达**（实测 `UND_ERR_CONNECT_TIMEOUT`）。生产环境需配 `STEAM_PROXY`（按主机分流，只让 Steam 域名走代理）；价格回填与热度回填共用 Steam 配额，二者通过后台任务槽位互斥。
    - 元数据导入做了**双后端**：先探官方（5s 超时），不通则自动回落到 `api.steamcmd.net`（Steam PICS 数据镜像）。镜像能给出中文名、封面、发行日期、开发商，但**不提供 `is_free`**，也**不能按名字搜索**（只能给 appid 或商店链接）。
-   - 价格层面三条路：配 `STEAM_PROXY` 走代理；只用 ITAD（不需要访问 Steam）；或按 [DEPLOY](docs/DEPLOY.md#网络与代理国内服务器必读) 做双机分流。
 2. **ITAD 响应结构未用真 key 验证**。无 key 时返回 `403 Invalid or expired api key`；结构不符时会记 `adapter.itad.shape_mismatch` 并带原始片段。
-3. **Docker 镜像未真实构建过**。Dockerfile / compose / 入口脚本已用等价方式验证（干净目录 `npm ci --omit=dev` + 执行容器启动路径），但 `docker build` 本身没跑过。
-4. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
-5. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配：`match` 用 bigram Dice 打分，≥0.94 才自动应用、0.86–0.94 留给人工 `--confirm`。**匹配率取决于游戏库覆盖**——当前 46 个杉果 SKU 与 24 款 Steam 游戏零交集，所以是 0 提案，不是算法失灵。未关联的报价会计入 `ingest.summary.noAppId`。
-5. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品（搜 `elden ring` 会返回 Whispers in the Moss）。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
-6. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，实测 8 个里命中 4 个；没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
-7. **没有 Web 服务**。`chart` 生成的是静态文件，没有交互、没有 API、没有部署好的在线站点；要实时视图需要自己起个静态服务器。
-8. **邮件客户端是自实现的**，只覆盖 STARTTLS + AUTH PLAIN/LOGIN，不支持 OAuth2 与附件；协议对话已在本地假 SMTP 服务器上验证，但**未对真实邮件服务商做过端到端测试**。
+3. **热度数据需要先跑一次回填**：新库 `heat` 全为 null，排序退化为原来的折扣优先；部署后执行
+   `node src/cli.js heat --limit 200000 --batch 30 --sleep 1700`（约 3 小时，可中断续跑），之后调度器每周增量刷新。
+4. **`app_type` 未回填**：目录数因此只能标注「含 DLC/软件」；`type` 只能从 appdetails 全量响应获取（每款约 15KB，全量约 3GB 流量），暂不做。
+5. **杉果没有搜索接口**（`store/search` 的 loader 服务端报错、`/api/*` 返回 410），所以 SKU 靠「按 id 探测」发现：id 连续、密度约 70%，未上架的 id 返回 200 空壳页。`discover` 只能跟上前沿，**历史目录要靠一次性回填**（`--from/--to` 指定区间）；空壳页的判定依赖"无价格 + 13KB 通用页"，站点改版需要复核。
+6. **杉果商品页里没有 Steam appid**，跨平台对齐只能靠名称匹配：`match` 用 bigram Dice 打分，≥0.94 才自动应用、0.86–0.94 留给人工 `--confirm`。**匹配率取决于游戏库覆盖**；未关联的报价会计入 `ingest.summary.noAppId`。
+7. **GOG 的搜索是模糊的**：`like:` 查询对"这家店没有的游戏"会返回无关热门商品。适配器只接受标题完全相等的结果，所以宁可没有价格，也不会把别人的价格挂上去。
+8. **Humble 命中率有限**：只能用"按英文名猜 slug → 抓商品页 → 校验名称"的方式，没命中的会静默跳过（日志记 `adapter.humble.no_match`）。
+9. **邮件客户端是自实现的**，只覆盖 STARTTLS + AUTH PLAIN/LOGIN，不支持 OAuth2 与附件；协议对话已在本地假 SMTP 服务器上验证，但**未对真实邮件服务商做过端到端测试**。
+10. **`web/` 旧页面只作回退**：镜像内有 `frontend/dist` 时全部页面走 Vue 应用；旧零构建页面仅在开发环境（无构建产物）时使用，其中的管理功能不再单独维护。
 
 ## 路线图
 
-- [ ] 扩大游戏库（`import steam` 已就绪，还差一份常买的游戏清单）
-- [ ] 杉果历史 SKU 回填（`discover --from/--to` 的批量模式）
+- [x] 扩大游戏库（`import steam` + 后台回填，线上已收录 19.7 万条目）
+- [x] 热度排序与发行时间筛选（v1.3.0）
+- [x] 亮暗色主题与移动端适配（v1.2.0）
+- [ ] Steam 锁国区与 18+ 内容的地区化展示（设计已留痕，见 [ROADMAP.md](docs/ROADMAP.md)）
 - [ ] 汇率折算（当前多区服只并排展示，不折算）
+- [ ] 后台其余列表的手机端卡片化（当前游戏目录/访问记录已卡片化）
 - [ ] 提醒通道：邮件模板美化与多收件人分组
 
 ## 项目结构
@@ -584,9 +608,10 @@ steamdeals/
 │   ├── visitors.js      访问记录：IP 提取、归属地解析、黑名单内存态
 │   ├── steam-login.js   Steam OpenID 登录与游戏库（独立于站点用户体系）
 │   ├── probe.js         目标可达性探针
-├── test/                26 个测试文件（216 项）+ 真实页面夹具
-├── data/                games.json（游戏清单）、skus.json（杉果 SKU）
-├── docs/                ARCHITECTURE / DATA-SOURCES / DEPLOY
+├── frontend/           Vue 3 前端（Vite 构建，页面/组件/composables；dist 不入库）
+├── test/               43 个测试文件（343 项主链 + 32 项链外）+ 真实页面夹具
+├── data/               games.json（游戏清单）、skus.json（杉果 SKU）
+├── docs/               PROJECT-OVERVIEW / PLAN / ROADMAP / ARCHITECTURE / DATA-SOURCES / DEPLOY / WEB
 ├── out/                 由 chart 生成的静态页（已 gitignore）
 ├── scripts/             勘查工具（inspect / mine-bundle / hit）+ 凭据扫描 + 容器入口
 ├── Dockerfile

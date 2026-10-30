@@ -35,7 +35,7 @@ node src/cli.js serve --port 8090
 | 路径 | 说明 |
 |---|---|
 | `/setup` | 首次初始化：创建管理员、数据源/代理/提醒；完成前其他页面一律 302 到这里 |
-| `/` | Vue 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称）、登录 |
+| `/` | Vue 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称，热度作主序）、发行时间筛选、搜索边打边查、亮暗色切换、登录 |
 | `/console` | Vue 控制台（仅管理员）：游戏管理、回收站、站点通知、访问记录、用户管理、**Steam 账号**、邮件服务、**系统设置**、数据统计、运行日志；`?section=` 可直链到某个模块 |
 | `/banned` | Vue 封禁提示页（403）：服务端注入 `window.__BAN_PAGE__`（站点名/申诉邮箱/到期时间/申诉编号），封禁期间只放行该页需要的 `/assets/*.js|css` |
 | `/appeal` | Vue 申诉页：接收 `/banned` 带过来的 `code`/`reason`/`until`/`email` 生成申诉邮件；**被封禁的 IP/设备也能打开**（服务端对 `/appeal` 跳过封禁与限流判定，但仍只放行构建产物） |
@@ -114,20 +114,21 @@ POST /api/setup/complete
 |---|---|---|---|
 | `interest` | `all` / `on` / `off` | `all` | 感兴趣筛选 |
 | `owned` | `exclude` / `only` / `include` | `exclude` | 已拥有默认排除 |
-| `sort` | `discount` / `price` / `name` | `discount` | 排序 |
+| `sort` | `discount` / `price` / `name` | `discount` | 排序（热度 `heat` 永远是第一排序键，此参数只决定同热度内的次序） |
 | `region` | 区服代码 | `cn` | 区服 |
+| `released` | `all` / `30d` / `1y` / `3y` | `all` | 发行时间筛选（吃热度回填的 `release_date`） |
 | `page` | ≥1 | 1 | 页码 |
 | `pageSize` | 5–100 | 20 | 每页条数 |
 | `compact` | `1` | 空 | 只返回列表卡片需要的字段（见下） |
 
 返回 `{ games: [...], total, sort, owned }`。默认每行带 `all_offers`（各平台当前价，升序）；
 `compact=1` 时改为只返回卡片字段（`current_low` / `currency` / `discount` / `hist_low` / `prev_hist_low` /
-`low_platform_name` 等），少一次聚合子查询。
+`low_platform_name` / `heat` / `release_date` 等），少一次聚合子查询。
 
 ### `POST /api/games/search`
 
 前台列表实际使用的接口：参数与 `GET /api/games` 相同的 JSON body（`page` / `pageSize` / `region` /
-`type` / `sort` / `q` / `interest` / `owned`），额外支持 **游客本地标记**：
+`type` / `sort` / `q` / `interest` / `owned` / `released`），额外支持 **游客本地标记**：
 
 ```json
 { "interest": "on", "guestFlags": { "interestedIds": [64], "uninterestedIds": [], "ownedIds": [] } }
@@ -141,19 +142,22 @@ POST /api/setup/complete
 
 ### `GET /api/games/count`
 
-返回 `{ catalog, priced }`：库内游戏总数、已有价格数据的游戏数（前台顶部的实时数量来源，列表最多 500 条）。
+返回 `{ catalog, priced }`：库内条目总数（排除已删除/禁用，含 DLC/软件）、有日价格数据的游戏数
+（前台顶部大数字的实时来源）。
 
 ### `GET /api/games/:appid`
 
 返回 `{ game, offers, series }`。登录用户访问会记录一条 `page_views`（管理员可在后台看到排行）。
+`GET /api/games/:appid/history.csv` 默认返回 404（`HISTORY_CSV_ENABLED=1` 才开放）。
 
 ### `POST /api/prefs`
 
 ```json
-{ "hide_uninterested": true, "only_discount": false, "sort": "discount" }
+{ "hide_uninterested": true, "only_discount": false, "sort": "discount", "theme": "dark" }
 ```
 
 登录用户的偏好存在服务端；**访客的筛选偏好只存浏览器 localStorage**（`steamdeals.prefs.v1`），不上传。
+`theme` 取值 `light` / `dark` / `null`：`null` 表示清除显式选择、回到跟随系统；缺省表示不改动。
 
 ### 管理员
 
@@ -165,6 +169,9 @@ POST /api/setup/complete
 - `GET /api/admin/emails` → 验证码邮件记录（含 `subject`/`body`：用户收不到邮件时直接看验证码）
 - `GET /api/admin/blacklist` → 黑名单列表；`POST /api/admin/blacklist` → `{ ip, note }` 拉黑（支持 CIDR）；
   `DELETE /api/admin/blacklist/:ip` → 移出。增删后内存黑名单即时刷新
+- `GET /api/admin/version` → 当前版本 + 最新 release 检查（`?force=1` 绕过 6 小时缓存）
+- `POST /api/admin/heat` → 启动热度回填（`{ limit, batch, sleep }`，与同步/回填共用槽位，忙时 409）；
+  `POST /api/admin/heat/stop`、`GET /api/admin/heat/status` 同回填三件套
 
 封面图走 `/img/steam/<appid>/<size>`：先查内存热缓存，再查本地文件（`data/images`），
 都没有才经代理取 CDN 并落盘；之后一直读本地文件，不再出网。
