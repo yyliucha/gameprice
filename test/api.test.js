@@ -428,6 +428,15 @@ test('个人标记：登录用户个人优先，未标记回退全局标记', as
     const detail = await (await fetch(`${base}/api/games/413150`, { headers: { cookie: alice.cookie } })).json();
     assert.equal(detail.game.owned, false, '详情也返回个人生效值');
 
+    // 'clear' 显式清除个人标记 → 回退全局（owned=true）
+    const clr = await fetch(`${base}/api/games/413150/flags`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: alice.cookie },
+      body: JSON.stringify({ owned: 'clear' }),
+    });
+    assert.equal(clr.status, 200);
+    assert.equal((await clr.json()).flags.owned, true, '清除后回退全局 owned=true');
+
     // admin 没有个人标记 → 回退全局（已拥有 → 默认列表排除）
     const adminList = await (await fetch(`${base}/api/games`, { headers: { cookie: admin.cookie } })).json();
     assert.equal(adminList.total, 0, '未标记时回退全局');
@@ -529,6 +538,7 @@ test('备份接口、价格历史 CSV、区服筛选、日志时间范围', asyn
   const path = await import('node:path');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'steamdeals-backup-'));
   const oldBackupDir = process.env.BACKUP_DIR;
+  const oldCsvEnv = process.env.HISTORY_CSV_ENABLED;
   process.env.BACKUP_DIR = tmp;
   const { store, q, srv, base } = await setup();
   try {
@@ -543,7 +553,11 @@ test('备份接口、价格历史 CSV、区服筛选、日志时间范围', asyn
     assert.ok(bkBody.backups.some((b) => b.name.startsWith('backup-')), '列表里能看到刚生成的备份');
     assert.equal((await fetch(`${base}/api/admin/backup`, { method: 'POST' })).status, 401, '匿名不能备份');
 
-    // 单款价格历史 CSV
+    // 单款价格历史 CSV：默认关闭 → 404（与未知路由一致）；HISTORY_CSV_ENABLED=1 才放行
+    delete process.env.HISTORY_CSV_ENABLED;
+    const csvOff = await fetch(`${base}/api/games/413150/history.csv?days=90`);
+    assert.equal(csvOff.status, 404, 'CSV 默认关闭');
+    process.env.HISTORY_CSV_ENABLED = '1';
     const csv = await fetch(`${base}/api/games/413150/history.csv?days=90`);
     assert.equal(csv.status, 200);
     assert.match(csv.headers.get('content-type') || '', /text\/csv/);
@@ -565,6 +579,8 @@ test('备份接口、价格历史 CSV、区服筛选、日志时间范围', asyn
     await store.close();
     if (oldBackupDir === undefined) delete process.env.BACKUP_DIR;
     else process.env.BACKUP_DIR = oldBackupDir;
+    if (oldCsvEnv === undefined) delete process.env.HISTORY_CSV_ENABLED;
+    else process.env.HISTORY_CSV_ENABLED = oldCsvEnv;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });

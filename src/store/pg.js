@@ -874,8 +874,13 @@ export async function gameSearch(
   const conds = [
     'exists (select 1 from daily_prices d where d.game_id = g.id and d.region = $1)',
     'not g.deleted',
-    "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
-      "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%') or cast(g.steam_appid as text) = $2)",
+    // 纯数字关键词按 AppID 精确匹配（走索引）；否则按名称模糊匹配。
+    // 之前 cast(g.steam_appid as text) = $2 会让每行做一次 cast，永远用不上索引。
+    /^\d{1,10}$/.test(kw)
+      ? "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
+        "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%') or g.steam_appid = $2::int)"
+      : "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
+        "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%'))",
   ];
   if (guestFlags && !userId) {
     const interestIds = interest === 'on' ? guestFlags.interestedIds : interest === 'off' ? guestFlags.uninterestedIds : null;
@@ -1737,13 +1742,18 @@ export async function setGameDeleted(q, { steamAppid = null, gameId = null, dele
  * 返回该游戏的最终生效值（个人优先，回退全局）。
  */
 export async function setUserGameFlag(q, { userId, gameId, interested = null, owned = null }) {
+  // 语义：boolean = 设置；null/undefined = 不改动；'clear' = 显式置空（回退全局 games 标记）
+  const norm = (v) => (v === 'clear' ? null : typeof v === 'boolean' ? v : null);
+  const upd = [];
+  if (interested === 'clear') upd.push('interested = null');
+  else if (typeof interested === 'boolean') upd.push('interested = $3');
+  if (owned === 'clear') upd.push('owned = null');
+  else if (typeof owned === 'boolean') upd.push('owned = $4');
+  const set = upd.length ? `set ${upd.join(', ')}, updated_at = now()` : 'set updated_at = now()';
   await q(
     `insert into user_game_flags (user_id, game_id, interested, owned) values ($1, $2, $3, $4)
-     on conflict (user_id, game_id) do update set
-       interested = coalesce(excluded.interested, user_game_flags.interested),
-       owned      = coalesce(excluded.owned, user_game_flags.owned),
-       updated_at = now()`,
-    [userId, gameId, interested, owned],
+     on conflict (user_id, game_id) do update ${set}`,
+    [userId, gameId, norm(interested), norm(owned)],
   );
   const r = await q(
     `select coalesce(uf.interested, g.interested) as interested, coalesce(uf.owned, g.owned) as owned

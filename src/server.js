@@ -39,6 +39,9 @@ const TYPES = {
 const COOKIE = 'gp_session';
 const DEVICE_COOKIE = 'gp_device';
 
+// 单款价格历史 CSV 默认关闭：线上暂不对外提供（避免被试探出导出能力）；HISTORY_CSV_ENABLED=1 才放行
+const historyCsvEnabled = () => process.env.HISTORY_CSV_ENABLED === '1';
+
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -648,7 +651,7 @@ export function createApiServer({
       // ---- 游戏数量（匿名可读）：库内总数 + 已有价格数，前台"实时数量"靠它 ----
       if (path === '/api/games/count' && req.method === 'GET') {
         const priced = await q('select count(*)::int as n from (select distinct game_id from daily_prices) x');
-        const catalog = await q('select count(*)::int as n from games');
+        const catalog = await q('select count(*)::int as n from games where not deleted and not blocked');
         return json(res, 200, { priced: priced.rows[0]?.n ?? 0, catalog: catalog.rows[0]?.n ?? 0 });
       }
 
@@ -818,7 +821,8 @@ export function createApiServer({
         } else {
           gameId = Number(flagsById[1]);
         }
-        const pick = (v) => (typeof v === 'boolean' ? v : null);
+        // 'clear' = 显式清除个人标记（回退全局）；boolean = 设置；其余 = 不改动
+        const pick = (v) => (v === 'clear' ? 'clear' : typeof v === 'boolean' ? v : null);
         const flags = await db.setUserGameFlag(q, {
           userId: user.id,
           gameId,
@@ -1108,9 +1112,10 @@ export function createApiServer({
         }
       }
 
-      // ---- 单款价格历史 CSV（公开）----
+      // ---- 单款价格历史 CSV（默认关闭，见 historyCsvEnabled）----
       const historyCsv = path.match(/^\/api\/games\/(\d+)\/history\.csv$/);
       if (historyCsv && req.method === 'GET') {
+        if (!historyCsvEnabled()) return json(res, 404, { error: 'not found' });
         const appid = Number(historyCsv[1]);
         const days = Math.min(Math.max(Number(url.searchParams.get('days') ?? 90) || 90, 1), 3650);
         const game = await db.gameDetail(q, { steamAppid: appid });
