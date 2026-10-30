@@ -132,6 +132,9 @@ export const SETTINGS = [
   def('system.logsPruneEnabled', 'LOGS_PRUNE_ENABLED', 'advanced', '定期清理日志', 'bool', true, { advanced: true }),
   def('system.logsPruneDays', 'LOGS_PRUNE_DAYS', 'advanced', '日志保留天数', 'int', 7, { min: 1, max: 365, advanced: true }),
   def('system.logLevel', 'LOG_LEVEL', 'advanced', '日志级别', 'enum', 'info', { options: LOG_LEVELS }),
+  def('system.timezone', 'TZ', 'advanced', '时区', 'string', 'Asia/Shanghai', {
+    help: 'IANA 时区名（如 Asia/Shanghai）：决定数据库按天聚合（current_date/date_trunc）、日志时间与页面时间显示。保存后新数据库连接约 30 秒内生效，重启服务保证全部生效。',
+  }),
 
   // ---- 封面图本地缓存（下载一次后由本机磁盘提供）----
   def('images.enabled', 'IMAGES_ENABLED', 'advanced', '启用封面图补缓存', 'bool', true, { advanced: true, help: '定时把游戏封面下载到 data/images，之后不再依赖 Steam CDN。' }),

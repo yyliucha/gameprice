@@ -67,6 +67,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import PaginationBar from '../components/PaginationBar.vue';
 import { useListPagination } from '../composables/useListPagination.js';
 import { useTheme } from '../composables/useTheme.js';
+import { fmtDateTime as dateTime } from '../utils/siteTime.js';
 
 const props=defineProps({section:{type:String,required:true}});
 const loading=ref(false),saving=ref(false),error=ref('');
@@ -101,9 +102,7 @@ const taskRows=computed(()=>{const jobs=syncStatus.value?.schedule?.jobs||[];ret
 function api(path,options={}){return fetch(path,{credentials:'same-origin',...options,headers:{'content-type':'application/json',...(options.headers||{})}}).then(async r=>{const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{}if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;});}
 function json(method,body){return {method,body:JSON.stringify(body)};}
 function price(cents){return cents==null?'—':`¥${(Number(cents)/100).toFixed(2)}`;}
-function dateTime(value){return value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';}
-function notifyError(e){ElMessage.error(e?.message||String(e));}
-async function run(action){saving.value=true;try{await action();}catch(e){notifyError(e);}finally{saving.value=false;}}
+function notifyError(e){ElMessage.error(e?.message||String(e));}async function run(action){saving.value=true;try{await action();}catch(e){notifyError(e);}finally{saving.value=false;}}
 
 async function loadGames(page=gamePage.value){loading.value=true;gamePage.value=page;try{const qs=new URLSearchParams({page:String(page),pageSize:String(gamePageSize.value),q:gameQuery.value.trim(),platform:gamePlatform.value,sync:gameSync.value});const [d,s]=await Promise.all([api(`/api/admin/games?${qs}`),api('/api/admin/games/stats')]);games.value=d.games||[];gameTotal.value=d.total||0;gamePages.value=d.pages||1;gameStats.value=s.stats||{};}catch(e){notifyError(e);}finally{loading.value=false;}}
 function refreshGames(){return loadGames(gamePage.value);}

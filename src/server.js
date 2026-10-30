@@ -637,7 +637,12 @@ export function createApiServer({
       // ---- 当前用户与偏好 ----
       if (path === '/api/me' && req.method === 'GET') {
         const prefs = user ? await db.getPrefs(q, user.id) : null;
-        return json(res, 200, { user: user ? { id: user.id, username: user.username, role: user.role } : null, prefs });
+        return json(res, 200, {
+          user: user ? { id: user.id, username: user.username, role: user.role } : null,
+          prefs,
+          // 站点时区（系统设置里的「时区」）：前端用它格式化时间，而不是浏览器本地时区
+          timezone: process.env.TZ || 'Asia/Shanghai',
+        });
       }
 
       if (path === '/api/prefs' && req.method === 'POST') {

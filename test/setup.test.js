@@ -83,7 +83,7 @@ test('未初始化：页面 302 到 /setup，API 返回 428，/setup 可访问',
     assert.ok(status.version);
 
     const schema = await (await fetch(base + '/api/setup/schema')).json();
-    assert.equal(schema.fields.length, 50);
+    assert.equal(schema.fields.length, 51);
     assert.ok(schema.fields.some((f) => f.key === 'sources.itad.apiKey'));
     assert.equal(schema.values['sources.itad.apiKey'], '', '初始化页不能回显密钥');
   } finally {

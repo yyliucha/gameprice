@@ -17,8 +17,11 @@ import 'element-plus/es/components/switch/style/css';
 import 'element-plus/es/components/tag/style/css';
 import App from './App.vue';
 import router from './router/index.js';
+import { bootstrapSiteTimezone } from './utils/siteTime.js';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 import './styles/main.css';
+
+bootstrapSiteTimezone();
 
 const app = createApp(App);
 for (const component of [ElAlert, ElButton, ElConfigProvider, ElDialog, ElEmpty, ElForm, ElFormItem, ElIcon, ElInput, ElOption, ElPagination, ElSelect, ElSkeleton, ElTag]) app.use(component);

@@ -13,7 +13,16 @@
 - 控制台移除 `steamall`（增量同步）入口——功能已被 `backfill`（批量 GetItems）覆盖且快 3-4 倍；
   CLI 与 `POST /api/admin/sync` 的 `steamall` 兼容保留
 - `POST /api/admin/sync` 的 `mode` 白名单扩为 `catalog` / `steam-prices` / `steamall`（缺省 `steam-prices`）
-- 文档：[docs/WEB.md](docs/WEB.md) 补充精简后页面与后台任务接口说明
+
+### 新增
+
+- **时间字段时区设置化**：新增系统设置「时区」（`system.timezone`，env `TZ`，默认 `Asia/Shanghai`）。
+  保存后：数据库会话时区随连接生效（`current_date` / `date_trunc` 的"按天"归属、psql 时间显示都是东八区），
+  日志 `ts` 改为带偏移的 ISO（如 `2026-10-30T16:42:23+08:00`）、日志文件按本地日期分片，
+  前端所有时间显示改用站点时区（`/api/me` 下发，`Intl` 指定 `timeZone`），不再跟随浏览器本地时区。
+  时区校验白名单 + 非法回落 `Asia/Shanghai`；运行中改设置约 30 秒内新连接生效，重启保证全部生效
+- 后台侧栏版本徽标移到顶部右侧（与主题切换并排，有新版时高亮提示）；
+  侧栏底部改两行布局并加 `overflow` / `flex` 收缩约束，修复徽标被挤出侧栏的问题（[UI-FIXES.md](docs/UI-FIXES.md) 第 1 条）
 
 ## [1.4.5] - 2026-10-30
 

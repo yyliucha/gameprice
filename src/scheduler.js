@@ -279,7 +279,7 @@ export async function main() {
     throw new Error('scheduler 需要 PostgreSQL：请设置 DATABASE_URL（PGlite 不能被子进程并发访问）');
   }
 
-  const store = await openStore(dbTarget, { logger });
+  const store = await openStore(dbTarget, { logger, timezone: process.env.TZ });
   const q = (sql, p) => store.query(sql, p);
 
   let stopping = false;
@@ -354,6 +354,7 @@ export async function main() {
     if (stopping) return;
 
     await settings.hydrateSettings({ store, logger });
+    await store.setTimezone?.(process.env.TZ); // 时区设置水合后立即生效
     let jobs = jobsFromEnv();
     let lastRevision = await settings.getRevision(q);
     let circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
@@ -379,6 +380,7 @@ export async function main() {
       const revision = await settings.getRevision(q);
       if (revision !== lastRevision) {
         await settings.hydrateSettings({ store, logger });
+        await store.setTimezone?.(process.env.TZ);
         jobs = jobsFromEnv();
         circuitThreshold = num(process.env.CIRCUIT_THRESHOLD, CIRCUIT.threshold);
         circuitCooldownMs = num(process.env.CIRCUIT_COOLDOWN_MIN, CIRCUIT.cooldownMs / 60_000) * 60_000;

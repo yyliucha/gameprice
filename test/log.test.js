@@ -3,23 +3,32 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLogger, readLogs, redactObject, redactUrl, serializeError } from '../src/log.js';
+import { createLogger, readLogs, redactObject, redactUrl, serializeError, tsInZone } from '../src/log.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'gp-log-'));
+// 日志文件按站点时区（默认 Asia/Shanghai）分片，与 logger 内部口径一致
+const day = () => tsInZone(new Date(), process.env.TZ || 'Asia/Shanghai').slice(0, 10);
+
+test('tsInZone：带偏移的 ISO，东八区偏移正确，非法时区回落默认', () => {
+  const utcNoon = new Date('2026-10-30T04:00:00.000Z');
+  assert.equal(tsInZone(utcNoon, 'Asia/Shanghai'), '2026-10-30T12:00:00+08:00');
+  assert.equal(tsInZone(utcNoon, 'UTC'), '2026-10-30T04:00:00+00:00');
+  assert.equal(tsInZone(utcNoon, 'Bad/Zone'), tsInZone(utcNoon, 'Asia/Shanghai'), '非法时区回落默认 Asia/Shanghai');
+});
 
 test('日志落成合法 JSONL，带 ts/level/event', () => {
   const logger = createLogger({ dir, prefix: 'app', console: false, level: 'debug' });
   logger.info('test.hello', { a: 1, b: 'x' });
   logger.error('test.boom', { err: serializeError(new Error('炸了')) });
 
-  const day = new Date().toISOString().slice(0, 10);
-  const lines = readFileSync(join(dir, `app-${day}.jsonl`), 'utf8').trim().split('\n');
+  const lines = readFileSync(join(dir, `app-${day()}.jsonl`), 'utf8').trim().split('\n');
   assert.equal(lines.length, 2);
   const first = JSON.parse(lines[0]);
   assert.equal(first.event, 'test.hello');
   assert.equal(first.level, 'info');
   assert.equal(first.a, 1);
   assert.ok(first.ts.includes('T'));
+  assert.ok(/[+-]\d{2}:\d{2}$/.test(first.ts), 'ts 要带时区偏移');
   assert.ok(first.pid > 0);
 
   const second = JSON.parse(lines[1]);
@@ -28,8 +37,7 @@ test('日志落成合法 JSONL，带 ts/level/event', () => {
 });
 
 test('错误日志会额外写一份 error-*.jsonl', () => {
-  const day = new Date().toISOString().slice(0, 10);
-  const errLines = readFileSync(join(dir, `error-${day}.jsonl`), 'utf8').trim().split('\n');
+  const errLines = readFileSync(join(dir, `error-${day()}.jsonl`), 'utf8').trim().split('\n');
   assert.equal(errLines.length, 1, '只有 error 级别进 error 文件');
   assert.equal(JSON.parse(errLines[0]).event, 'test.boom');
 });
@@ -42,8 +50,7 @@ test('密钥被脱敏，但保留可读信息', () => {
     nested: { accessToken: 'tok_xxx', safe: 'keep-me' },
     dsn: 'postgres://user:pw@db:5432/x',
   });
-  const day = new Date().toISOString().slice(0, 10);
-  const rec = JSON.parse(readFileSync(join(dir, `redact-${day}.jsonl`), 'utf8').trim());
+  const rec = JSON.parse(readFileSync(join(dir, `redact-${day()}.jsonl`), 'utf8').trim());
   assert.equal(rec.apiKey, '***');
   assert.equal(rec.password, '***');
   assert.equal(rec.nested.accessToken, '***');

@@ -19,9 +19,13 @@ async function fresh() {
   return { store, q };
 }
 
-test('设置定义完整：50 项、7 个密钥、关键分组都在', () => {
-  assert.equal(settings.SETTINGS.length, 50);
+test('设置定义完整：51 项、7 个密钥、关键分组都在', () => {
+  assert.equal(settings.SETTINGS.length, 51);
   assert.equal(settings.SETTINGS.filter((d) => d.secret).length, 7);
+  const tz = settings.SETTINGS.find((d) => d.key === 'system.timezone');
+  assert.ok(tz, '要有 system.timezone（时区设置化）');
+  assert.equal(tz.default, 'Asia/Shanghai');
+  assert.equal(tz.env, 'TZ');
   const keys = settings.SETTINGS.map((d) => d.key);
   for (const key of [
     'sources.itad.apiKey',

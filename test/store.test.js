@@ -1,10 +1,37 @@
 // 存储入口的两个能力：
-//   1) 纯函数（URL 解析、标识符转义）
+//   1) 纯函数（URL 解析、标识符转义、时区归一化）
 //   2) 「库不存在就建」——除了假客户端，还对着真 PG 协议跑一遍
 //      （用 PGlite + PGLiteSocketServer 起一个本地 TCP Postgres）
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDatabaseTarget, quoteIdent, ensureDatabase, maskDatabaseUrl } from '../src/store/index.js';
+import { parseDatabaseTarget, quoteIdent, ensureDatabase, maskDatabaseUrl, normalizeTimezone, openStore } from '../src/store/index.js';
+
+test('会话时区：normalizeTimezone 校验并回落，openStore 应用 + setTimezone 热更新（PGlite）', async () => {
+  assert.equal(normalizeTimezone('Asia/Shanghai'), 'Asia/Shanghai');
+  assert.equal(normalizeTimezone(''), 'Asia/Shanghai');
+  assert.equal(normalizeTimezone('Not/AZone'), 'Asia/Shanghai', 'Intl 解析不了的回落默认');
+  assert.equal(normalizeTimezone('Asia/Shanghai; drop table x'), 'Asia/Shanghai', '注入字符必须被拒绝');
+
+  const store = await openStore('pglite:', { timezone: 'Asia/Shanghai' });
+  try {
+    const r = await store.query("select current_setting('timezone') as tz");
+    assert.equal(r.rows[0].tz, 'Asia/Shanghai', '连接会话时区应为设置值');
+
+    // 运行时修改：setTimezone 立即在当前库生效
+    await store.setTimezone('UTC');
+    const r2 = await store.query("select current_setting('timezone') as tz");
+    assert.equal(r2.rows[0].tz, 'UTC');
+
+    await store.setTimezone('America/New_York');
+    const r3 = await store.query('select current_date::text as d');
+    assert.match(r3.rows[0].d, /^\d{4}-\d{2}-\d{2}$/);
+
+    await store.setTimezone('Bad/Zone');
+    assert.equal(store.timezone, 'Asia/Shanghai', '非法值回落默认');
+  } finally {
+    await store.close();
+  }
+});
 
 test('URL 解析出库名与维护库连接串', () => {
   const { dbname, adminUrl } = parseDatabaseTarget('postgres://u:p@host:5432/mygame');

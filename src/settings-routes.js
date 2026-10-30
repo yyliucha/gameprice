@@ -29,7 +29,10 @@ export async function handleSettingsRoutes({ path, req, res, q, store, logger = 
       const saved = await settings.saveSettings(q, patch, {
         updatedBy: user?.username ?? null,
       });
-      if (store) await settings.hydrateSettings({ store, logger });
+      if (store) {
+        await settings.hydrateSettings({ store, logger });
+        await store.setTimezone?.(process.env.TZ); // 改了时区设置，后续连接立即跟进
+      }
       logger?.info('settings.updated', {
         by: user?.username ?? null,
         keys: saved.keys,

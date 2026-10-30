@@ -120,7 +120,7 @@ const NO_HYDRATE = new Set(['init', 'bootstrap', 'ping', 'help', 'logs', 'all', 
 async function hydrateCliSettings() {
   if (NO_HYDRATE.has(command)) return;
   try {
-    const store = await openStore(dbTarget, { logger });
+    const store = await openStore(dbTarget, { logger, timezone: process.env.TZ });
     try {
       // 老库可能还没建表；先补齐，避免设置水合时 SMTP 表不存在
       await ensureSchema(store);
@@ -142,7 +142,7 @@ async function withStore(fn) {
   let lastErr;
   for (let i = 1; i <= attempts; i += 1) {
     try {
-      const store = await openStore(dbTarget, { logger });
+      const store = await openStore(dbTarget, { logger, timezone: process.env.TZ });
       try {
         if (!SKIP_AUTO_MIGRATE.has(command)) await ensureSchema(store);
         return await fn(store);
@@ -1235,11 +1235,12 @@ async function cmdAll() {
   const frontendDir = existsSync('frontend/dist/index.html') ? 'frontend/dist' : null;
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
 
-  const store = await openStore(dbTarget, { logger });
+  const store = await openStore(dbTarget, { logger, timezone: process.env.TZ });
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
   await (await import('./steam-login.js')).ensureSteamSchema(store); // Steam 登录与游戏库
   const initialized = await settings.initializeSettings({ store, logger });
+  await store.setTimezone?.(process.env.TZ); // 数据库里的时区设置水合后立即生效
   const setupAccess = setupAccessForRun(initialized);
   const levelFlag = flag('level', null);
   if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);
@@ -1294,10 +1295,11 @@ async function cmdServe() {
   if (!Number.isFinite(port) || port < 0) throw new Error(`端口不合法：${port}`);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  const store = await openStore(dbTarget, { logger });
+  const store = await openStore(dbTarget, { logger, timezone: process.env.TZ });
   await db.migrate(store); // 启动即补齐列，避免旧库缺字段导致查询 500
   await (await import('./email-auth.js')).ensureEmailSchema(store); // 邮箱验证码相关表
   const initialized = await settings.initializeSettings({ store, logger });
+  await store.setTimezone?.(process.env.TZ);
   const setupAccess = setupAccessForRun(initialized);
   const levelFlag = flag('level', null);
   if (levelFlag && typeof levelFlag === 'string') logger.setLevel(levelFlag);

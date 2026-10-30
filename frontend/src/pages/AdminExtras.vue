@@ -30,6 +30,7 @@ import { onBeforeUnmount,onMounted,ref,watch } from 'vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import { useListPagination } from '../composables/useListPagination.js';
 import { ElMessage,ElMessageBox } from 'element-plus';
+import { fmtDateTime as dateTime } from '../utils/siteTime.js';
 const props=defineProps({section:{type:String,required:true}});
 const loading=ref(false),saving=ref(false),users=ref([]),recycleGames=ref([]),steamMe=ref({}),steamGames=ref([]),smtp=ref({}),mailRecords=ref([]),mailMessage=ref(''),mailOk=ref(false),smtpTrace=ref(''),testEmail=ref(''),mailDialog=ref(false),activeMail=ref(null),mailCode=ref(null),logEntries=ref([]),logFiles=ref([]),logQuery=ref(''),logScope=ref(''),logMinutes=ref('0'),autoLogs=ref(false);
 const newUser=ref({username:'',password:'',email:'',role:'user'});
@@ -42,7 +43,6 @@ const pagedLogEntries=logsPager.items, logsPage=logsPager.page, logsPageSize=log
 function api(path,opts={}){return fetch(path,{credentials:'same-origin',...opts,headers:{'content-type':'application/json',...(opts.headers||{})}}).then(async r=>{const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{}if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;});}
 function body(method,data){return {method,body:JSON.stringify(data)};}
 function notify(e){ElMessage.error(e?.message||String(e));}
-function dateTime(v){return v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';}
 function price(v){return v==null?'—':`¥${(Number(v)/100).toFixed(2)}`;}
 async function act(fn){saving.value=true;try{await fn();}catch(e){notify(e);}finally{saving.value=false;}}
 async function loadUsers(){loading.value=true;try{const d=await api('/api/admin/users');users.value=d.users||[];}catch(e){notify(e);}finally{loading.value=false;}}

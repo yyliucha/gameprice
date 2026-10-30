@@ -20,6 +20,46 @@ import { join, dirname, basename } from 'node:path';
 
 export const LEVELS = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal: 60 };
 
+/** 时区名白名单校验（log 层不依赖 store，避免循环引用；Intl 解析失败回落）。 */
+function normalizeTz(tz) {
+  const v = String(tz ?? '').trim();
+  if (!v || !/^[A-Za-z_][A-Za-z0-9_+./-]{0,63}$/.test(v)) return 'Asia/Shanghai';
+  if (v === 'UTC') return v; // UTC 不在 supportedValuesOf 列表，但 Intl 接受
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      return Intl.supportedValuesOf('timeZone').includes(v) ? v : 'Asia/Shanghai';
+    }
+    if (new Intl.DateTimeFormat('en', { timeZone: v }).resolvedOptions().timeZone === v) return v;
+  } catch {
+    /* 非法时区 */
+  }
+  return 'Asia/Shanghai';
+}
+
+/**
+ * 把 Date 格式化成带偏移的 ISO（如 2026-10-30T16:42:23+08:00），
+ * 偏移按给定 IANA 时区计算；时区非法时回落 UTC ISO。日志 ts 与文件分片日期都走它，
+ * 让"按天"与"时间显示"跟随设置化的时区，而不是服务器 UTC。
+ */
+export function tsInZone(now, tz = 'Asia/Shanghai') {
+  try {
+    const dtf = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: normalizeTz(tz),
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+    const local = dtf.format(now).replace(' ', 'T'); // sv-SE："2026-10-30 16:42:23"
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(local)) throw new Error('unexpected format');
+    const asUtc = new Date(`${local}Z`);
+    const diff = Math.round((asUtc.getTime() - now.getTime()) / 60000);
+    const sign = diff >= 0 ? '+' : '-';
+    const abs = Math.abs(diff);
+    return `${local}${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  } catch {
+    return now.toISOString();
+  }
+}
+
 const SECRET_KEY = /(password|passwd|secret|token|cookie|authorization|apikey|api_key|access_token|refresh_token|dsn|database_url)/i;
 
 const DEFAULTS = {
@@ -91,7 +131,7 @@ function fmtValue(v) {
 }
 
 function fmtConsole(rec) {
-  const time = rec.ts.slice(11, 23);
+  const time = rec.ts.slice(11, 19);
   const { ts, level, event, pid, ...rest } = rec;
   const kv = Object.entries(rest)
     .filter(([, v]) => v !== undefined && v !== null)
@@ -103,6 +143,7 @@ function fmtConsole(rec) {
 
 export function createLogger(options = {}) {
   const opt = { ...DEFAULTS, ...options };
+  const tz = normalizeTz(opt.timezone ?? process.env.TZ);
   mkdirSync(opt.dir, { recursive: true });
   const state = { day: '', minLevel: LEVELS[opt.level] ?? LEVELS.info };
   // 每个日志文件独立记字节数，避免 app / error 两个文件互相干扰轮转
@@ -142,10 +183,10 @@ export function createLogger(options = {}) {
 
   function write(level, event, fields = {}) {
     if ((LEVELS[level] ?? 99) < state.minLevel) return null;
-    const now = new Date();
-    const day = now.toISOString().slice(0, 10);
+    const ts = tsInZone(new Date(), tz);
+    const day = ts.slice(0, 10);
     const rec = redactObject({
-      ts: now.toISOString(),
+      ts,
       level,
       event,
       ...opt.bindings,

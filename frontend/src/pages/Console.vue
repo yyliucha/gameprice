@@ -10,17 +10,12 @@
         </template>
         <el-empty v-if="!visibleGroups.length" :image-size="44" description="没有匹配的功能" />
       </nav>
-      <div class="admin-bottom"><el-tag v-if="user" type="success" effect="plain">{{ user.display_name || user.username }}</el-tag><el-button text @click="router.push('/')">返回网站 ↗</el-button>
-        <div class="admin-version" :title="versionTitle" @click="loadVersion(true)">
-          <span v-if="versionLoading" class="version-text">版本 检查中…</span>
-          <span v-else-if="verInfo.error && !verInfo.current" class="version-text">版本检查失败（悬停查看原因）</span>
-          <span v-else class="version-text">版本 v{{ verInfo.current || '—' }}</span>
-          <a v-if="verInfo.updateAvailable && verInfo.latest" :href="verInfo.url || '#'" target="_blank" rel="noopener" class="version-update" @click.stop>↑ 新版 v{{ String(verInfo.latest).replace(/^v/i, '') }} 可用</a>
-        </div>
+      <div class="admin-bottom">
+        <div class="bottom-actions"><el-tag v-if="user" type="success" effect="plain">{{ user.display_name || user.username }}</el-tag><el-button text @click="router.push('/')">返回网站 ↗</el-button></div>
       </div>
     </aside>
     <main class="admin-content">
-      <header class="admin-header"><div><div class="admin-crumb">管理中心 <span>/</span> {{ selectedItem?.group }}</div><h1>{{ selectedItem?.label }}</h1><p>{{ selectedItem?.description }}</p></div><el-button text class="theme-btn" :title="themeMode === 'dark' ? '切换亮色' : '切换暗色'" @click="toggleTheme">{{ themeMode === 'dark' ? '🌞' : '🌙' }}</el-button></header>
+      <header class="admin-header"><div><div class="admin-crumb">管理中心 <span>/</span> {{ selectedItem?.group }}</div><h1>{{ selectedItem?.label }}</h1><p>{{ selectedItem?.description }}</p></div><div class="header-actions"><span class="header-version" :title="versionTitle" @click="loadVersion(true)">v{{ verInfo.current || '—' }}<em v-if="verInfo.updateAvailable && verInfo.latest"> ↑ 新版 v{{ String(verInfo.latest).replace(/^v/i, '') }} 可用</em></span><el-button text class="theme-btn" :title="themeMode === 'dark' ? '切换亮色' : '切换暗色'" @click="toggleTheme">{{ themeMode === 'dark' ? '🌞' : '🌙' }}</el-button></div></header>
       <AdminModules v-if="nativeSections.includes(selected)" :section="selected" />
       <AdminExtras v-else :section="selected" />
     </main>
@@ -35,6 +30,7 @@ import { ElMessage } from 'element-plus';
 import AdminModules from './AdminModules.vue';
 import AdminExtras from './AdminExtras.vue';
 import { useTheme } from '../composables/useTheme.js';
+import { fmtDateTime } from '../utils/siteTime.js';
 
 const router=useRouter(), route=useRoute(), filter=ref(''), user=ref(null);
 const theme = useTheme();
@@ -66,7 +62,7 @@ const versionLoading=ref(false);
 const versionTitle=computed(()=>{
   if(versionLoading.value)return '正在检查新版本…';
   if(verInfo.value.error)return '版本检查失败：'+verInfo.value.error;
-  if(verInfo.value.checkedAt)return '上次检查：'+new Date(verInfo.value.checkedAt).toLocaleString()+'（点击重新检查）';
+  if(verInfo.value.checkedAt)return '上次检查：'+fmtDateTime(verInfo.value.checkedAt)+'（点击重新检查）';
   return '点击检查新版本';
 });
 async function loadVersion(force){
@@ -85,8 +81,7 @@ onMounted(async()=>{try{const valid=groups.some(g=>g.items.some(i=>i.id===select
 
 <style scoped>
 .theme-btn{font-size:17px}
-.admin-version{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left}
-.version-text{font-size:11px;color:var(--fg-muted)}
-.version-update{font-size:11px;color:var(--warn);text-decoration:none;font-weight:600}
-.version-update:hover{text-decoration:underline}
+.header-actions{display:flex;align-items:center;gap:12px;min-width:0}
+.header-version{font-size:11px;color:var(--fg-muted);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-version em{font-style:normal;color:var(--warn);font-weight:600}
 </style>
