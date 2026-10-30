@@ -1,7 +1,7 @@
 # 开发到交付全流程（会话交接文档）
 
 > 本文是**新会话的接线手册**：接手项目先读这里，再读 [PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md)（架构与代码落点）
-> 和 [ROADMAP.md](ROADMAP.md)（决策与待办）。发版前必读「对外描述同步」规则。
+> 和 [ROADMAP.md](ROADMAP.md)（决策与待办）。已知 UI 缺陷与修法见 [UI-FIXES.md](UI-FIXES.md)。发版前必读「对外描述同步」规则。
 >
 > **最后更新：2026-10-30（v1.4.3 已发布：tag v1.4.3，docker-hub 与 docker-tcr 双绿，镜像已推送）。若你读到的时间晚于最近提交，先看 CHANGELOG 与 git log。**
 
@@ -185,4 +185,6 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
   `release_date` filter 差异；诊断日志已加，等探测结果。
+- 待修 UI：后台侧栏「版本 vX」徽标被挤出侧栏底部（v1.4.5 实测）——定位、根因与两套修法见
+  [docs/UI-FIXES.md](UI-FIXES.md#1-后台侧栏版本检测被挤出侧栏底部v145-实测)。
 - 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。
