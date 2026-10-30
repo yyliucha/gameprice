@@ -117,6 +117,30 @@
   - 在生产库跑 `EXPLAIN ANALYZE`，单次 `like '%kw%'` 超过 150ms 再考虑 `pg_trgm`；
   - 该索引方案已写进 ROADMAP，按"先测后建"执行。
 
+## 1.8 后台「检测新版本」（2026-10-30 追加）
+
+现状：旧版 `web/console.html` 侧栏底部有版本块（`#appVersionBox`），显示 `版本 v{current}`，
+有新版本时显示 `↑ 新版 vX 可用` 链接，点击强制刷新（`/api/admin/version?force=1`）。
+Vue 后台**只剩**「系统设置」里的 `版本 x.y.z` 静态文字，没有检查更新、没有新版本提示。
+
+后端接口无需改动，已具备：
+
+- `GET /api/admin/version`（仅管理员）：返回 `current / latest / updateAvailable / url / checkedAt / error / repo`；
+- `?force=1` 绕过服务端 6 小时缓存；
+- 环境变量 `UPDATE_CHECK=0` 只报当前版本不出网，`UPDATE_REPO` 可换仓库。
+
+前端实现（`frontend/src/pages/Console.vue` + `AdminModules.vue`）：
+
+- 侧栏底部 `admin-bottom` 里加版本块：`版本 v{{ current }}`，
+  鼠标悬停显示 `上次检查时间 / error`；
+- `updateAvailable` 为真时显示 `↑ 新版 vX 可用`（新窗口打开 `url`），颜色用 warning 色；
+- 整块可点击：点击时带 `force=1` 重新检查，期间显示 loading 态；失败显示「版本检查失败」并在 title 里给出原因；
+- 进入控制台时自动检查一次（不带 force，命中服务端缓存，不额外出网）；
+- 「系统设置」里的静态版本文字保留，作为次要信息。
+
+验收：后台侧栏能看到版本号；把 `UPDATE_REPO` 指向一个更高版本的假仓库（或用 `force=1` + 本地 mock）
+时能出现「新版可用」链接；断网时显示失败而不是空白。
+
 ## 批次 1 验收
 
 - `npm run frontend:build` 通过；
@@ -124,7 +148,8 @@
 - 分页与下拉文案为中文（`共 N 条` / `前往` / `全部平台`）；
 - 首页无公告元素，点开弹窗能显示未读公告，刷新后不再重复弹；
 - 输入 "tom" 只发 1 次请求（防抖），中文输入拼音阶段 0 次请求；
-- 详情弹窗里没有 CSV 导出入口；直接访问 `history.csv` 返回 404。
+- 详情弹窗里没有 CSV 导出入口；直接访问 `history.csv` 返回 404；
+- 后台侧栏显示版本号，且「检查新版本」可点击（见 1.8）。
 
 ---
 
