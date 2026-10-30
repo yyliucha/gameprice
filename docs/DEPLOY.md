@@ -6,6 +6,75 @@
 
 ---
 
+## 发布与升级流程（从提交到上线）
+
+> **服务器操作边界**：服务器更新（SSH、拉镜像、重建容器）**必须由具备服务器权限的部署人员执行**。
+> 仓库与开发侧**不保存任何服务器凭据**、不直接操作服务器；开发侧的职责到「代码提交 + 打 tag」为止，
+> CI 负责测试与构建镜像，剩下的服务器步骤按本节在服务器上执行。
+
+完整链路，按顺序：
+
+### 1. 开发侧：提交并打 tag（触发 CI 构建）
+
+```bash
+git add -A && git commit -m "fix(steam): 描述改动"
+git tag v1.4.3 && git push && git push origin v1.4.3
+```
+
+推送 `v*` tag 会触发两个 GitHub Actions 工作流，各自**先跑全量测试**，通过才构建并推送镜像：
+
+| 工作流 | 推送到 | 镜像 tag | 前置 Secret |
+|---|---|---|---|
+| `docker-hub` | Docker Hub `s1065420329/steamdeals` | `1.4.3` / `1.4` / `latest`（amd64+arm64） | `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` |
+| `docker-tcr` | 腾讯云 TCR `ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals` | `latest` / `sha-…`（amd64） | `TCR_USERNAME` / `TCR_PASSWORD` |
+
+### 2. CI 侧：确认两个工作流全部变绿
+
+GitHub → 仓库 → Actions，`docker-hub` 与 `docker-tcr` 均 `success` 后，镜像才可用。
+失败时优先看 Secret 是否配置（Settings → Secrets and variables → Actions）；
+CI 不可用时退回服务器本地构建：`git pull && docker compose up -d --build`。
+
+### 3. 服务器侧：更新镜像并重建容器（部署人员执行）
+
+按服务器使用的镜像源二选一：
+
+```bash
+# Docker Hub 源（compose.hub.yaml；外部库用 compose.hub.external-db.yaml）
+docker compose -f compose.hub.yaml pull app
+docker compose -f compose.hub.yaml up -d
+
+# 腾讯云 TCR 源（compose.cn.yaml；外部库用 compose.cn.external-db.yaml）
+docker compose -f compose.cn.yaml pull app
+docker compose -f compose.cn.yaml up -d
+```
+
+`up -d` 用新镜像重建容器并重启调度器；数据在命名卷里，不会丢。启动时自动跑幂等迁移。
+
+### 4. 升级后验证（服务器执行，只读）
+
+```bash
+# ① 新 CLI 命令已随镜像生效（以 rename 为例，换成本次发布的命令名即可）
+docker exec steamdeals node src/cli.js 2>&1 | grep -A1 rename
+
+# ② 调度器任务表包含新任务
+docker exec steamdeals cat data/scheduler-status.json
+
+# ③ 启动日志任务清单
+docker logs steamdeals 2>&1 | grep 'scheduler.start' | tail -1
+```
+
+容器名以实际为准（compose 默认是 `steamdeals-app-1`，旧版 compose 是 `steamdeals_app_1`）。
+
+### 回滚
+
+```bash
+# 服务器退回上一个版本（把 compose 里 image 的 tag 改成旧版本号再执行）
+docker compose -f compose.hub.yaml pull app && docker compose -f compose.hub.yaml up -d
+# 代码层面：git revert <提交> 后重新走本节流程
+```
+
+---
+
 ## Docker Hub（推荐，零配置）
 
 镜像：`s1065420329/steamdeals:latest`。完整说明见 **[DOCKER-HUB.md](DOCKER-HUB.md)**。
@@ -349,7 +418,7 @@ docker compose exec app node src/cli.js notify-test
 vi data/skus.json        # 宿主机直接改，容器内可见（./data 已挂载）
 docker compose run --rm app sync sonkwo --limit 1
 
-# 升级
+# 升级（镜像方式见本文开头的「发布与升级流程」；源码构建方式）
 git pull && docker compose up -d --build
 
 # 停止（保留数据卷）

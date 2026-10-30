@@ -159,6 +159,10 @@ docker compose -f compose.hub.yaml pull
 docker compose -f compose.hub.yaml up -d
 ```
 
+（TCR 源把 `-f compose.hub.yaml` 换成 `-f compose.cn.yaml`。）完整发布链路——
+打 tag 触发 CI 构建镜像 → 服务器更新 → 升级后验证与回滚——见
+[DEPLOY.md 的「发布与升级流程」](DEPLOY.md#发布与升级流程从提交到上线)。
+
 启动时会自动跑幂等迁移。
 
 ## 从旧 `gameprice` 命名迁移
