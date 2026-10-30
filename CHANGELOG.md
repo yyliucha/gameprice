@@ -2,6 +2,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.2] - 2026-10-30
+
+### 修复
+
+- **热度回填改为逐 appid 请求**：实测 Steam appdetails 只要 appids 多于 1 个，
+  无 filters 或 `filters=recommendations,release_date` 都返回 400，批量只接受
+  `filters=price_overview`；单 appid 请求 69 字节可用，因此逐款回填
+  （约 1.7s/款，全量约 90 小时，靠 `heat_at` 游标分多周续跑）
+- 调度器热度任务参数同步：`--limit 20000 --sleep 1700`（去掉 `--batch`）
+- 1.4.1 的"失败批次记 heat_at 防原地打转、4xx 立即中止"保留，并细化到单 appid 粒度
+
 ## [1.4.1] - 2026-10-30
 
 ### 修复

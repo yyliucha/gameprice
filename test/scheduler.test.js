@@ -20,7 +20,7 @@ test('默认任务表（含 Steam 日更、每周热度与清理、gog / humble 
   assert.deepEqual(jobs[8].args, ['backup']);
   assert.deepEqual(jobs[11].args, ['images', 'pull', '--limit', '200', '--sleep', '300']);
   assert.deepEqual(jobs[0].args, ['sync', 'steam-prices', '--limit', '200000']);
-  assert.deepEqual(jobs[1].args, ['heat', '--limit', '20000', '--batch', '30', '--sleep', '1700']);
+  assert.deepEqual(jobs[1].args, ['heat', '--limit', '20000', '--sleep', '1700']);
   assert.deepEqual(jobs[2].args, ['prune']);
 });
 

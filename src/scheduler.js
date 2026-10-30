@@ -37,8 +37,9 @@ export function jobsFromEnv(env = process.env) {
     {
       name: 'heat',
       // 每周刷新热度（评测数 + 发行日期）；首跑全量播种（heat_at 为 null），之后只刷有报价的过期条目。
+      // appdetails 批量只接受 price_overview，热度必须逐 appid 请求（约 1.7s/款）。
       // 与 steam-prices / 回填共用 Steam 配额：调度器串行跑任务，不会并行抢限流。
-      args: ['heat', '--limit', String(num(env.STEAM_HEAT_LIMIT, 20000)), '--batch', '30', '--sleep', '1700'],
+      args: ['heat', '--limit', String(num(env.STEAM_HEAT_LIMIT, 20000)), '--sleep', '1700'],
       intervalMin: num(env.STEAM_HEAT_INTERVAL_MIN, 10080),
       initialDelaySec: 86400,
       enabled: env.STEAM_ENABLED !== '0',
