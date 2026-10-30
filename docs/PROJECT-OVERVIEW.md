@@ -80,6 +80,7 @@ Node.js 服务 src/server.js
 | 当前价、快照、日历史、史低 | `src/ingest.js`, `src/store/pg.js` | 价格变化才写快照；主榜及历史低价查询过滤非官方/授权渠道 |
 | 比价、历史和静态曲线 | `src/compare.js`, `src/report.js`, `src/cli.js` | CLI 查询与 `chart` 静态 HTML 曲线 |
 | Web/API、安装和账户 | `src/server.js`, `src/*-routes.js`, `frontend/` | Vue 前端覆盖前台、初始化、封禁页与控制台十个模块；`web/` 旧页面仅作无构建产物时的回退；具体入口见 [WEB.md](WEB.md) |
+| 封禁与申诉 | `src/devices.js`, `src/ratelimit.js`, `src/server.js`, `frontend/src/pages/BanPage.vue`, `AppealPage.vue` | 封禁页与服务端注入的 `__BAN_PAGE__`、Vue 申诉页；`/appeal` 对封禁 IP/设备放行（申诉走邮件，不落库） |
 | 关注、降价提醒、通知 | `src/alerts.js`, `src/notify.js` | 目标价/史低触发；Webhook、企业微信机器人、SMTP |
 | 定时采集与熔断 | `src/scheduler.js` | 任务隔离子进程运行；连续失败会在冷却期内暂停调度任务 |
 | 日志、自检、备份、回填 | `src/log.js`, `src/probe.js`, `src/backup.js`, `src/backfill.js` | JSONL 结构化日志、脱敏、健康检查及运维命令 |

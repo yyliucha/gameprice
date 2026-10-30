@@ -5,12 +5,12 @@ const info = window.__BAN_PAGE__ || {};
 const language = ref(/^zh/i.test(navigator.language || '') ? 'zh-CN' : 'en');
 const copied = ref(false);
 const message = ref('');
+const appealRoute = computed(() => ({ path: '/appeal', query: { code: info.code || '', reason: info.reason || '', until: info.until || '', email: info.email || '' } }));
 const appealText = computed(() => `${language.value === 'zh-CN' ? '申诉编号' : 'Appeal code'}: ${info.code || '—'}\n${language.value === 'zh-CN' ? '时间' : 'Time'}: ${info.until || new Date().toISOString()}\n${language.value === 'zh-CN' ? '原因' : 'Reason'}: ${info.reason || '—'}\n\n${language.value === 'zh-CN' ? '请说明当时正在进行的操作，以及是否使用脚本或共享网络。' : 'Please describe what you were doing, and whether scripts or a shared network were used.'}`);
 const title = computed(() => language.value === 'zh-CN' ? '访问受限' : 'Access restricted');
 const lead = computed(() => language.value === 'zh-CN' ? '你的网络或设备暂时被本站限制访问。' : 'Your network or device is temporarily restricted from this site.');
 const appealTitle = computed(() => language.value === 'zh-CN' ? '如果你认为这是误判' : 'Think this is a mistake?');
 const appealLead = computed(() => language.value === 'zh-CN' ? '发送邮件申诉，管理员会人工复核。' : 'Send an appeal email and an administrator will review it.');
-const mailto = computed(() => info.email ? `mailto:${info.email}?subject=${encodeURIComponent(`[${info.site || 'SteamDeals'}] ${language.value === 'zh-CN' ? '解封申诉' : 'Ban appeal'} ${info.code || ''}`)}&body=${encodeURIComponent(appealText.value)}` : '');
 
 async function copyAppeal() {
   copied.value = false;
@@ -26,8 +26,8 @@ async function copyAppeal() {
     <h1>{{ title }}</h1><p class="ban-lead">{{ lead }}</p>
     <dl><div><dt>{{ language === 'zh-CN' ? '原因' : 'Reason' }}</dt><dd>{{ info.reason || '—' }}</dd></div><div><dt>{{ language === 'zh-CN' ? '限制解除时间' : 'Restriction ends' }}</dt><dd>{{ info.until ? new Date(info.until).toLocaleString(language) : (language === 'zh-CN' ? '暂未设定' : 'Not specified') }}</dd></div><div><dt>{{ language === 'zh-CN' ? '申诉编号' : 'Appeal code' }}</dt><dd><code>{{ info.code || '—' }}</code></dd></div></dl>
     <section class="ban-appeal"><h2>{{ appealTitle }}</h2><p>{{ appealLead }}</p>
-      <div v-if="info.email" class="ban-actions"><a class="ban-primary" :href="mailto">{{ language === 'zh-CN' ? '发送申诉邮件' : 'Send appeal email' }}</a><el-button plain @click="copyAppeal">{{ language === 'zh-CN' ? '复制申诉内容' : 'Copy appeal text' }}</el-button></div>
-      <el-alert v-else type="warning" :closable="false" :title="language === 'zh-CN' ? '管理员尚未配置申诉邮箱，请联系站点管理员。' : 'The administrator has not configured an appeal email.'" />
+      <div class="ban-actions"><router-link class="ban-primary" :to="appealRoute">{{ language === 'zh-CN' ? '申请解封' : 'Request unban' }}</router-link><el-button plain @click="copyAppeal">{{ language === 'zh-CN' ? '复制申诉内容' : 'Copy appeal text' }}</el-button></div>
+      <el-alert v-if="!info.email" type="warning" :closable="false" :title="language === 'zh-CN' ? '管理员尚未配置申诉邮箱，请联系站点管理员。' : 'The administrator has not configured an appeal email.'" />
       <el-alert v-if="message" class="ban-message" :type="copied ? 'success' : 'info'" :title="message" :closable="false"/>
       <textarea :value="appealText" readonly @focus="$event.target.select()" :aria-label="language === 'zh-CN' ? '申诉内容' : 'Appeal text'" />
       <p class="ban-hint">{{ language === 'zh-CN' ? '如果邮件客户端未打开，可以复制上方申诉内容并发送至' : 'If your mail app did not open, copy the appeal text and send it to' }} <b>{{ info.email || '—' }}</b></p>

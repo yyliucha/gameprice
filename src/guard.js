@@ -31,6 +31,8 @@ const KNOWN_EXACT = new Set([
   '/setup.html',
   '/banned',
   '/banned/',
+  '/appeal',
+  '/appeal/',
   '/banned.html',
   '/settings-ui.js',
   '/favicon.ico',

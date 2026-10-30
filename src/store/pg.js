@@ -57,6 +57,7 @@ create table if not exists offers (
   unique (game_id, platform_code, product_type, region)
 );
 create index if not exists idx_offers_game on offers (game_id);
+create index if not exists idx_offers_region_game on offers (region, game_id);
 
 -- 历史快照：只追加，价格/库存没变就不写
 create table if not exists price_snapshots (
@@ -81,6 +82,7 @@ create table if not exists daily_prices (
   currency        text not null,
   primary key (game_id, platform_code, region, day)
 );
+create index if not exists idx_daily_prices_region_game on daily_prices (region, game_id);
 
 -- 采集健康度：每次同步一行，"最近为什么没数据"先看这里
 create table if not exists fetch_runs (
@@ -811,7 +813,7 @@ export async function gameDetail(q, { steamAppid = null, gameId = null, region =
   const cond = steamAppid != null ? 'g.steam_appid = $2' : 'g.id = $2';
   const join = userId ? 'left join user_game_flags uf on uf.game_id = g.id and uf.user_id = $3' : '';
   const extra = userId
-    ? ', coalesce(uf.interested, g.interested) as eff_interested, coalesce(uf.owned, g.owned) as eff_owned'
+    ? ', coalesce(uf.interested, g.interested) as eff_interested, coalesce(uf.owned, g.owned) as eff_owned, uf.interested as user_interested, uf.owned as user_owned'
     : '';
   const params = [region, steamAppid ?? gameId];
   if (userId) params.push(userId);
@@ -852,16 +854,22 @@ export async function gameOverview(q, { region = 'cn', limit = 200 } = {}) {
  */
 export async function gameSearch(
   q,
-  { region = 'cn', page = 1, pageSize = 50, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all' } = {},
+  { region = 'cn', page = 1, pageSize = 20, keyword = '', sort = 'discount', interest = 'all', owned = 'exclude', blocked = 'exclude', userId = null, typeFilter = 'all', compact = false, guestFlags = null } = {},
 ) {
   const kw = String(keyword ?? '').trim();
-  const size = Math.min(Math.max(Number(pageSize) || 50, 5), 200);
+  const size = Math.min(Math.max(Number(pageSize) || 20, 5), 100);
   const pg = Math.max(1, Number(page) || 1);
   const offset = (pg - 1) * size;
 
   // 生效标记：登录用户个人标记优先，未标记回退全局（games.interested / games.owned）
   const col = (name) => (userId ? `coalesce(uf.${name}, g.${name})` : `g.${name}`);
   const userJoin = (index) => (userId ? `left join user_game_flags uf on uf.game_id = g.id and uf.user_id = $${index}` : '');
+  const filterParams = [region, kw];
+  if (userId) filterParams.push(userId);
+  const bindFilter = (value) => {
+    filterParams.push(value);
+    return `$${filterParams.length}`;
+  };
 
   const conds = [
     'exists (select 1 from daily_prices d where d.game_id = g.id and d.region = $1)',
@@ -869,10 +877,21 @@ export async function gameSearch(
     "($2 = '' or lower(coalesce(g.name, '')) like lower('%' || $2 || '%') " +
       "or lower(coalesce(g.name_en, '')) like lower('%' || $2 || '%') or cast(g.steam_appid as text) = $2)",
   ];
-  if (interest === 'on') conds.push(`${col('interested')} = true`);
-  if (interest === 'off') conds.push(`${col('interested')} = false`);
-  if (owned === 'exclude') conds.push(`${col('owned')} = false`);
-  if (owned === 'only') conds.push(`${col('owned')} = true`);
+  if (guestFlags && !userId) {
+    const interestIds = interest === 'on' ? guestFlags.interestedIds : interest === 'off' ? guestFlags.uninterestedIds : null;
+    if (interestIds) conds.push(interestIds.length ? `g.id = any(${bindFilter(interestIds)}::bigint[])` : 'false');
+    if (owned === 'only') {
+      conds.push(guestFlags.ownedIds.length ? `g.id = any(${bindFilter(guestFlags.ownedIds)}::bigint[])` : 'false');
+    } else if (owned === 'exclude' && guestFlags.ownedIds.length) {
+      conds.push(`not (g.id = any(${bindFilter(guestFlags.ownedIds)}::bigint[]))`);
+    }
+  } else {
+    // 感兴趣/不感兴趣是用户自己的分类，不使用 games.interested 的全局默认值（通常默认为 true）。
+    if (interest === 'on') conds.push(userId ? 'uf.interested = true' : `${col('interested')} = true`);
+    if (interest === 'off') conds.push(userId ? 'uf.interested = false' : `${col('interested')} = false`);
+    if (owned === 'exclude') conds.push(`${col('owned')} = false`);
+    if (owned === 'only') conds.push(`${col('owned')} = true`);
+  }
   if (blocked === 'exclude') conds.push('g.blocked = false');
   if (blocked === 'only') conds.push('g.blocked = true');
   // 类型筛选：game / dlc（app_type 入库时已统一小写）
@@ -895,19 +914,57 @@ export async function gameSearch(
   const total = Number(
     (await q(
       `select count(*)::int as n from games g ${userJoin(3)} ${where}`,
-      userId ? [region, kw, userId] : [region, kw],
+      filterParams,
     )).rows[0]?.n ?? 0,
   );
   const extra = userId
     ? `, ${col('interested')} as eff_interested, ${col('owned')} as eff_owned`
     : '';
-  const rows = (
-    await q(
-      `${GAME_SELECT}${extra} from games g ${userJoin(5)} ${where} order by ${order} limit $3 offset $4`,
-      userId ? [region, kw, size, offset, userId] : [region, kw, size, offset],
+  const compactQuery = `
+    with price_rollup as (
+      select o.game_id,
+        min(o.price_cents) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}) as current_low,
+        (array_agg(o.currency order by o.price_cents) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}))[1] as currency,
+        min(o.price_cents) filter (where o.in_stock and o.platform_code = 'steam') as steam_price,
+        min(o.original_cents) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}) as current_original,
+        max(o.discount_pct) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}) as discount,
+        max(o.last_seen_at) as last_seen_at,
+        (array_agg(p.name order by o.price_cents) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}))[1] as low_platform_name,
+        (array_agg(o.platform_code order by o.price_cents) filter (where o.in_stock and p.kind in ${OFFICIAL_KINDS}))[1] as low_platform
+      from offers o join platforms p on p.code = o.platform_code
+      where o.region = $1
+      group by o.game_id
+    ), daily_rollup as (
+      select d.game_id,
+        min(d.min_price_cents) filter (where p.kind in ${OFFICIAL_KINDS}) as hist_low,
+        min(d.min_price_cents) filter (where d.day < current_date and p.kind in ${OFFICIAL_KINDS}) as prev_hist_low,
+        count(*)::int as day_count
+      from daily_prices d join platforms p on p.code = d.platform_code
+      where d.region = $1
+      group by d.game_id
     )
-  ).rows;
-  if (userId) {
+    select g.id, g.steam_appid, coalesce(g.name, 'appid:' || g.steam_appid) as name,
+      g.name_en, g.app_type,
+      ${userId ? 'uf.interested' : 'null::boolean'} as interested,
+      ${userId ? 'uf.interested' : 'null::boolean'} as user_interested,
+      ${userId ? 'coalesce(uf.owned, g.owned)' : 'false'} as owned,
+      g.blocked, pr.current_low, pr.currency, pr.steam_price, pr.current_original,
+      pr.discount, dr.hist_low, dr.prev_hist_low, dr.day_count, pr.last_seen_at,
+      pr.low_platform_name, pr.low_platform
+    from games g ${userJoin(3)}
+    left join price_rollup pr on pr.game_id = g.id
+    left join daily_rollup dr on dr.game_id = g.id
+    ${where}
+    order by ${sort === 'name' ? 'name asc' : sort === 'price' ? 'pr.current_low asc nulls last, name asc' : 'pr.discount desc nulls last, pr.current_low asc nulls last, name asc'}, g.id asc
+    limit __LIST_LIMIT__ offset __LIST_OFFSET__`;
+  const limitIndex = filterParams.length + 1;
+  const rows = (await q(
+    compact
+      ? compactQuery.replace('__LIST_LIMIT__', `$${limitIndex}`).replace('__LIST_OFFSET__', `$${limitIndex + 1}`)
+      : `${GAME_SELECT}${extra} from games g ${userJoin(3)} ${where} order by ${order} limit $${limitIndex} offset $${limitIndex + 1}`,
+    [...filterParams, size, offset],
+  )).rows;
+  if (userId && !compact) {
     for (const row of rows) {
       row.interested = row.eff_interested;
       row.owned = row.eff_owned;

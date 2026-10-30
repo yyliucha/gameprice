@@ -38,7 +38,8 @@ node src/cli.js serve --port 8090
 | `/` | Vue 单页前端：列表、筛选（全部/感兴趣/不感兴趣/已拥有）、排序（折扣/价格/名称）、登录 |
 | `/console` | Vue 控制台（仅管理员）：游戏管理、回收站、站点通知、访问记录、用户管理、**Steam 账号**、邮件服务、**系统设置**、数据统计、运行日志；`?section=` 可直链到某个模块 |
 | `/banned` | Vue 封禁提示页（403）：服务端注入 `window.__BAN_PAGE__`（站点名/申诉邮箱/到期时间/申诉编号），封禁期间只放行该页需要的 `/assets/*.js|css` |
-| 点游戏名 | 详情弹窗：各平台报价、折扣、简介；管理员可直接改标记、设到价提醒 |
+| `/appeal` | Vue 申诉页：接收 `/banned` 带过来的 `code`/`reason`/`until`/`email` 生成申诉邮件；**被封禁的 IP/设备也能打开**（服务端对 `/appeal` 跳过封禁与限流判定，但仍只放行构建产物） |
+| 点游戏名 | 详情弹窗：各平台报价、折扣、简介；管理员可直接改标记、设到价提醒；报价与价格历史分页显示 |
 
 **前台不提供 Steam 登录**：Steam OpenID 登录与游戏库同步全部放在控制台的「Steam 账号」页，
 与站点账号体系相互独立；前台只展示游戏优惠数据。
@@ -115,9 +116,28 @@ POST /api/setup/complete
 | `owned` | `exclude` / `only` / `include` | `exclude` | 已拥有默认排除 |
 | `sort` | `discount` / `price` / `name` | `discount` | 排序 |
 | `region` | 区服代码 | `cn` | 区服 |
-| `limit` | 1–500 | 200 | 条数上限 |
+| `page` | ≥1 | 1 | 页码 |
+| `pageSize` | 5–100 | 20 | 每页条数 |
+| `compact` | `1` | 空 | 只返回列表卡片需要的字段（见下） |
 
-返回 `{ games: [...], total, sort, owned }`。每行带 `all_offers`（各平台当前价，升序），前端直接渲染成平台标签。
+返回 `{ games: [...], total, sort, owned }`。默认每行带 `all_offers`（各平台当前价，升序）；
+`compact=1` 时改为只返回卡片字段（`current_low` / `currency` / `discount` / `hist_low` / `prev_hist_low` /
+`low_platform_name` 等），少一次聚合子查询。
+
+### `POST /api/games/search`
+
+前台列表实际使用的接口：参数与 `GET /api/games` 相同的 JSON body（`page` / `pageSize` / `region` /
+`type` / `sort` / `q` / `interest` / `owned`），额外支持 **游客本地标记**：
+
+```json
+{ "interest": "on", "guestFlags": { "interestedIds": [64], "uninterestedIds": [], "ownedIds": [] } }
+```
+
+- 未登录时浏览器把感兴趣的标记存在 localStorage，再把 id 列表带上来做服务端筛选；
+  `interestedIds` / `uninterestedIds` / `ownedIds` 各最多 5000 个、非数字会被丢弃。
+- 登录后忽略 `guestFlags`，按数据库里的用户标记过滤。
+- 成功返回与 `compact=1` 的 GET 相同字段；服务端对游客查询走压缩查询（CTE 汇总价格），
+  成功请求不写访问记录（避免刷新一次就把访问量刷十几条）。
 
 ### `GET /api/games/count`
 

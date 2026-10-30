@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Home from '../pages/Home.vue';
 import Setup from '../pages/Setup.vue';
 import BanPage from '../pages/BanPage.vue';
+import AppealPage from '../pages/AppealPage.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -11,6 +12,7 @@ const router = createRouter({
     { path: '/setup', name: 'setup', component: Setup, meta: { title: 'SteamDeals · 系统初始化' } },
     { path: '/setup.html', redirect: '/setup' },
     { path: '/banned', name: 'banned', component: BanPage, meta: { title: '访问受限 · SteamDeals' } },
+    { path: '/appeal', name: 'appeal', component: AppealPage, meta: { title: '申请解除访问限制 · SteamDeals' } },
     { path: '/banned.html', redirect: '/banned' },
     { path: '/console', name: 'console', component: () => import('../pages/Console.vue'), meta: { title: 'SteamDeals · 管理控制台' } },
     { path: '/console.html', redirect: '/console' },

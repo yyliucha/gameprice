@@ -322,6 +322,7 @@ export function createApiServer({
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
+      const appealPage = path === '/appeal' || path === '/appeal/';
     const cookies = parseCookies(req.headers.cookie);
     const token = cookies[COOKIE] ?? null;
 
@@ -349,7 +350,7 @@ export function createApiServer({
       // ---- 设备封禁（管理员在控制台审批后才会存在）----
       const deviceId = devices.normalizeDeviceId(cookies[DEVICE_COOKIE]);
       const deviceBan = deviceId && !adminBypass && !whitelisted ? devices.isBanned({ deviceId }) : null;
-      if (deviceBan) {
+      if (deviceBan && !appealPage) {
         if (req.method === 'GET' && isFrontendAsset(path)) return serveFrontendStatic(res, frontendDir, outDir, path);
         logger?.warn('device.denied', { ip, deviceId, until: deviceBan.until });
         logBlocked({ ip, req, path, status: 403, reason: '设备已被封禁' });
@@ -358,7 +359,7 @@ export function createApiServer({
 
       // 频率限制：白名单/管理员不参与三振；内网/本机（反代、健康检查）不计数
       // 分桶：页面/API 与静态资源/图片分开计数——一个列表页几十张封面不该顶到页面阈值
-      if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip)) {
+      if (ip && !whitelisted && !adminBypass && !visitors.isPrivateAddress(ip) && !appealPage) {
         // 统一走 hit：封禁期内的请求也会被计数，够数就记一条待审核（**不再自动永久封**）
         const verdict = await ratelimit.hit(q, ip, { bucket: guard.isAssetPath(path) ? 'asset' : 'page' });
         if (verdict.limited) {
@@ -389,7 +390,7 @@ export function createApiServer({
       }
 
       const hit = ip && !adminBypass && !whitelisted ? visitors.blockedBy(ip) : null;
-      if (hit) {
+      if (hit && !appealPage) {
         if (req.method === 'GET' && isFrontendAsset(path)) return serveFrontendStatic(res, frontendDir, outDir, path);
         logger?.warn('block.ip_denied', { ip, path, rule: hit });
         logBlocked({ ip, req, path, status: 403, reason: `IP 黑名单（${hit}）` });
@@ -425,9 +426,8 @@ export function createApiServer({
         if (!isLoggablePath(path)) return;
         const region = visitors.cachedRegion(ip);
         res.once('finish', () => {
-          // GET /api/* 的 2xx/3xx 是页面自身的数据请求（一次刷新会有十几条），不计入访问记录；
-          // 页面访问、登录/修改（POST 等）、以及所有错误状态才记，统计才等于「真实访问」。
-          if (req.method === 'GET' && path.startsWith('/api/') && res.statusCode < 400) return;
+          // 成功的只读 API 查询不计入访问记录；页面访问、登录/修改以及错误状态仍记录。
+          if ((req.method === 'GET' && path.startsWith('/api/') || req.method === 'POST' && path === '/api/games/search') && res.statusCode < 400) return;
           db.insertVisitorLog(q, {
             ip,
             remoteIp: String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, ''),
@@ -522,7 +522,7 @@ export function createApiServer({
         return json(res, 200, { name: siteName(), version: VERSION, appealEmail: appealEmail() });
       }
       if (path === '/api/announcements' && req.method === 'GET') {
-        const rows = await db.listAnnouncements(q, { activeOnly: true, limit: 10 });
+        const rows = await db.listAnnouncements(q, { activeOnly: true, limit: 200 });
         return json(
           res,
           200,
@@ -667,10 +667,13 @@ export function createApiServer({
         return json(res, 200, { stamp, ...row }, { 'cache-control': 'no-store' });
       }
 
-      // ---- 游戏列表（匿名可读）：服务端搜索 + 分页 + 排序 ----
-      if (path === '/api/games' && req.method === 'GET') {
+      // ---- 游戏列表（匿名可读）：GET 保留旧接口；POST 用于游客本地标记筛选 ----
+      const guestSearchPost = path === '/api/games/search' && req.method === 'POST';
+      if ((path === '/api/games' && req.method === 'GET') || guestSearchPost) {
+        const body = guestSearchPost ? await readBody(req, 256 * 1024) : {};
+        const getInput = (key) => guestSearchPost ? body?.[key] : url.searchParams.get(key);
         const oneOf = (key, allowed, fallback) => {
-          const v = String(url.searchParams.get(key) ?? '').trim();
+          const v = String(getInput(key) ?? '').trim();
           return allowed.includes(v) ? v : fallback;
         };
         const interest = oneOf('interest', ['all', 'on', 'off'], 'all');
@@ -678,14 +681,24 @@ export function createApiServer({
         const blockedParam = oneOf('blocked', ['exclude', 'only', 'include'], 'exclude');
         const sort = oneOf('sort', ['discount', 'price', 'name'], 'discount');
         const typeFilter = oneOf('type', ['all', 'game', 'dlc'], 'all');
-        const keyword = String(url.searchParams.get('q') ?? '').slice(0, 80);
+        const compact = guestSearchPost || url.searchParams.get('compact') === '1';
+        const keyword = String(getInput('q') ?? '').slice(0, 80);
         const pageSize = Math.min(
-          Math.max(Number(url.searchParams.get('pageSize') ?? url.searchParams.get('limit') ?? 50) || 50, 5),
-          200,
+          Math.max(Number(guestSearchPost ? getInput('pageSize') ?? 20 : url.searchParams.get('pageSize') ?? url.searchParams.get('limit') ?? 20) || 20, 5),
+          100,
         );
-        const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+        const page = Math.max(1, Number(getInput('page') ?? 1) || 1);
+        const maxBigintId = 9223372036854775807n;
+        const normalizeIds = (value) => Array.isArray(value)
+          ? [...new Set(value.slice(0, 5000).map((id) => String(id)).filter((id) => /^\d{1,19}$/.test(id) && BigInt(id) > 0n && BigInt(id) <= maxBigintId))]
+          : [];
+        const guestFlags = guestSearchPost && !user ? {
+          interestedIds: normalizeIds(body?.guestFlags?.interestedIds),
+          uninterestedIds: normalizeIds(body?.guestFlags?.uninterestedIds),
+          ownedIds: normalizeIds(body?.guestFlags?.ownedIds),
+        } : null;
         const result = await db.gameSearch(q, {
-          region: url.searchParams.get('region') ?? 'cn',
+          region: String(getInput('region') ?? 'cn').slice(0, 12),
           page,
           pageSize,
           keyword,
@@ -695,6 +708,8 @@ export function createApiServer({
           blocked: blockedParam,
           userId: user?.id ?? null,
           typeFilter,
+          compact,
+          guestFlags,
         });
         return json(res, 200, {
           games: result.rows,
@@ -1469,9 +1484,10 @@ export function createApiServer({
 
       if (path === '/api/admin/emails' && req.method === 'GET') {
         if (!requireAdmin()) return;
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 100) || 100, 1), 500);
         const rows = await q(
           'select id, email, purpose, sent_ok, error, ip, subject, body, expires_at, used_at, created_at ' +
-          'from email_codes order by created_at desc limit 50',
+          `from email_codes order by created_at desc limit ${limit}`,
         );
         return json(res, 200, { records: rows.rows });
       }
@@ -1599,7 +1615,8 @@ export function createApiServer({
 
       if (path === '/api/admin/views' && req.method === 'GET') {
         if (!requireAdmin()) return;
-        const views = await db.viewStats(q, { limit: 50 });
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 100) || 100, 1), 500);
+        const views = await db.viewStats(q, { limit });
         // 把 /game/<appid> 与 /game/id/<id> 解析成游戏名与当前最低价
         const appids = [];
         const ids = [];
@@ -1648,7 +1665,7 @@ export function createApiServer({
       if (path === '/api/admin/visitors' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
-        const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 50) || 50, 5), 200);
+        const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') ?? 20) || 20, 5), 200);
         const ip = String(url.searchParams.get('ip') ?? '').trim();
         const p = String(url.searchParams.get('path') ?? '').trim();
         // filter=visits（默认，正常访问）| blocked（被拦截）| all
@@ -1668,7 +1685,7 @@ export function createApiServer({
       if (path === '/api/admin/reports/price' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const hours = Number(url.searchParams.get('hours') ?? 24);
-        const limit = Number(url.searchParams.get('limit') ?? 10);
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 100) || 100, 1), 500);
         const days = Number(url.searchParams.get('days') ?? 7);
         return json(res, 200, {
           report: await db.priceChanges(q, { hours, limit }),
@@ -1782,7 +1799,8 @@ export function createApiServer({
       // ---- 管理员：站点公告 ----
       if (path === '/api/admin/announcements' && req.method === 'GET') {
         if (!requireAdmin()) return;
-        return json(res, 200, { announcements: await db.listAnnouncements(q, { limit: 100 }) });
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 200) || 200, 1), 200);
+        return json(res, 200, { announcements: await db.listAnnouncements(q, { limit }) });
       }
       if (path === '/api/admin/announcements' && req.method === 'POST') {
         if (!requireAdmin()) return;
@@ -1868,7 +1886,7 @@ export function createApiServer({
       if (path === '/api/admin/reviews' && req.method === 'GET') {
         if (!requireAdmin()) return;
         const status = String(url.searchParams.get('status') ?? 'pending');
-        const reviews = await db.listAbuseReviews(q, { status, limit: Number(url.searchParams.get('limit') ?? 100) });
+        const reviews = await db.listAbuseReviews(q, { status, limit: Number(url.searchParams.get('limit') ?? 300) });
         return json(res, 200, { reviews, pending: await db.countPendingReviews(q) });
       }
       if (path === '/api/admin/reviews/approve' && req.method === 'POST') {
@@ -1986,7 +2004,7 @@ function serveStatic(res, outDir, pathname) {
 /** Vue 构建产物负责站点所有页面；无构建产物时回退到 web 目录。 */
 function serveFrontendStatic(res, frontendDir, outDir, pathname) {
   if (!frontendDir || !existsSync(resolve(frontendDir, 'index.html'))) return serveStatic(res, outDir, pathname);
-  if (['/', '/console', '/console/', '/setup', '/setup/', '/banned', '/banned/', '/index.html', '/console.html', '/setup.html', '/banned.html'].includes(pathname)) {
+  if (['/', '/console', '/console/', '/setup', '/setup/', '/banned', '/banned/', '/appeal', '/appeal/', '/index.html', '/console.html', '/setup.html', '/banned.html'].includes(pathname)) {
     return serveStatic(res, frontendDir, '/index.html');
   }
   if (pathname.startsWith('/assets/')) return serveStatic(res, frontendDir, pathname);
