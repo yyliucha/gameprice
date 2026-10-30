@@ -566,7 +566,7 @@ node test/docs.test.js       # 5 项：相对链接有效性、入口文档齐�
 node test/secrets.test.js    # 5 项：凭据扫描器自身的正确性 + 当前仓库无泄漏
 ```
 
-共 **343 项**断言（主链 `npm test`；另有 32 项在链外的 `email-auth` / `api` / `cli-dispatch` 三个文件，改相关代码时单独跑）。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
+共 **346 项**断言（主链 `npm test`，44 个文件；另有 33 项在链外的 `email-auth` / `api` / `cli-dispatch` 三个文件，改相关代码时单独跑）。杉果解析器直接用真实页面快照做夹具，页面结构变化会立刻让测试变红。
 
 发布前额外跑一次凭据扫描（`npm run scan`）：检查 token、私钥、带真实密码的连接串，文档里的示例和占位符不会误报。
 
@@ -616,7 +616,7 @@ steamdeals/
 │   ├── steam-login.js   Steam OpenID 登录与游戏库（独立于站点用户体系）
 │   ├── probe.js         目标可达性探针
 ├── frontend/           Vue 3 前端（Vite 构建，页面/组件/composables；dist 不入库）
-├── test/               43 个测试文件（343 项主链 + 32 项链外）+ 真实页面夹具
+├── test/               44 个测试文件（346 项主链 + 33 项链外）+ 真实页面夹具
 ├── data/               games.json（游戏清单）、skus.json（杉果 SKU）
 ├── docs/               PROJECT-OVERVIEW / PLAN / ROADMAP / ARCHITECTURE / DATA-SOURCES / DEPLOY / WEB
 ├── out/                 由 chart 生成的静态页（已 gitignore）
