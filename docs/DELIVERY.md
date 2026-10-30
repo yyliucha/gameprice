@@ -3,7 +3,7 @@
 > 本文是**新会话的接线手册**：接手项目先读这里，再读 [PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md)（架构与代码落点）
 > 和 [ROADMAP.md](ROADMAP.md)（决策与待办）。发版前必读「对外描述同步」规则。
 >
-> **最后更新：2026-10-30（v1.4.2 已发布）。若你读到的时间晚于最近提交，先看 CHANGELOG 与 git log。**
+> **最后更新：2026-10-30（v1.4.3 已发布：tag v1.4.3，docker-hub 与 docker-tcr 双绿，镜像已推送）。若你读到的时间晚于最近提交，先看 CHANGELOG 与 git log。**
 
 ---
 
@@ -12,7 +12,7 @@
 - 仓库：`github.com/yyliucha/steamdeals`，主分支 `main`，本地 `F:\dsh\gameprice`（Windows）。
 - 技术栈：Node ≥22.5（ESM）+ PostgreSQL 15 + Vue 3/Vite/Element Plus（`frontend/`，产物 `frontend/dist` 不入库）+ Docker Compose。
 - 线上：生产库 19.6 万条目（有国区报价 10.6 万）；TCR 镜像 `ccr.ccs.tencentyun.com/tcb-100003189690-pljp/steamdeals:<版本>`，Docker Hub `s1065420329/steamdeals:<版本>`。
-- 版本历史：… 1.1.0 → 1.2.0 → 1.3.0 → 1.4.0 → 1.4.1 → 1.4.2（详见 CHANGELOG）。
+- 版本历史：… 1.1.0 → 1.2.0 → 1.3.0 → 1.4.0 → 1.4.1 → 1.4.2 → 1.4.3（详见 CHANGELOG）。
 
 ## 1. 开发环境与日常开发
 
@@ -84,6 +84,11 @@ gh run list --limit 2
 
 ## 4. 部署到服务器
 
+> **服务器操作边界（硬规则 4，见 CONTRIBUTING.md）**：服务器更新由**具备服务器权限的部署人员**执行；
+> 仓库与开发侧不保存服务器凭据、不直接操作服务器。开发侧职责到「提交 + 打 tag」为止。
+> 通用流程（Hub/TCR 两种源的 pull/up、验证、回滚）见
+> [DEPLOY.md 的「发布与升级流程」](DEPLOY.md#发布与升级流程从提交到上线)，本节是**这台生产服务器**的具体执行版。
+
 服务器：`ubuntu@VM-0-6-ubuntu`（118.25.114.250），项目目录 `/home/ubuntu/steamdeals`。
 **注意：compose 文件名不叫 compose.yaml**（历史上 sed compose.yaml 报不存在）；先确认：
 
@@ -117,12 +122,19 @@ docker exec steamdeals node -p "require('./package.json').version"   # 期望输
 | 任务 | 频率 | 说明 |
 |---|---|---|
 | `sync steam-prices` | 每天 | 刷新已有 Steam 报价（`STEAM_PRICE_INTERVAL_MIN`） |
+| `sync catalog` | 每周 | Steam 全量目录同步（幂等），**新游戏自动进库**；需 `STEAM_API_KEY`，没配则该任务不出现 |
+| `backfill` 增量回填 | 每周 | 给新游戏补元数据/说明/价格；有说明+报价的自动跳过，没活秒退（`STEAM_BACKFILL_LIMIT` 默认 20000） |
 | `heat` 热度回填 | **每天**（v1.4.3 起） | 首轮自动全量播种（每天 2 万款 ≈ 9.4h，19.6 万款约 10 天播完）；之后只刷"过期 7 天且有报价"的条目 |
-| `rename` 名字重写 | 每周 | 机器英文名补中文（另一会话新增） |
+| `rename` 名字重写 | 每周 | 机器英文名补中文（英文挪进 name_en）；选择条件自带收敛，没活秒退 |
 | `prune` 定期清理 | 每周 | 访问记录 180 天 / 采集与任务 90 天 / 验证码 7 天 |
 | `images pull` / `backup` / `alerts` | 定时 | 封面缓存 / 每日备份 / 到价提醒 |
 
-**仍需手工**：`backfill`（一次性全量补价格/元数据，后台「数据回填」卡片或 CLI）、`diagnose`、`proxy-check`（排查工具，出问题才用）。
+Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**互斥**，不会并行抢限流；
+`rename` / `backfill` 成功后自动重建静态页。
+
+**仍需手工**：`/setup` 首次初始化（一次性）、`diagnose`、`proxy-check`（排查工具，出问题才用）。
+**不要再手工执行** `rename` / `heat` / `backfill` / `sync catalog`——调度器会自动跑（早期运维习惯中的手工
+`docker exec … heat --limit 200000` 等命令已被 v1.4.3 的调度任务取代）。
 
 ## 6. 排障速查（历次踩坑汇总）
 
@@ -150,9 +162,19 @@ docker exec steamdeals node -p "require('./package.json').version"   # 期望输
 
 ---
 
-### 当前状态（2026-10-30 写就时）
+### 当前状态（2026-10-30 更新，v1.4.3 已发布）
 
-- 已发布：v1.4.2（热度逐 appid 修复）；镜像 TCR + Docker Hub 均构建成功。
-- 工作区有**并行会话的 WIP**（未提交）：名字重写 `rename` 命令 + GetItems `type` 数字枚举修复 + 相关测试与文档，CHANGELOG 已写 1.4.3 条目；另有两处未提交改动（heat 任务改每天自动播种 + 无效条目诊断日志）。**下一个发版应包含这些、版本号 1.4.3 已被占用，新版本从 1.4.4 起**（以实际提交为准）。
-- 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或 `release_date` filter 差异；诊断日志已加，等探测结果。
+- 已发布：**v1.4.3**（tag `v1.4.3` → 提交 `37baea6`；`docker-hub` 与 `docker-tcr` 双绿，2026-10-30 15:39 确认）：
+  同步游戏补中文名（`importCatalogGames` 分流 + `upsertGameMeta`/`ensureGame` 机器英文名覆盖规则 + 新增 `rename` 命令）、
+  GetItems `type` 数字枚举修复（app_type 落库）、`rename`/`catalog`/`backfill` 纳入调度器、heat 改每天自动播种、
+  发布/升级流程与服务器边界写入文档。
+- 镜像：Docker Hub `s1065420329/steamdeals:1.4.3 / 1.4 / latest`；TCR `…/steamdeals:latest / 1.4.0 / sha-37baea6`
+  （TCR 版本号 tag 取 package.json；**本次未按 §3 步骤③ bump，镜像内 package.json 仍是 1.4.0**，所以
+  「部署后验证第 4 节」的 `node -p require('./package.json').version` 会输出 1.4.0——**下次发版务必先 `npm version`**）。
+- 工作区：干净；HEAD 为 docs 提交 `ee147eb`。
+- 待部署：服务器仍跑旧镜像，**更新由部署人员按第 4 节执行**（TCR tag 用 `latest` 或 `sha-37baea6` 均可）。
+  部署后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
+  验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
+- 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
+  `release_date` filter 差异；诊断日志已加，等探测结果。
 - 部署提醒：服务器 compose 文件名待确认（非 compose.yaml）。
