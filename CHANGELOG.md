@@ -2,6 +2,42 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-10-30
+
+游客本地标记、全站列表分页与独立申诉页。
+
+### 新增
+
+- **游客本地标记**：未登录也能标记「感兴趣 / 已拥有」，存浏览器 localStorage
+  （`steamdeals.guest-game-flags.v1`）；列表改走新的 `POST /api/games/search`，
+  带 `guestFlags`（interestedIds / uninterestedIds / ownedIds）在服务端按 id 筛选，
+  各上限 5000 个、非数字丢弃；登录后忽略该字段，改按数据库用户标记
+- **`/appeal` 申诉页**（Vue）：从封禁页带申诉编号 / 原因 / 到期时间 / 申诉邮箱跳转，
+  生成申诉邮件正文并支持复制兜底；服务端对 `/appeal` 跳过封禁与限流判定，
+  被封 IP / 设备也能打开该页（仍只放行构建产物），申诉内容不落库
+- **PaginationBar 分页组件** + `useListPagination`：前台详情的报价与价格历史、
+  后台用户 / 回收站 / Steam 库 / 邮件 / 日志 / 公告 / 黑白名单 / 自动封禁 /
+  价格变化 / 浏览排行 / 备份等列表全部改为分页显示
+
+### 变更
+
+- `GET /api/games`：默认 `pageSize` 50→20、上限 200→100；新增 `compact=1`
+  只返回卡片字段（价格 CTE 汇总，省一次聚合子查询）
+- 成功的 `POST /api/games/search` 不写访问记录；前台搜索请求可中止，翻页会取消旧请求
+- 后台接口 `limit` 参数化：邮件记录、公告、浏览排行、价格报表、异常审核
+- `offers` / `daily_prices` 增加 `(region, game_id)` 复合索引
+- 详情接口补充 `user_interested` / `user_owned` 原始用户标记字段
+
+### 修复
+
+- 游客在卡片上切换标记后详情弹窗与列表同步刷新；登录态下标记以用户数据为准
+
+### 测试
+
+- `npm test`（40 个文件）全绿；`test/api.test.js` 21 项通过；`frontend:build` 通过
+- 冒烟验证：`POST /api/games/search` 返回 48 款、guestFlags 三种过滤结果正确、
+  非法 id 被丢弃；`/appeal` 带参渲染正常；游客点击标记写入 localStorage 并即时生效
+
 ## [1.0.0] - 2026-10-29
 
 前后台页面全面迁移到 Vue 3 + Vite + Element Plus，旧的零构建页面保留为回退。
