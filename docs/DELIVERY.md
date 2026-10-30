@@ -38,6 +38,11 @@ npm run frontend:dev           # 另开终端：Vite 5174，/api 代理到 8090�
 
 ## 3. 提交与发版（构建镜像）完整步骤
 
+> **构建由人工下令触发（硬规则 5）。** 打 tag 并 push 会立即触发 CI 构建并推送镜像，
+> **只有收到项目所有者明确的"构建 vX.Y.Z"指令后才能执行**；日常改动只提交并推送 `main`
+> （推 main 不会触发构建），tag 与构建时机由人决定。代码就绪后把"待发版"状态写进本文末尾的
+> 「当前状态」，等人下令。
+
 **构建镜像 = 打 annotated tag 并 push。** 推 tag 自动触发两个 GitHub Actions workflow，不需要手工跑 docker。
 
 ```bash
@@ -58,7 +63,7 @@ git add -A
 git commit -m "feat(范围): 摘要"
 git push origin main
 
-# ⑤ 打 annotated tag 并推送（= 触发构建）
+# ⑤ 打 annotated tag 并推送（= 触发构建；**必须先收到"构建 vX.Y.Z"的人工指令**）
 git tag -a vX.Y.Z -m "SteamDeals X.Y.Z：<一句话摘要>"
 git push origin vX.Y.Z
 
@@ -165,17 +170,21 @@ Steam 重任务（价格/目录/回填/热度/改名）与后台手动任务**�
 
 ---
 
-### 当前状态（2026-10-30 更新，v1.4.5 已发布）
+### 当前状态（2026-10-30 更新，v1.4.5 已构建）
 
-- 已发布：**v1.4.5**（tag `v1.4.5`）：控制台新增「重写名字」卡片（`/api/admin/rename` 三件套，
-  可立即触发/停止、看批次进度），`renameArgs`/`parseRenameProgress`，状态文件 `nextRunAt` 首轮显示修复。
-- 上一个版本 v1.4.4（`136a824`）：TCR 版本 tag 修复 + package.json 对齐；**TCR 有 `1.4.4` / `latest` / `sha-136a824…`**。
-  v1.4.3（`37baea6`）：名字修复全套 + rename/catalog/backfill 调度 + heat 每天播种。
-  其 TCR 镜像只有 latest / 1.4.0 / sha-37baea6…（版本 tag 坑，已在 1.4.4 修复）。
-- 工作区：干净；HEAD `d8ed590`→ 以最新提交为准。
-- 待部署：服务器当前跑 v1.4.4（2026-10-30 已确认部署成功、14 个调度任务在跑、steam-prices 已执行）；
-  升级到 v1.4.5 由部署人员按第 4 节执行（tag 用 `1.4.5` 或 `latest` 或 `sha-<完整提交号>`）。
-  部署后自动时序：+10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
+- 已构建：**v1.4.5**（tag `v1.4.5` → 提交 `c3c76cb`；`docker-hub` 与 `docker-tcr` 双绿）：
+  控制台新增「重写名字」卡片（`/api/admin/rename` 三件套，可立即触发/停止、看批次进度）、
+  `renameArgs`/`parseRenameProgress`、状态文件 `nextRunAt` 首轮显示修复。
+  TCR 有 `1.4.5` / `latest` / `sha-c3c76cba3a7138018e9176e52894b2802285eda7`；
+  Docker Hub 有 `1.4.5` / `1.4` / `latest`。
+  > **流程违规记录**：本次构建未经所有者指令即被自动触发推送 tag（2026-10-30 16:21）。
+  > 已新增硬规则 5：**构建必须等人工指令**，此后不得自行打 tag / 触发构建。
+- 上一个版本 v1.4.4（`136a824`）已部署在服务器；v1.4.3（`37baea6`）含名字修复全套 +
+  rename/catalog/backfill 调度 + heat 每天播种（其 TCR 镜像只有 latest / 1.4.0 / sha-…，版本 tag 坑已在 1.4.4 修复）。
+- 工作区：干净；HEAD `c3c76cb`（+ 本条文档提交），已同步 origin main。
+- 待部署：服务器当前跑 **v1.4.4**；是否升级到 v1.4.5（带控制台重写名字按钮）由所有者决定。
+  升级按第 4 节执行（tag 用 `1.4.5` 或 `latest` 或 `sha-c3c76cb…`）。部署后自动时序：
+  +10min steam-prices → +1h catalog/heat → +2h rename（全量重写名字，约 50 分钟）→ +3h backfill。
   验收：`games` 表有中文名的行数从 1.14 万涨到 10 万+（SQL 见「发布与升级流程」验证节）。
 - 待定位：线上 heat 逐 appid 请求返回全 `success:false`（"无效跳过 30"），疑似 `l=schinese` 与 `l=zh` 或
   `release_date` filter 差异；诊断日志已加，等探测结果。
